@@ -10,7 +10,7 @@
     "@testing-library/jest-dom": "^5.14.1",
     "@testing-library/react": "^11.2.7",
     "@testing-library/user-event": "^12.8.3",
-    "axios": "^0.21.1",
+    "axios": "1.6.7",
     "closest": "0.0.1",
     "dagre": "^0.8.5",
     "lodash": "^4.17.21",
@@ -38,7 +38,7 @@
   "scripts": {
     "start": "react-scripts start --openssl-legacy-provider",
     "build": "react-scripts build",
-    "test": "react-scripts test",
+    "test": "react-scripts test --transformIgnorePatterns \"node_modules/(?!axios)/\"",
     "eject": "react-scripts eject",
     "lint":"eslint .",
     "lint:fix":"eslint --fix ."

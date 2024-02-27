@@ -88,6 +88,23 @@ const PropertiesBar = ({ formState, setFormState }) => {
     }));
   };
 
+  const optimizerOptions = [
+    { key: 'opt_1', text: 'Adam', value: 'adam' },
+  ];
+
+  const metricOptions = [
+    { key: 'acc_1', text: 'Accuracy', value: 'accuracy' },
+  ];
+
+  const problemTypeOptions = [
+    { key: 'prob_type_1', text: 'Multi class classification [All values float]', value: 1 },
+  ];
+
+  const activationOptions = [
+    { key: 'act_1', text: 'ReLU', value: 'relu' },
+    { key: 'act_2', text: 'Linear', value: 'linear' }
+  ];
+
   const fileFieldsList = (
     <Dropdown
       style={{ marginTop: '2%' }}

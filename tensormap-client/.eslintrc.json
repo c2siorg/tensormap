@@ -18,6 +18,7 @@
         "react/jsx-filename-extension": "off",
         "react/prop-types": "off",
         "no-unused-vars": "off",
-        "react/function-component-definition": "off"
+        "react/function-component-definition": "off",
+        "indend": "off"
     }
 }

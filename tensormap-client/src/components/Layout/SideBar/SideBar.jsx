@@ -5,7 +5,6 @@ import * as urls from "../../../constants/Urls";
 
 function SideBar({ children}) {
     const location = useLocation();
-
     const navigate = useNavigate();
 
     const handleItemClick = (name) => {
@@ -27,25 +26,25 @@ function SideBar({ children}) {
                     <Menu fluid vertical tabular size="massive">
                         <Menu.Item
                             name={constants.HOME_SIDEBAR}
-                            active={location === urls.HOME_URL}
+                            active={location.pathname === urls.HOME_URL}
                             onClick={() => handleItemClick(constants.HOME_SIDEBAR)}
                             style={{ fontWeight: "bold" }}
                         />
                         <Menu.Item
                             name={constants.DATA_UPLOAD_SIDEBAR}
-                            active={location === urls.DATA_UPLOAD_URL}
+                            active={location.pathname === urls.DATA_UPLOAD_URL}
                             onClick={() => handleItemClick(constants.DATA_UPLOAD_SIDEBAR)}
                             style={{ fontWeight: "bold" }}
                         />
                         <Menu.Item
                             name={constants.DATA_PROCESS_SIDEBAR}
-                            active={location === urls.DATA_PROCESS_URL}
+                            active={location.pathname === urls.DATA_PROCESS_URL}
                             onClick={() => handleItemClick(constants.DATA_PROCESS_SIDEBAR)}
                             style={{ fontWeight: "bold" }}
                         />
                         <Menu.Item
                             name={constants.DEEP_LEARNING_SIDEBAR}
-                            active={location === urls.DEEP_LEARN_URL}
+                            active={location.pathname === urls.DEEP_LEARN_URL}
                             onClick={() => handleItemClick(constants.DEEP_LEARNING_SIDEBAR)}
                             style={{ fontWeight: "bold" }}
                         />

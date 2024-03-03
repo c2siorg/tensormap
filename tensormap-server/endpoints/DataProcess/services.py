@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+import json
 
 from endpoints.DataProcess.models import DataProcess
 from endpoints.DataUpload.models import DataFile
@@ -86,3 +87,20 @@ def get_data_metrics(file_id):
                 )
     else:
         return generic_response(status_code=400, success=False, message="File doesn't exist in DB")
+
+def get_data(file_id):
+    print("incoming")
+    configs = get_configs()
+    file = DataFile.query.filter_by(id=file_id).first()
+
+    print(file)
+    if file:
+        FILE_NAME = configs['api']['upload']['folder'] + '/' + file.file_name + '.' + file.file_type
+        df = pd.read_csv(FILE_NAME)
+        # Convert DataFrame to JSON string
+        data_json = df.to_json(orient='records')
+        return generic_response(
+                    status_code=200, success=True, message='Data sent succesfully', data= data_json
+                )
+    else:
+        return json.dumps({"status_code": 400, "success": False, "message": "File doesn't exist in DB"})

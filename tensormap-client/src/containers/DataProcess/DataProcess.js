@@ -1,14 +1,18 @@
-import React, { Component } from 'react';
+import React, { Component } from "react";
+import { Segment, Dropdown, Form, Button, Tab } from "semantic-ui-react";
+import * as strings from "../../constants/Strings";
+import ModalComponent from "../../components/shared/Modal";
+import Metrics from "../../components/Process/Metrics";
+import SelectFileModal from "../../components/Process/SelectFileModal";
+import ViewFiles from "../../components/ViewFiles/ViewFiles";
 import {
-  Segment, Dropdown, Form, Button, Tab,
-} from 'semantic-ui-react';
-import * as strings from '../../constants/Strings';
-import ModalComponent from '../../components/shared/Modal';
-import Metrics from '../../components/Process/Metrics';
-import SelectFileModal from '../../components/Process/SelectFileModal';
-import { getAllFiles, setTargetField, getCovMatrix as getCorrMatrix } from '../../services/FileServices';
+  getAllFiles,
+  setTargetField,
+  getCovMatrix as getCorrMatrix,
+} from '../../services/FileServices';
 
 class DataProcess extends Component {
+  // eslint-disable-next-line react/state-in-constructor
   state = {
     fileList: null,
     selectedFile: null,
@@ -27,66 +31,93 @@ class DataProcess extends Component {
   panes = [
     {
       menuItem: 'Metrics',
-      render: () => (this.state.corrMatrix ? <Tab.Pane style={{ padding: '30px', backgroundColor: '#e6e9f0' }}><Metrics corrMatrix={this.state.corrMatrix} dataTypes={this.state.dataTypes} metrics={this.state.metrics} /></Tab.Pane> : <Tab.Pane style={{ padding: '30px' }}><SelectFileModal /></Tab.Pane>),
+      render: () => (this.state.corrMatrix ? (
+        <Tab.Pane style={{ padding: '30px', backgroundColor: '#e6e9f0' }}>
+          <Metrics
+            corrMatrix={this.state.corrMatrix}
+            dataTypes={this.state.dataTypes}
+            metrics={this.state.metrics}
+          />
+        </Tab.Pane>
+      ) : (
+        <Tab.Pane style={{ padding: '30px' }}>
+          <SelectFileModal />
+        </Tab.Pane>
+      )),
     },
-    { menuItem: 'View Dataset', render: () => <Tab.Pane loading>Tab 2 Content</Tab.Pane> },
+    {
+      menuItem: 'View Dataset',
+      // eslint-disable-next-line no-return-assign
+      render: () => (
+        <Tab.Pane>
+          <ViewFiles selectedFile={this.state.selectedFile}/>
+        </Tab.Pane>
+      ),
+    },
   ];
 
   componentDidMount() {
     /*
-        * In this react life cycle hook, file data is fetch from backend and added to state
-        *
-        * */
-    getAllFiles()
-      .then(
-        (response) => {
-          const fileList = response.map((file, index) => (
-            { text: `${file.file_name}.${file.file_type}`, value: file.file_id, key: index }
-          ));
-          this.setState((prevState) => ({
-            ...prevState,
-            fileList,
-            totalDetails: response,
-          }));
-        },
-      );
+     * In this react life cycle hook, file data is fetch from backend and added to state
+     *
+     * */
+    getAllFiles().then((response) => {
+      const fileList = response.map((file, index) => ({
+        text: `${file.file_name}.${file.file_type}`,
+        value: file.file_id,
+        key: index,
+      }));
+      this.setState((prevState) => ({
+        ...prevState,
+        fileList,
+        totalDetails: response,
+      }));
+    });
   }
 
   fileSelectHandler = (event, val) => {
-    getCorrMatrix(val.value)
-      .then(
-        (response) => {
-          console.log(response);
-          this.setState({
-            ...this.state, corrMatrix: response.correlation_matrix, dataTypes: response.data_types, metrics: response.metric,
-          });
-        },
-
-      );
+    getCorrMatrix(val.value).then((response) => {
+      console.log(response);
+      this.setState({
+        ...this.state,
+        corrMatrix: response.correlation_matrix,
+        dataTypes: response.data_types,
+        metrics: response.metric,
+      });
+    });
     const promise = new Promise((resolve) => {
-      this.setState({ ...this.state, selectedFile: val.value, showFieldsList: true }, () => resolve());
+      this.setState(
+        { ...this.state, selectedFile: val.value, showFieldsList: true },
+        () => resolve()
+      );
     });
 
     promise.then(() => {
-      const selectedFIleDetails = this.state.totalDetails.filter((item) => item.file_id === this.state.selectedFile);
+      const selectedFIleDetails = this.state.totalDetails.filter(
+        (item) => item.file_id === this.state.selectedFile
+      );
 
       this.setState({
         ...this.state,
-        fieldsList: selectedFIleDetails[0].fields.map(
-          (item, index) => ({ text: item, value: item, key: index }),
-        ),
+        fieldsList: selectedFIleDetails[0].fields.map((item, index) => ({
+          text: item,
+          value: item,
+          key: index,
+        })),
       });
     });
   };
 
   fieldSelectHandler = (event, val) => {
-    this.setState({ ...this.state, targetField: val.value }, () => this.enableSubmitButton());
+    this.setState({ ...this.state, targetField: val.value }, () =>
+      this.enableSubmitButton()
+    );
   };
 
   /*
-    * Submission button enable only after the all the necessary fields added.
-    *
-    * */
+   * Submission button enable only after the all the necessary fields added.
+   *
+   * */
   enableSubmitButton = () => {
     if (this.state.selectedFile !== null && this.state.targetField !== null) {
       this.setState({ ...this.state, disableButton: false });
@@ -109,9 +140,9 @@ class DataProcess extends Component {
   };
 
   /*
-    * Model related functions controls the feedback of the request
-    *
-    * */
+   * Model related functions controls the feedback of the request
+   *
+   * */
   modelClose = () => {
     this.setState({ ...this.state, modalOpen: false });
   };
@@ -120,9 +151,9 @@ class DataProcess extends Component {
 
   render() {
     /*
-        * addedSuccessfully and errorInAddition are modals that will pop up after successful addition or failure.
-        *
-        * */
+     * addedSuccessfully and errorInAddition are modals that will pop up after successful addition or failure.
+     *
+     * */
     const addedSuccessfully = (
       <ModalComponent
         modalOpen={this.state.modalOpen}
@@ -142,23 +173,23 @@ class DataProcess extends Component {
     );
 
     /*
-        * Until a file is selected field list of a file is not showing
-        *
-        * */
+     * Until a file is selected field list of a file is not showing
+     *
+     * */
     let fileFieldsList = (
       <Form.Input
         fluid
         size="large"
         placeholder={strings.PROCESS_SELECT_FILE_FIELD_BEFORE}
         readOnly
-        style={{ marginTop: '2%' }}
+        style={{ marginTop: "2%" }}
       />
     );
 
     if (this.state.showFieldsList) {
       fileFieldsList = (
         <Dropdown
-          style={{ marginTop: '2%' }}
+          style={{ marginTop: "2%" }}
           fluid
           placeholder="Select a Target field"
           search
@@ -171,13 +202,11 @@ class DataProcess extends Component {
 
     return (
       <div>
+        {this.state.targetAddedSuccessfully
+          ? addedSuccessfully
+          : errorInAddition}
 
-        {(this.state.targetAddedSuccessfully) ? addedSuccessfully : errorInAddition}
-
-        <Segment
-          textAlign="center"
-          size="huge"
-        >
+        <Segment textAlign="center" size="huge">
           {strings.PROCESS_SELECT_FILE_TITLE}
         </Segment>
         <Dropdown
@@ -192,13 +221,13 @@ class DataProcess extends Component {
         <Button
           color="green"
           size="large"
-          style={{ marginTop: '2%' }}
+          style={{ marginTop: "2%" }}
           onClick={this.setTargetFieldHandler}
           disabled={this.state.disableButton}
         >
           {strings.PROCESS_TARGET_FIELD_SUBMIT_BUTTON}
         </Button>
-        <Tab panes={this.panes} style={{ marginTop: '2%' }} />
+        <Tab panes={this.panes} style={{ marginTop: "2%" }} />
       </div>
     );
   }

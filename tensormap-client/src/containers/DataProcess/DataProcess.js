@@ -9,7 +9,7 @@ import {
   getAllFiles,
   setTargetField,
   getCovMatrix as getCorrMatrix,
-} from '../../services/FileServices';
+} from "../../services/FileServices";
 
 class DataProcess extends Component {
   // eslint-disable-next-line react/state-in-constructor
@@ -30,27 +30,28 @@ class DataProcess extends Component {
 
   panes = [
     {
-      menuItem: 'Metrics',
-      render: () => (this.state.corrMatrix ? (
-        <Tab.Pane style={{ padding: '30px', backgroundColor: '#e6e9f0' }}>
-          <Metrics
-            corrMatrix={this.state.corrMatrix}
-            dataTypes={this.state.dataTypes}
-            metrics={this.state.metrics}
-          />
-        </Tab.Pane>
-      ) : (
-        <Tab.Pane style={{ padding: '30px' }}>
-          <SelectFileModal />
-        </Tab.Pane>
-      )),
+      menuItem: "Metrics",
+      render: () =>
+        this.state.corrMatrix ? (
+          <Tab.Pane style={{ padding: "30px", backgroundColor: "#e6e9f0" }}>
+            <Metrics
+              corrMatrix={this.state.corrMatrix}
+              dataTypes={this.state.dataTypes}
+              metrics={this.state.metrics}
+            />
+          </Tab.Pane>
+        ) : (
+          <Tab.Pane style={{ padding: "30px" }}>
+            <SelectFileModal />
+          </Tab.Pane>
+        ),
     },
     {
-      menuItem: 'View Dataset',
+      menuItem: "View Dataset",
       // eslint-disable-next-line no-return-assign
       render: () => (
         <Tab.Pane>
-          <ViewFiles selectedFile={this.state.selectedFile}/>
+          <ViewFiles selectedFile={this.state.selectedFile} />
         </Tab.Pane>
       ),
     },
@@ -63,13 +64,13 @@ class DataProcess extends Component {
      * */
     getAllFiles().then((response) => {
       const fileList = response.map((file, index) => ({
-        text: `${file.file_name}.${file.file_type}`,
+        text: file.file_name + "." + file.file_type,
         value: file.file_id,
         key: index,
       }));
       this.setState((prevState) => ({
         ...prevState,
-        fileList,
+        fileList: fileList,
         totalDetails: response,
       }));
     });
@@ -158,7 +159,7 @@ class DataProcess extends Component {
       <ModalComponent
         modalOpen={this.state.modalOpen}
         modelClose={this.modelClose}
-        sucess
+        sucess={true}
         Modalmessage={strings.PROCESS_SUCCESS_MODEL_MESSAGE}
       />
     );

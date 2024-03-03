@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { Table, Loader } from 'semantic-ui-react';
-import { getData } from '../../services/FileServices';
+import React, { useState, useEffect } from "react";
+import { Table, Loader } from "semantic-ui-react";
+import { getData } from "../../services/FileServices";
 
 const ViewFiles = ({ selectedFile }) => {
   const [data, setData] = useState(null);

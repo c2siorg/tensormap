@@ -17,9 +17,8 @@ function Home() {
   const handleButtonNewProject = () => {
     navigate(urls.DEEP_LEARN_URL);
   };
-
   const handleButtonGoToGit = () => {
-    navigate(urls.TENSOR_MAP_URL);
+    window.open(urls.TENSOR_MAP_URL, '_blank');
   };
 
   return (

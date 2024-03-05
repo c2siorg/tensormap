@@ -75,27 +75,27 @@ function DataProcess() {
             });
     }
 
-    function fileSelectHandler(event, val) {
-        getCorrMatrix(val.value).then((response) => {
+    async function fileSelectHandler(event, val) {
+        try {
+            const response = await getCorrMatrix(val.value);
+            const fileDetailsArr = Object.entries(response.data_types).map(([key], index) => ({
+                text: key,
+                value: index + 1,
+                key: index,
+            }));
+
             setState({
                 ...state,
                 corrMatrix: response.correlation_matrix,
                 dataTypes: response.data_types,
                 metrics: response.metric,
+                selectedFile: val.value,
+                showFieldsList: true,
+                fieldsList: fileDetailsArr,
             });
-        });
-        const promise = new Promise((resolve) => {
-            setState({ ...state, selectedFile: val.value, showFieldsList: true }, () => resolve());
-        });
-
-        promise.then(() => {
-            const selectedFIleDetails = state.totalDetails.filter((item) => item.file_id === state.selectedFile);
-
-            setState({
-                ...state,
-                fieldsList: selectedFIleDetails[0].fields.map((item, index) => ({ text: item, value: item, key: index })),
-            });
-        });
+        } catch (e) {
+            console.error(e);
+        }
     }
 
     function fieldSelectHandler(event, val) {

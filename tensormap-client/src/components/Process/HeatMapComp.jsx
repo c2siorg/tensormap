@@ -33,7 +33,7 @@ function HeatMapComp({ corrMatrix }) {
                         background: `rgba(66, 86, 244, ${1 - (max - value) / (max - min)})`,
                         fontSize: "11px",
                     })}
-                    cellRender={(value) => value && `${value.toFixed(4)}`}
+                    cellRender={(value) => value && `${parseFloat(value).toFixed(4)}`}
                 />
             </div>
         </div>

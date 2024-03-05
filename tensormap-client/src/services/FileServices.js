@@ -1,8 +1,7 @@
 import axios from "../shared/Axios";
 import * as urls from "../constants/Urls";
 
-export const getAllFiles = async () =>
-    axios
+export const getAllFiles = async () => axios
         .get(urls.BACKEND_GET_ALL_FILES)
         .then((resp) => {
             if (resp.data.success === true) {
@@ -70,7 +69,7 @@ export const setTargetField = async (fileId, targetField) => {
 export const getCovMatrix = async (file_id) => {
     try {
         const response = await axios.get(urls.BACKEND_GET_COV_MATRIX + file_id);
-        return response.data.data
+        return response.data.data;
     } catch (error) {
         console.error(error);
         throw error;
@@ -79,10 +78,11 @@ export const getCovMatrix = async (file_id) => {
 
 export const getFileData = async (file_id) => {
    try {
-        const response = await axios.get(urls.BACKEND_GET_COV_MATRIX + file_id);
-        return response.data.data
+    console.log(urls.BACKEND_GET_FILE_DATA + file_id);
+        const response = await axios.get(urls.BACKEND_GET_FILE_DATA + file_id);
+        return response.data.data;
     } catch (error) {
         console.error(error);
         throw error;
     }
-}
+};

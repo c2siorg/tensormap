@@ -1,0 +1,54 @@
+version: '3'
+services:
+  mysql:
+    image: mysql:latest
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: pass
+      MYSQL_DATABASE: tensorflow
+    ports:
+      - "3306:3306"
+
+  tensormap-server:
+    build:
+      dockerfile: DockerFile.dev
+      context: ./tensormap-server
+    volumes:
+      - ./tensormap-server:/app
+    depends_on:
+      - mysql  
+    environment:
+      - FLASK_APP=app.py
+      - FLASK_RUN_HOST=0.0.0.0
+      - FLASK_RUN_PORT=5000
+      - SECRET_KEY=itisperfect
+      - DB_NAME=tensorflow
+      - DB_HOST=mysql
+      - DB_USER=root
+      - DB_PASSWORD=pass
+    ports:
+      - "5000:5000"
+    command: >
+      bash -c "
+      wget -O /usr/local/bin/wait-for-it.sh https://raw.githubusercontent.com/vishnubob/wait-for-it/master/wait-for-it.sh &&
+      chmod +x /usr/local/bin/wait-for-it.sh &&
+      wait-for-it.sh mysql:3306 -t 0 &&
+      flask db upgrade &&
+      flask run
+      "
+
+  tensormap-client:
+    stdin_open: true
+    depends_on:
+      - tensormap-server
+    build:
+      dockerfile: DockerFile.dev
+      context: ./tensormap-client
+    volumes:
+      - /app/node_modules
+      - ./tensormap-client:/app
+    ports:
+      - "3000:3000"
+
+volumes:
+  mysql_data:

@@ -1,0 +1,42 @@
+FROM continuumio/miniconda3
+
+# Set environment variables
+ENV PYTHON_VERSION=3.8
+
+# Install Python 3.8
+RUN conda install -y python=$PYTHON_VERSION
+
+# Set environment variables
+ENV FLASK_APP=app.py
+ENV FLASK_RUN_HOST=0.0.0.0
+ENV FLASK_RUN_PORT=5000
+
+# Set the working directory in the container
+WORKDIR /app
+
+# Install C++ compiler
+RUN apt-get install -y g++
+
+# Copy the current directory contents into the container at /app
+COPY . /app
+
+# Run setup script if needed
+RUN chmod +x setup.sh && ./setup.sh
+
+# Activate Conda environment
+SHELL ["/bin/bash", "-c"]
+RUN echo "conda activate tensormap-server" >> ~/.bashrc
+
+# Check if Conda environment is activated
+RUN echo "Checking if Conda environment is activated..." \
+    && conda info --envs \
+    && echo "Conda environment check complete."
+
+# Install dependencies using pip or apt-get as needed
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Expose the port the app runs on
+EXPOSE 5000
+
+# Command to run the application
+CMD ["flask", "run"]    

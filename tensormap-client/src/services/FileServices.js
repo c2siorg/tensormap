@@ -61,3 +61,14 @@ export const getCovMatrix = async (file_id) => axios.get(urls.BACKEND_GET_COV_MA
     console.error(err);
     throw (err);
   });
+
+export const getFileData = async (file_id) => {
+   try {
+    console.log(urls.BACKEND_GET_FILE_DATA + file_id);
+        const response = await axios.get(urls.BACKEND_GET_FILE_DATA + file_id);
+        return response.data.data;
+    } catch (error) {
+        console.error(error);
+        throw error;
+    }
+};

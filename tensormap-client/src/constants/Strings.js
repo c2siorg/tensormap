@@ -1,7 +1,7 @@
 export const HOME_SIDEBAR = 'Home';
 export const DATA_UPLOAD_SIDEBAR = 'Data Upload';
 export const DATA_PROCESS_SIDEBAR = 'Data Processing';
-export const DEEP_LEARNING_SIDEBAR = 'Deep leaning Modeling';
+export const DEEP_LEARNING_SIDEBAR = 'Deep Learning Modeling';
 export const HOME_MAIN_TITLE = 'TensorMap';
 export const HOME_MAIN_CONTENT = 'TensorMap is a web application that enables you to create deep learning models '
     + 'using a graphical interface without having to know how to code. It is an open-source application.';

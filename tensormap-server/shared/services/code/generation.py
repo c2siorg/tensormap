@@ -73,6 +73,7 @@ def generate_code(model_name):
 
 def helper_map_correct_code_template(problem_type_id):
     options = {1: CODE_TEMPLATE_FOLDER + 'multi-class-all-float-classification-csv.py'}
+    options = {2: CODE_TEMPLATE_FOLDER + 'linear-regression-all-float.py'}
     return options[problem_type_id]
 
 

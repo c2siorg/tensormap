@@ -19,6 +19,8 @@
         "react/prop-types": "off",
         "no-unused-vars": "off",
         "react/function-component-definition": "off",
-        "indend": "off"
+        "indent": "off",
+        "camelcase": "off",
+        "consistent-return": "off"
     }
 }

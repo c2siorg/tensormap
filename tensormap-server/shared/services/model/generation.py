@@ -1,7 +1,50 @@
 from jinja2 import Environment, FileSystemLoader
 from shared.constants import *
 import json
+# from collections import defaultdict, deque
 
+# def model_generation(model_params):
+#     source_nodes = defaultdict(list)
+#     target_nodes = defaultdict(list)
+
+#     for edge in model_params["edges"]:
+#         source_node, target_node = edge['source'], edge['target']
+#         source_nodes[source_node].append(target_node)
+#         target_nodes[target_node].append(source_node)
+
+#     with open('templates/code-templates/model_func.json', 'r') as file:
+#         starter_json = json.load(file)
+
+#     visited = set()
+#     queue = deque()
+
+#     for node in model_params["nodes"]:
+#         if node["type"] == "custominput":
+#             queue.append(node)
+#             visited.add(node["id"])
+#             starter_json["config"]["layers"].append(helper_generate_layers(node))
+#             starter_json["config"]["input_layers"].append([node["id"], 0, 0])
+
+#     i = 0
+#     for t, targets in target_nodes.items():
+#         if len(targets) > 1:
+#             starter_json["config"]["layers"].append({
+#                 "class_name": "Concatenate",
+#                 "config": {"name": "concatenate" + str(i), "trainable": True, "dtype": "float32", "axis": -1},
+#                 "name": "concatenate" + str(i),
+#                 "inbound_nodes": [[[id, 0, 0, {}] for id in targets]]
+#             })
+#             for node in starter_json["config"]["layers"]:
+#                 if node["name"] == t:
+#                     node["inbound_nodes"] = [item for item in node["inbound_nodes"] if item[0] not in targets]
+#                     node["inbound_nodes"].append(["concatenate" + str(i), 0, 0, {}])
+#                     i += 1
+
+#     for node in model_params["nodes"]:
+#         if node["id"] not in source_nodes:
+#             starter_json["config"]["output_layers"].append([node["id"], 0, 0])
+
+#     return starter_json
 def model_generation(model_params):
     source_nodes = {}
     target_nodes = {}
@@ -22,7 +65,7 @@ def model_generation(model_params):
         else:
             target_nodes[target_node] = [source_node]
 
-    with open('templates\code-templates\model_func.json', 'r') as file:
+    with open('templates/code-templates/model_func.json', 'r') as file:
         starter_json = json.load(file)
     
     visited = set()
@@ -120,7 +163,7 @@ def helper_generate_layers(layer_params):
         default_input["name"] = layer_params["id"]
 
         return default_input
-    
+
     elif (layer_params["type"]=="customdense"):
         default_dense = {
         "class_name": "Dense",

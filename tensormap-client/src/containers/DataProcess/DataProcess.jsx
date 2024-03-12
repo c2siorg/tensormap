@@ -3,6 +3,7 @@ import { Segment, Dropdown, Form, Button, Tab } from "semantic-ui-react";
 import * as strings from "../../constants/Strings";
 import ModalComponent from "../../components/shared/Modal";
 import Metrics from "../../components/Process/Metrics";
+import DisplayDataset from "../../components/Process/DisplayDataset";
 import SelectFileModal from "../../components/Process/SelectFileModal";
 import { getAllFiles, setTargetField, getCovMatrix as getCorrMatrix } from "../../services/FileServices";
 
@@ -36,7 +37,19 @@ function DataProcess() {
                     </Tab.Pane>
                 ),
         },
-        { menuItem: "View Dataset", render: () => <Tab.Pane loading>Tab 2 Content</Tab.Pane> },
+        {
+            menuItem: "View Dataset",
+            render: () =>
+                state.selectedFile !== null ? (
+                    <Tab.Pane > 
+                        <DisplayDataset fileId={state.selectedFile} />
+                    </Tab.Pane>
+                ) : (
+                    <Tab.Pane style={{ padding: "30px" }}>
+                        <SelectFileModal />
+                    </Tab.Pane>
+                ),
+        },
     ];
 
     useEffect(() => {
@@ -75,27 +88,27 @@ function DataProcess() {
             });
     }
 
-    function fileSelectHandler(event, val) {
-        getCorrMatrix(val.value).then((response) => {
+    async function fileSelectHandler(event, val) {
+        try {
+            const response = await getCorrMatrix(val.value);
+            const fileDetailsArr = Object.entries(response.data_types).map(([key], index) => ({
+                text: key,
+                value: index + 1,
+                key: index,
+            }));
+
             setState({
                 ...state,
                 corrMatrix: response.correlation_matrix,
                 dataTypes: response.data_types,
                 metrics: response.metric,
+                selectedFile: val.value,
+                showFieldsList: true,
+                fieldsList: fileDetailsArr,
             });
-        });
-        const promise = new Promise((resolve) => {
-            setState({ ...state, selectedFile: val.value, showFieldsList: true }, () => resolve());
-        });
-
-        promise.then(() => {
-            const selectedFIleDetails = state.totalDetails.filter((item) => item.file_id === state.selectedFile);
-
-            setState({
-                ...state,
-                fieldsList: selectedFIleDetails[0].fields.map((item, index) => ({ text: item, value: item, key: index })),
-            });
-        });
+        } catch (e) {
+            console.error(e);
+        }
     }
 
     function fieldSelectHandler(event, val) {

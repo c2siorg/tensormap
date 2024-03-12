@@ -78,11 +78,25 @@ def get_data_metrics(file_id):
         df = pd.read_csv(FILE_NAME)
         metrics = {}
         metrics['data_types']  = df.dtypes.apply(str).to_dict()
-        metrics['correlation_matrix'] = df.corr().to_dict()
-        metrics['metric'] = df.describe().to_dict()
+        metrics['correlation_matrix'] = df.corr().applymap(str).to_dict()
+        metrics['metric'] = df.describe().applymap(str).to_dict()
         # cov_matrix_rounded = np.around(cov_matrix.values, 2).tolist()
         return generic_response(
                     status_code=200, success=True, message='Dataset metrics generated succesfully', data=metrics
                 )
     else:
         return generic_response(status_code=400, success=False, message="File doesn't exist in DB")
+
+def get_file_data(file_id):
+    configs = get_configs()
+    print(file_id)
+    file = DataFile.query.filter_by(id=file_id).first()
+    if file:
+        FILE_NAME = configs['api']['upload']['folder'] + '/' + file.file_name + '.' + file.file_type
+        df = pd.read_csv(FILE_NAME)
+        data_json = df.to_json(orient='records')
+        return generic_response(
+                    status_code=200, success=True, message='Data sent succesfully', data= data_json
+                )
+    else:
+        return generic_response(status_code=400, success=False, message="Unable to open file")

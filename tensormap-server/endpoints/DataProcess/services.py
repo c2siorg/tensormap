@@ -89,7 +89,6 @@ def get_data_metrics(file_id):
 
 def get_file_data(file_id):
     configs = get_configs()
-    print(file_id)
     file = DataFile.query.filter_by(id=file_id).first()
     if file:
         FILE_NAME = configs['api']['upload']['folder'] + '/' + file.file_name + '.' + file.file_type

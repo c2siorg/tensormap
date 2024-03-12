@@ -66,7 +66,7 @@ function Canvas() {
     <ModalComponent
       modalOpen={formState.modalOpen}
       modelClose={closeModel}
-      sucess
+      success
       Modalmessage={strings.MODEL_VALIDATION_MODAL_MESSAGE}
     />
   );
@@ -75,7 +75,7 @@ function Canvas() {
     <ModalComponent
       modalOpen={formState.modalOpen}
       modelClose={closeModel}
-      sucess={false}
+      success={false}
       Modalmessage={strings.PROCESS_FAIL_MODEL_MESSAGE}
       modalText={formState.modalContent}
     />

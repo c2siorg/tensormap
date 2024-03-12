@@ -1,0 +1,26 @@
+version: '3'
+services:
+  database:
+    image: mysql
+    command: --default-authentication-plugin=mysql_native_password
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: c2si_db
+      MYSQL_USER: c2si
+      MYSQL_PASSWORD: c2si
+    ports:
+      - 3306:3306
+  server:
+    build: ./tensormap-server
+    environment:
+      - FLASK_APP=app.py
+      - secret_key=none
+      - db_name=c2si_db
+      - db_host=database
+      - db_password=c2si
+      - db_user=c2si
+    depends_on:
+      - database
+    ports:
+      - 5000:80

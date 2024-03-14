@@ -100,12 +100,12 @@ class PropertiesBar extends Component {
 
   optimizerOptions = [
     { key: 'opt_1', text: 'Adam', value: 'adam' },
-    { key: 'opt_1', text: 'SGD', value: 'sgd' },
+    { key: 'opt_2', text: 'SGD', value: 'sgd' },
   ];
 
   metricOptions = [
     { key: 'acc_1', text: 'Accuracy', value: 'accuracy' },
-    { key: 'acc_1', text: 'MSE', value: 'mse' },
+    { key: 'acc_2', text: 'MSE', value: 'mse' },
   ];
 
   problemTypeOptions = [

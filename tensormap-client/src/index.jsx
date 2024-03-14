@@ -7,10 +7,10 @@ import App from './App';
 import reportWebVitals from './reportWebVitals';
 
 ReactDOM.render(
-  <StrictMode>
+ 
   <RecoilRoot>
     <App />
-  </RecoilRoot></StrictMode>,
+  </RecoilRoot>,
   document.getElementById('root'),
 );
 

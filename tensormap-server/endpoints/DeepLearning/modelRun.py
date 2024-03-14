@@ -18,32 +18,40 @@ class CustomProgressBar(tf.keras.callbacks.Callback):
         super(CustomProgressBar, self).__init__()
 
     def on_epoch_begin(self, epoch, logs=None):
-        model_result(f"Epoch {epoch+1}/{self.params['epochs']}")
+        model_result(f"Epoch {epoch+1}/{self.params['epochs']}", 0)
 
     def on_batch_end(self, batch, logs=None):
-        progress = batch / self.params['steps']
+        if self.params['steps']:
+            progress = batch / self.params['steps']
+        else:
+            progress = 0
         progress_bar_width = 50
         arrow = '>' * int(progress * progress_bar_width)
         spaces = '=' * (progress_bar_width - len(arrow))
-        if (self.params['steps']/1000>=0.1):
-            if batch%10==0:
-                model_result(f"{batch+1}/{self.params['steps']}  [{arrow}{spaces}] {int(progress * 100)}% - Loss: {logs['loss']:.4f} - Accuracy: {logs['accuracy']:.4f}")
-        elif(self.params['steps']/10000>=0.1):
-            if batch%10==0:
-                model_result(f"{batch+1}/{self.params['steps']}  [{arrow}{spaces}] {int(progress * 100)}% - Loss: {logs['loss']:.4f} - Accuracy: {logs['accuracy']:.4f}")
+        if 'mse' in logs:
+            metric = f"MSE: {logs['mse']:.4f}"
+        elif 'accuracy' in logs:
+            metric = f"Accuracy: {logs['accuracy']:.4f}"
         else:
-            model_result(f"{batch+1}/{self.params['steps']}  [{arrow}{spaces}] {int(progress * 100)}% - Loss: {logs['loss']:.4f} - Accuracy: {logs['accuracy']:.4f}")
+            metric = ""
+
+        model_result(f"{batch+1}/{self.params['steps']}  [{arrow}{spaces}] {int(progress * 100)}% - Loss: {logs['loss']:.4f} - {metric}", 1)
 
     def on_test_begin(self, logs=None):
-        model_result("Evaluating...")
+        model_result("Evaluating...", 0)
 
     def on_test_end(self, logs=None):
-        model_result(f"Evaluation Results: Accuracy - {logs['accuracy']:.4f} Loss - {logs['loss']:.4f}")
+        model_result(f"Evaluation Results: Accuracy - {logs['accuracy']:.4f} Loss - {logs['loss']:.4f}", 3)
         model_result("Finish")
 
-def model_result(message):
+def model_result(message, test):
     message = message.split('')[-1]
-    socketio.emit(SOCKETIO_LISTENER, message, namespace=SOCKETIO_DL_NAMESPACE)
+    data = {
+        "message": message,
+        "test": test
+    }
+    socketio.emit(SOCKETIO_LISTENER, data, namespace=SOCKETIO_DL_NAMESPACE)
+    socketio.sleep(0)
 
 def helper_generate_file_location(file_id):
     configs = get_configs()
@@ -60,7 +68,7 @@ def model_run(incoming):
     FILE_NAME = helper_generate_file_location(file_id=getattr(model_configs,FILE_ID))
     features = pd.read_csv(FILE_NAME)
 
-    training_features = features.sample(frac=getattr(model_configs,MODEL_TRAINING_SPLIT), random_state=220)
+    training_features = features.sample(frac=getattr(model_configs,MODEL_TRAINING_SPLIT), replace=True, random_state=220)
     training_labels = training_features.pop(getattr(model_configs,FILE_TARGET))
 
     testing_features = features.drop(training_features.index)
@@ -75,12 +83,17 @@ def model_run(incoming):
 
     json_string = json.dumps(yaml.load(open(helper_generate_json_model_file_location(model_name=model_name))))
     model = tf.keras.models.model_from_json(json_string, custom_objects=None)
-
+    if getattr(model_configs,MODEL_LOSS) == 'sparse_categorical_crossentropy':
+        y_training = y_training.astype(int)
+        y_testing = y_testing.astype(int)
+        loss = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
+    else:
+        loss = tf.keras.losses.MeanSquaredError()
     model.compile(
         optimizer=getattr(model_configs,MODEL_OPTIMIZER),
-        loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
+        loss=loss,
         metrics=[getattr(model_configs,MODEL_METRIC)],
     )
-
-    model.fit(x_training, y_training,epochs = getattr(model_configs,MODEL_EPOCHS),callbacks=[CustomProgressBar()],verbose=0)
-    model.evaluate(x_testing, y_testing,verbose=0,callbacks=[CustomProgressBar()])
+    print(getattr(model_configs,MODEL_OPTIMIZER), getattr(model_configs,MODEL_LOSS), getattr(model_configs,MODEL_METRIC))
+    model.fit(x_training, y_training,epochs = getattr(model_configs,MODEL_EPOCHS),callbacks=[CustomProgressBar()], verbose=0)
+    # model.evaluate(x_testing, y_testing, callbacks=[CustomProgressBar()])

@@ -14,5 +14,8 @@
         "sourceType": "module"
     },
     "rules": {
+        "indent": "off",
+        "no-unused-vars": "off",
+        "camelcase": "off"
     }
 }

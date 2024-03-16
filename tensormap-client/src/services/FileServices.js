@@ -72,3 +72,23 @@ export const getFileData = async (file_id) => {
         throw error;
     }
 };
+
+export const transformData = async (file_id, transformations) => {
+  const data = {
+    file_id: file_id,
+    transformations,
+  };
+
+  return axios.post(urls.BACKEND_TRANSFORM_DATA + file_id, data)
+    .then((resp) => {
+      console.log(resp)
+      if (resp.data.success === true) {
+        return resp.data;
+      }
+      return resp.data;
+    })
+    .catch((err) => {
+      console.error(err);
+      throw err.data;
+    });
+}

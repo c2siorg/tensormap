@@ -2,9 +2,15 @@ import { useEffect, useState } from "react";
 import { Dropdown, Button } from "semantic-ui-react";
 
 function TransformationCreator({ features, onAdd }) {
-    const transformations = ["One Hot Encode", "Convert Class Data"];
+    const transformations = ["One Hot Encoding", "Categorical to Numerical", "Drop Column"];
     const [selectedFeature, setSelectedFeature] = useState(features[0]);
     const [selectedTransformation, setSelectedTransformation] = useState(transformations[0]);
+    const [disabledButton, setDisabledButton] = useState(true);
+
+    useEffect(() => {
+        if(selectedFeature && selectedTransformation) setDisabledButton(false);
+        else setDisabledButton(true);
+    }, [selectedFeature, selectedTransformation]);
 
     useEffect(() => {
         setSelectedFeature(selectedFeature);
@@ -40,7 +46,7 @@ function TransformationCreator({ features, onAdd }) {
                 onChange={handleTransformationChange}
                 options={transformations.map((tranformation) => ({ key: tranformation, text: tranformation, value: tranformation }))}
             />
-            <Button color="green" size="large" onClick={handleAdd}>
+            <Button color="green" size="large" onClick={handleAdd} disabled={disabledButton}>
                 Add Transformation
             </Button>
         </div>

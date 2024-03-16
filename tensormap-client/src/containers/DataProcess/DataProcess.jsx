@@ -24,6 +24,17 @@ function DataProcess() {
         metrics: null,
     });
 
+    const updateFileList = () => {
+        getAllFiles().then((response) => {
+            const fileList = response.map((file, index) => ({ text: `${file.file_name}.${file.file_type}`, value: file.file_id, key: index }));
+            setState((prevState) => ({
+                ...prevState,
+                fileList,
+                totalDetails: response,
+            }));
+        });
+    }
+
     const panes = [
         {
             menuItem: "Metrics",
@@ -56,7 +67,7 @@ function DataProcess() {
             render: () =>
                 state.selectedFile !== null ? (
                     <Tab.Pane > 
-                        <PreprocessData fileId={state.selectedFile} />
+                        <PreprocessData fileId={state.selectedFile} updateFileList = {updateFileList}/>
                     </Tab.Pane>
                 ) : (
                     <Tab.Pane style={{ padding: "30px" }}>
@@ -66,6 +77,7 @@ function DataProcess() {
         },
     ];
 
+    
     useEffect(() => {
         getAllFiles().then((response) => {
             const fileList = response.map((file, index) => ({ text: `${file.file_name}.${file.file_type}`, value: file.file_id, key: index }));

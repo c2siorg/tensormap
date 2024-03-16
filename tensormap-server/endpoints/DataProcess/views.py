@@ -4,10 +4,13 @@ from endpoints.DataProcess.services import (
     get_all_targets_service,
     get_file_data,
     get_one_target_by_id_service,
-    get_data_metrics
+    get_data_metrics,
+    get_file_name, 
+    preprocess_data
 )
 from endpoints.DataProcess.validators import target_add_post_validator
 from flask_restful import Resource
+from flask import request
 
 
 class ProcessAddNGet(Resource):
@@ -34,3 +37,8 @@ class GetDataMetrics(Resource):
 class GetFileData(Resource):
     def get(self, file_id):
         return get_file_data(file_id=file_id)
+
+class PreprocessData(Resource):
+    def post(self, file_id):
+        data = request.get_json()
+        return preprocess_data(file_id=file_id, data=data)

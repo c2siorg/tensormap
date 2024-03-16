@@ -7,7 +7,10 @@ from shared.constants import *
 from shared.request.response import generic_response
 from shared.utils import delete_one_record, save_one_record
 from shared.services.config import get_configs
+from werkzeug.utils import secure_filename
 
+configs = get_configs()
+upload_folder = configs['api']['upload']['folder']
 
 def add_target_service(incoming):
     file_id = incoming[FILE_ID]
@@ -99,3 +102,36 @@ def get_file_data(file_id):
                 )
     else:
         return generic_response(status_code=400, success=False, message="Unable to open file")
+
+def get_file_name(file_id):
+    configs = get_configs()
+    file = DataFile.query.filter_by(id=file_id).first()
+    if file:
+        return configs['api']['upload']['folder'] + '/' + file.file_name + '.' + file.file_type
+    else:
+        return None
+
+def preprocess_data(file_id, data):
+    transformations = data['transformations']
+    file = get_file_name(file_id=file_id)
+    if file:
+        try:
+            df = pd.read_csv(file)
+            for transformation in transformations:
+                if transformation['transformation'] == 'One Hot Encoding':
+                    df = pd.get_dummies(df, columns=[transformation['feature']])
+                if transformation['transformation'] == 'Categorical to Numerical':
+                    df[transformation['feature']] = pd.Categorical(df[transformation['feature']]).codes
+                if transformation['transformation'] == 'Drop Column':
+                    df = df.drop(columns=[transformation['feature']])
+            file_name = file.split('/')[-1].split('.')[0] + '_preprocessed.csv'
+            file_name_db = secure_filename(file_name.rsplit('.', 1)[0].lower())
+            file_type_db = file_name.rsplit('.', 1)[1].lower()
+            data = DataFile(file_name=file_name_db, file_type=file_type_db)
+            save_one_record(record=data)
+            df.to_csv(upload_folder + '/' + file_name, index=False)
+            return generic_response(status_code=200, success=True, message='Preprocessed Dataset created with name: ' + file_name)
+        except Exception as e:
+            return generic_response(status_code=500, success=False, message=f"Error preprocessing data: {str(e)}")
+            
+    return generic_response(status_code=400, success=False, message="File doesn't exist in DB")

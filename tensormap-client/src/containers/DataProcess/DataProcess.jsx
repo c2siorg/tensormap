@@ -6,6 +6,7 @@ import Metrics from "../../components/Process/Metrics";
 import DisplayDataset from "../../components/Process/DisplayDataset";
 import SelectFileModal from "../../components/Process/SelectFileModal";
 import { getAllFiles, setTargetField, getCovMatrix as getCorrMatrix } from "../../services/FileServices";
+import PreprocessData from "../../components/Process/PreprocessData";
 
 function DataProcess() {
     const [state, setState] = useState({
@@ -43,6 +44,19 @@ function DataProcess() {
                 state.selectedFile !== null ? (
                     <Tab.Pane > 
                         <DisplayDataset fileId={state.selectedFile} />
+                    </Tab.Pane>
+                ) : (
+                    <Tab.Pane style={{ padding: "30px" }}>
+                        <SelectFileModal />
+                    </Tab.Pane>
+                ),
+        },
+        {
+            menuItem: "Preprocess Data",
+            render: () =>
+                state.selectedFile !== null ? (
+                    <Tab.Pane > 
+                        <PreprocessData fileId={state.selectedFile} />
                     </Tab.Pane>
                 ) : (
                     <Tab.Pane style={{ padding: "30px" }}>
@@ -116,11 +130,11 @@ function DataProcess() {
     }
 
     const addedSuccessfully = (
-        <ModalComponent modalOpen={state.modalOpen} modelClose={modelClose} sucess Modalmessage={strings.PROCESS_SUCCESS_MODEL_MESSAGE} />
+        <ModalComponent modalOpen={state.modalOpen} modelClose={modelClose} success Modalmessage={strings.PROCESS_SUCCESS_MODEL_MESSAGE} />
     );
 
     const errorInAddition = (
-        <ModalComponent modalOpen={state.modalOpen} modelClose={modelClose} sucess={false} Modalmessage={strings.PROCESS_FAIL_MODEL_MESSAGE} />
+        <ModalComponent modalOpen={state.modalOpen} modelClose={modelClose} success={false} Modalmessage={strings.PROCESS_FAIL_MODEL_MESSAGE} />
     );
 
     let fileFieldsList = (

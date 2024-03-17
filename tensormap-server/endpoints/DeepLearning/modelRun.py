@@ -10,7 +10,6 @@ from shared.constants import *
 from shared.services.config import get_configs
 from shared.utils import get_socket_ref
 
-
 socketio = get_socket_ref()
 
 class CustomProgressBar(tf.keras.callbacks.Callback):
@@ -38,11 +37,11 @@ class CustomProgressBar(tf.keras.callbacks.Callback):
         model_result(f"{batch+1}/{self.params['steps']}  [{arrow}{spaces}] {int(progress * 100)}% - Loss: {logs['loss']:.4f} - {metric}", 1)
 
     def on_test_begin(self, logs=None):
-        model_result("Evaluating...", 0)
+        model_result("Evaluating...", 2)
 
     def on_test_end(self, logs=None):
         model_result(f"Evaluation Results: Accuracy - {logs['accuracy']:.4f} Loss - {logs['loss']:.4f}", 3)
-        model_result("Finish")
+        model_result("Finish", 4)
 
 def model_result(message, test):
     message = message.split('')[-1]
@@ -67,25 +66,21 @@ def model_run(incoming):
 
     FILE_NAME = helper_generate_file_location(file_id=getattr(model_configs,FILE_ID))
     features = pd.read_csv(FILE_NAME)
+    features.dropna(inplace=True)
 
-    training_features = features.sample(frac=getattr(model_configs,MODEL_TRAINING_SPLIT), replace=True, random_state=220)
-    training_labels = training_features.pop(getattr(model_configs,FILE_TARGET))
+    X = features.drop(getattr(model_configs,FILE_TARGET), axis=1)
+    y = features[getattr(model_configs,FILE_TARGET)]
 
-    testing_features = features.drop(training_features.index)
-    testing_labels = testing_features.pop(getattr(model_configs,FILE_TARGET))
-
-    x_training, y_training = (training_features.to_numpy(), training_labels.to_numpy())
-    x_testing, y_testing = (testing_features.to_numpy(), testing_labels.to_numpy())
-
-    # Preprocessing - scaling
-    x_training = x_training / np.linalg.norm(x_training)
-    x_testing = x_testing / np.linalg.norm(x_testing)
+    split_index = int(len(X) * getattr(model_configs,MODEL_TRAINING_SPLIT) / 100)
+    print(getattr(model_configs,MODEL_TRAINING_SPLIT))
+    x_training = X[:split_index]
+    y_training = y[:split_index]
+    x_testing = X[split_index:]
+    y_testing = y[split_index:]
 
     json_string = json.dumps(yaml.load(open(helper_generate_json_model_file_location(model_name=model_name))))
     model = tf.keras.models.model_from_json(json_string, custom_objects=None)
     if getattr(model_configs,MODEL_LOSS) == 'sparse_categorical_crossentropy':
-        y_training = y_training.astype(int)
-        y_testing = y_testing.astype(int)
         loss = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
     else:
         loss = tf.keras.losses.MeanSquaredError()
@@ -94,6 +89,9 @@ def model_run(incoming):
         loss=loss,
         metrics=[getattr(model_configs,MODEL_METRIC)],
     )
-    print(getattr(model_configs,MODEL_OPTIMIZER), getattr(model_configs,MODEL_LOSS), getattr(model_configs,MODEL_METRIC))
-    model.fit(x_training, y_training,epochs = getattr(model_configs,MODEL_EPOCHS),callbacks=[CustomProgressBar()], verbose=0)
-    # model.evaluate(x_testing, y_testing, callbacks=[CustomProgressBar()])
+
+    print(x_testing.shape, y_testing.shape)
+    print(x_training.shape, y_training.shape)
+    model.fit(x_training, y_training, epochs = getattr(model_configs,MODEL_EPOCHS),callbacks=[CustomProgressBar()], verbose=0)
+    # model.fit(x_training, y_training, validation_data=(x_testing, y_testing), epochs = getattr(model_configs,MODEL_EPOCHS))
+    model.evaluate(x_testing, y_testing, callbacks=[CustomProgressBar()], verbose=0)

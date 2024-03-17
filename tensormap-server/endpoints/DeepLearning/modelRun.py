@@ -72,7 +72,6 @@ def model_run(incoming):
     y = features[getattr(model_configs,FILE_TARGET)]
 
     split_index = int(len(X) * getattr(model_configs,MODEL_TRAINING_SPLIT) / 100)
-    print(getattr(model_configs,MODEL_TRAINING_SPLIT))
     x_training = X[:split_index]
     y_training = y[:split_index]
     x_testing = X[split_index:]

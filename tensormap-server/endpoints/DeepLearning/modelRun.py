@@ -97,4 +97,4 @@ def model_run(incoming):
 
     model.fit(x_training, y_training, epochs = getattr(model_configs,MODEL_EPOCHS),callbacks=[CustomProgressBar()], verbose=0)
     # model.fit(x_training, y_training, validation_data=(x_testing, y_testing), epochs = getattr(model_configs,MODEL_EPOCHS))
-    model.evaluate(x_testing, y_testing, callbacks=[CustomProgressBar()])
+    model.evaluate(x_testing, y_testing, callbacks=[CustomProgressBar()], verbose=0)

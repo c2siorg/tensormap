@@ -61,7 +61,7 @@ def generate_code(model_name):
             MODEL_EPOCHS: getattr(model_configs,MODEL_EPOCHS),
         },
     }
-
+    print(model_configs.model_type)
     template_loader = FileSystemLoader(searchpath=TEMPLATE_ROOT)
     template_env = Environment(loader=template_loader)
     template = template_env.get_template(helper_map_correct_code_template(problem_type_id=model_configs.model_type))
@@ -72,8 +72,8 @@ def generate_code(model_name):
 
 
 def helper_map_correct_code_template(problem_type_id):
-    options = {1: CODE_TEMPLATE_FOLDER + 'multi-class-all-float-classification-csv.py'}
-    options = {2: CODE_TEMPLATE_FOLDER + 'linear-regression-all-float.py'}
+    options = {1: CODE_TEMPLATE_FOLDER + 'multi-class-all-float-classification-csv.py', 
+    2: CODE_TEMPLATE_FOLDER + 'linear-regression-all-float.py'}
     return options[problem_type_id]
 
 

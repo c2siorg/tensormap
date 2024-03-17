@@ -40,7 +40,13 @@ class CustomProgressBar(tf.keras.callbacks.Callback):
         model_result("Evaluating...", 2)
 
     def on_test_end(self, logs=None):
-        model_result(f"Evaluation Results: Accuracy - {logs['accuracy']:.4f} Loss - {logs['loss']:.4f}", 3)
+        if 'mse' in logs:
+            metric = f"MSE Loss- {logs['mse']:.4f}"
+        elif 'accuracy' in logs:
+            metric = f"Accuracy- {logs['accuracy']:.4f}"
+        else:
+            metric = ""
+        model_result(f"Evaluation Results: {metric} Loss - {logs['loss']:.4f}", 3)
         model_result("Finish", 4)
 
 def model_result(message, test):
@@ -89,8 +95,6 @@ def model_run(incoming):
         metrics=[getattr(model_configs,MODEL_METRIC)],
     )
 
-    print(x_testing.shape, y_testing.shape)
-    print(x_training.shape, y_training.shape)
     model.fit(x_training, y_training, epochs = getattr(model_configs,MODEL_EPOCHS),callbacks=[CustomProgressBar()], verbose=0)
     # model.fit(x_training, y_training, validation_data=(x_testing, y_testing), epochs = getattr(model_configs,MODEL_EPOCHS))
     model.evaluate(x_testing, y_testing, callbacks=[CustomProgressBar()], verbose=0)

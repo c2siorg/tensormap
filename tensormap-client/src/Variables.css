@@ -1,6 +1,9 @@
 :root {
     --dense_background : rgb(43, 161, 255);
     --dense_header : rgb(50, 113, 178);
+    --conv_background : rgb(255, 128, 43);
+    --conv_header : rgb(255, 128, 43);
+    --input_background: rgb(105, 172, 61);
     --input_background: rgb(105, 172, 61);
     --input_header: rgb(93, 149, 34);
     --flatten_background: rgb(247, 173, 20);

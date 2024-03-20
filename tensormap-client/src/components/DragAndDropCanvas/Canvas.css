@@ -66,4 +66,7 @@
     border-color: var(--flatten_background);
   }
   
+  .dndflow .dndnode.conv-sidebar {
+    border-color: var(--conv_background);
+  }
   

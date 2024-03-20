@@ -85,6 +85,7 @@ def model_run(incoming):
 
     json_string = json.dumps(yaml.load(open(helper_generate_json_model_file_location(model_name=model_name))))
     model = tf.keras.models.model_from_json(json_string, custom_objects=None)
+    model.summary()
     if getattr(model_configs,MODEL_LOSS) == 'sparse_categorical_crossentropy':
         loss = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
     else:

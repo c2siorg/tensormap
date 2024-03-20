@@ -22,7 +22,7 @@ def model_generation(model_params):
         else:
             target_nodes[target_node] = [source_node]
 
-    with open('templates\code-templates\model_func.json', 'r') as file:
+    with open('templates/code-templates/model_func.json', 'r') as file:
         starter_json = json.load(file)
     
     visited = set()
@@ -115,12 +115,17 @@ def helper_generate_layers(layer_params):
             "inbound_nodes": []
         }
 
-        default_input["config"]["batch_input_shape"] = [None,layer_params["data"]["params"]["dim-y"]]
+        # Check if dim-1, dim-2, and dim-3 are 0
+        dims = [layer_params["data"]["params"].get(f"dim-{i+1}", 0) for i in range(3)]
+        dims = [dim for dim in dims if dim != 0]
+
+        # Update batch_input_shape
+        default_input["config"]["batch_input_shape"] = [None] + dims
         default_input["config"]["name"] = layer_params["id"]
         default_input["name"] = layer_params["id"]
 
         return default_input
-    
+
     elif (layer_params["type"]=="customdense"):
         default_dense = {
         "class_name": "Dense",
@@ -163,7 +168,7 @@ def helper_generate_layers(layer_params):
         "class_name": "Flatten",
         "config": {
           "name": "",
-          "batch_input_shape": [],
+        #   "batch_input_shape": [],
           "trainable": True,
           "dtype": "float32",
           "data_format": "channels_last"
@@ -172,10 +177,28 @@ def helper_generate_layers(layer_params):
         "inbound_nodes": []
       }
     
-        default_flatten["config"]["batch_input_shape"] = [None,layer_params["data"]["params"]["dim-x"],layer_params["data"]["params"]["dim-y"]]
+        # default_flatten["config"]["batch_input_shape"] = [None,layer_params["data"]["params"]["dim-x"],layer_params["data"]["params"]["dim-y"]]
         default_flatten["config"]["name"] = layer_params["id"]
         default_flatten["name"] = layer_params["id"]
 
         return default_flatten
+    
+    elif layer_params["type"] == 'customconv':
+        default_conv = {
+            "class_name": "Conv2D",
+            "config": {
+                "name": layer_params["id"],
+                "trainable": True,
+                "dtype": "float32",
+                "filters": int(layer_params["data"]["params"]["filter"]),
+                "kernel_size": (int(layer_params["data"]["params"]["kernelX"]), int(layer_params["data"]["params"]["kernelY"])),
+                "strides": (int(layer_params["data"]["params"]["strideX"]), int(layer_params["data"]["params"]["strideY"])),
+                "padding": layer_params["data"]["params"]["padding"],
+                "activation": layer_params["data"]["params"]["activation"],
+            },
+            "name": layer_params["id"],
+            "inbound_nodes": []
+        }
+        return default_conv
     
 

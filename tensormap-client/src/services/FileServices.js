@@ -92,3 +92,14 @@ export const transformData = async (file_id, transformations) => {
       throw err.data;
     });
 }
+
+export const deleteFile = async (fileId) => {
+  console.log(fileId)
+  axios.delete(urls.BACKEND_DELETE_FILE + fileId)
+    .then(response => {
+      console.log(response.data);
+    })
+    .catch(error => {
+      console.error('Error:', error);
+    });
+}

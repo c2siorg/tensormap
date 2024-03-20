@@ -7,6 +7,9 @@ function FilesList(props) {
       key={index}
       savedFileName={file.SavedFileName}
       savedFileType={file.SavedFileType}
+      savedFileId={file.SavedFileId}
+      setRefresh={props.setRefresh}
+      refresh={props.refresh}
     />
   ));
   return (

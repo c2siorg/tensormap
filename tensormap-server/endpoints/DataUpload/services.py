@@ -30,24 +30,35 @@ def add_file_service():
 
 
 def get_all_files_service():
-    data = []
-    files = DataFile.query.all()
-    for file in files:
-        df = pd.read_csv(upload_folder + '/' + file.file_name + '.' + file.file_type)
-        fields = list(df.columns)
-        data.append({FILE_NAME: file.file_name, FILE_TYPE: file.file_type, FILE_ID: file.id, FILE_FIELDS: fields})
-    return generic_response(status_code=200, success=True, message='Saved files found successfully', data=data)
+    try:
+        data = []
+        files = DataFile.query.all()
+        for file in files:
+            df = pd.read_csv(upload_folder + '/' + file.file_name + '.' + file.file_type)
+            fields = list(df.columns)
+            data.append({FILE_NAME: file.file_name, FILE_TYPE: file.file_type, FILE_ID: file.id, FILE_FIELDS: fields})
+        return generic_response(status_code=200, success=True, message='Saved files found successfully', data=data)
+    except Exception as e:
+        # Log the error message and return a generic response
+        print(f"An error occurred: {str(e)}")
+        return generic_response(status_code=500, success=False, message='An error occurred while fetching the files')
 
 
 def delete_one_file_by_id_service(file_id):
-    # Check file exists in DB and check the file in ./data directory if exist, file deleted
-    if DataFile.query.filter_by(id=file_id).count() > 0:
-        file = DataFile.query.filter_by(id=file_id).first()
-        if os.path.isfile(upload_folder + '/' + file.file_name + '.' + file.file_type):
-            os.remove(upload_folder + '/' + file.file_name + '.' + file.file_type)
-            delete_one_record(record=file)
-            return generic_response(status_code=200, success=True, message='Files deleted successfully')
+    try:
+        # Check file exists in DB and check the file in ./data directory if exist, file deleted
+        if DataFile.query.filter_by(id=file_id).count() > 0:
+            file = DataFile.query.filter_by(id=file_id).first()
+            if os.path.isfile(upload_folder + '/' + file.file_name + '.' + file.file_type):
+                os.remove(upload_folder + '/' + file.file_name + '.' + file.file_type)
+                delete_one_record(record=file)
+                return generic_response(status_code=200, success=True, message='Files deleted successfully')
+            else:
+                return generic_response(status_code=400, success=False, message='File not found')
         else:
-            return generic_response(status_code=400, success=False, message='File not found')
-    else:
-        return generic_response(status_code=400, success=False, message='File not in the DB')
+            return generic_response(status_code=400, success=False, message='File not in the DB')
+    except Exception as e:
+        # Log the error message and return a generic response
+        print(f"An error occurred: {str(e)}")
+        return generic_response(status_code=500, success=False, message='An error occurred while deleting the file')
+

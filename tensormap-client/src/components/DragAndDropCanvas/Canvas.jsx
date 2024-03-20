@@ -135,7 +135,7 @@ function Canvas() {
                     id: getId(),
                     type,
                     position,
-                    data: { label: `${type} node`, params: { "dim-x": "", "dim-y": "" } },
+                    data: { label: `${type} node`, params: { "dim-1": "", "dim-2": "", "dim-3": "" } },
                 };
             } else if (type === "customdense") {
                 newNode = {

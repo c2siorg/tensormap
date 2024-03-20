@@ -1,50 +1,7 @@
 from jinja2 import Environment, FileSystemLoader
 from shared.constants import *
 import json
-# from collections import defaultdict, deque
 
-# def model_generation(model_params):
-#     source_nodes = defaultdict(list)
-#     target_nodes = defaultdict(list)
-
-#     for edge in model_params["edges"]:
-#         source_node, target_node = edge['source'], edge['target']
-#         source_nodes[source_node].append(target_node)
-#         target_nodes[target_node].append(source_node)
-
-#     with open('templates/code-templates/model_func.json', 'r') as file:
-#         starter_json = json.load(file)
-
-#     visited = set()
-#     queue = deque()
-
-#     for node in model_params["nodes"]:
-#         if node["type"] == "custominput":
-#             queue.append(node)
-#             visited.add(node["id"])
-#             starter_json["config"]["layers"].append(helper_generate_layers(node))
-#             starter_json["config"]["input_layers"].append([node["id"], 0, 0])
-
-#     i = 0
-#     for t, targets in target_nodes.items():
-#         if len(targets) > 1:
-#             starter_json["config"]["layers"].append({
-#                 "class_name": "Concatenate",
-#                 "config": {"name": "concatenate" + str(i), "trainable": True, "dtype": "float32", "axis": -1},
-#                 "name": "concatenate" + str(i),
-#                 "inbound_nodes": [[[id, 0, 0, {}] for id in targets]]
-#             })
-#             for node in starter_json["config"]["layers"]:
-#                 if node["name"] == t:
-#                     node["inbound_nodes"] = [item for item in node["inbound_nodes"] if item[0] not in targets]
-#                     node["inbound_nodes"].append(["concatenate" + str(i), 0, 0, {}])
-#                     i += 1
-
-#     for node in model_params["nodes"]:
-#         if node["id"] not in source_nodes:
-#             starter_json["config"]["output_layers"].append([node["id"], 0, 0])
-
-#     return starter_json
 def model_generation(model_params):
     source_nodes = {}
     target_nodes = {}
@@ -220,5 +177,23 @@ def helper_generate_layers(layer_params):
         default_flatten["name"] = layer_params["id"]
 
         return default_flatten
+    
+    elif layer_params["type"] == 'customconv':
+        default_conv = {
+            "class_name": "Conv2D",
+            "config": {
+                "name": layer_params["id"],
+                "trainable": True,
+                "dtype": "float32",
+                "filters": layer_params["data"]["params"]["filter"],
+                "kernel_size": (layer_params["data"]["params"]["kernelX"], layer_params["data"]["params"]["kernelY"]),
+                "strides": (layer_params["data"]["params"]["strideX"], layer_params["data"]["params"]["strideY"]),
+                "padding": layer_params["data"]["params"]["padding"],
+                "activation": layer_params["data"]["params"]["activation"],
+            },
+            "name": layer_params["id"],
+            "inbound_nodes": []
+        }
+        return default_conv
     
 

@@ -19,4 +19,5 @@ class UploadDataFile(Resource):
 
 class UploadFileIDOperations(Resource):
     def delete(self, file_id):
+        print(file_id)
         return delete_one_file_by_id_service(file_id=file_id)

@@ -1,0 +1,28 @@
+@import '../../../../Variables.css';
+
+.dropout-node {
+  height: fit-content;
+  border: 1px solid var(--node_border_color);
+  padding: 0px 0px 10px 0px;
+  border-radius: 8px;
+  background: var(--dropout_background);
+}
+
+.dropout-node label {
+  display: block;
+  color: var(--node_label_font_color);
+  font-size: 12px;
+  padding: 5px;
+}
+
+.dropout-node input {
+  margin: 0px 5px 0px 5px;
+}
+
+.dropout-node>.node-header {
+  padding: 5px;
+  border-radius: 8px 8px 0px 0px;
+  background-color: var(--dropout_header);
+  color: var(--node_header_font_color);
+  font-weight: bolder;
+}

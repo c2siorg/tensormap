@@ -17,6 +17,9 @@ const Sidebar =  () => {
       <div className='dndnode flatten-sidebar' onDragStart={(event) => onDragStart(event, 'customflatten')} draggable>
         <div>Flatten Node</div>
       </div>
+      <div className='dndnode flatten-sidebar' onDragStart={(event) => onDragStart(event, 'customdropout')} draggable>
+        <div>Dropout Node</div>
+      </div>
     </aside>
   );
 };

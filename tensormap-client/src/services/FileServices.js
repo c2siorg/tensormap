@@ -62,9 +62,19 @@ export const getCovMatrix = async (file_id) => {
       return resp.data.data
     }
   })
-  .catch(err=> {
-    console.error(err)
-    throw(err)
-  })
+  .catch((err) => {
+    console.error(err);
+    throw (err);
+  });
+};
 
-}
+export const getData = async (file_id) => axios.get(urls.BACKEND_GET_DATA + file_id)
+  .then((resp) => {
+    if (resp.data.success === true) {
+      return resp.data.data;
+    }
+})
+  .catch((err) => {
+    console.error(err);
+    throw (err);
+});

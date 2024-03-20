@@ -13,6 +13,7 @@ class ModelBasic(db.Model):
     optimizer = db.Column(db.String(50),nullable=False)
     metric = db.Column(db.String(50),nullable=False)
     epochs = db.Column(db.Integer,nullable=False)
+    loss = db.Column(db.String(50),nullable=False)
     configs = db.relationship('ModelConfigs', cascade='all,delete', backref='model')
     results = db.relationship('ModelResults', cascade='all,delete', backref='model')
     created_on = db.Column(db.DateTime, server_default=db.func.now())

@@ -7,11 +7,13 @@ import { getAllFiles } from "../../services/FileServices";
 
 function DataUpload() {
     const [fileList, setFileList] = useState(null);
+    const [refresh, setRefresh] = useState(false);
 
     useEffect(() => {
         getAllFiles()
             .then((response) => {
                 const files = response.map((item) => ({
+                    SavedFileId: item.file_id,
                     SavedFileName: item.file_name,
                     SavedFileType: item.file_type,
                 }));
@@ -20,7 +22,7 @@ function DataUpload() {
             .catch((error) => {
                 console.error("Error retrieving files:", error);
             });
-    }, []);
+    }, [refresh]);
 
     let fileListItem = (
         <Segment style={{ marginLeft: "10px", marginRight: "10px", height: "400px" }}>
@@ -32,7 +34,7 @@ function DataUpload() {
     );
 
     if (fileList) {
-        fileListItem = <FilesList fileList={fileList} />;
+        fileListItem = <FilesList fileList={fileList} setRefresh={setRefresh} refresh={refresh}/>;
     }
 
     return (

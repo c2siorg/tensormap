@@ -17,6 +17,9 @@ function Sidebar() {
       <div className="dndnode flatten-sidebar" onDragStart={(event) => onDragStart(event, 'customflatten')} draggable>
         <div>Flatten Node</div>
       </div>
+      <div className="dndnode conv-sidebar" onDragStart={(event) => onDragStart(event, 'customconv')} draggable>
+        <div>Conv Node</div>
+      </div>
     </aside>
   );
 }

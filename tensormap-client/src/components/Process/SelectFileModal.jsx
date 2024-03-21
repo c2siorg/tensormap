@@ -1,0 +1,20 @@
+import { Header, Icon } from 'semantic-ui-react';
+
+function SelectFileModal() {
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', justifyContent: 'center', height: '50vh',
+    }}
+    >
+      <Header as="h2" icon>
+        <Icon name="file alternate outline" />
+        Select a File
+        <Header.Subheader>
+          Select a dataset to view the metrics of the Dataset
+        </Header.Subheader>
+      </Header>
+    </div>
+  );
+}
+
+export default SelectFileModal;

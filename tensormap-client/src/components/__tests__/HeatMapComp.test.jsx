@@ -1,7 +1,7 @@
 import React from 'react';
 import { render } from '@testing-library/react';
 import HeatMapComp from '../Process/HeatMapComp';
-import '@testing-library/jest-dom/extend-expect';
+import '@testing-library/jest-dom'
 
 // Mocking the external HeatMap component
 jest.mock('react-heatmap-grid', () => ({

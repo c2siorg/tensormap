@@ -1,3 +1,4 @@
+import React from "react";
 import { Suspense } from "react";
 import { BrowserRouter, Route, Routes, Navigate } from "react-router-dom";
 import Home from "./containers/Home/Home";
@@ -5,7 +6,6 @@ import DataUpload from "./containers/DataUpload/DataUpload";
 import DataProcess from "./containers/DataProcess/DataProcess";
 import DeepLearning from "./containers/DeepLearning/DeepLearning";
 import * as urls from "./constants/Urls";
-import SideBar from "./components/Layout/SideBar/SideBar";
 import Layout from "./components/Layout/Layout";
 
 function App() {

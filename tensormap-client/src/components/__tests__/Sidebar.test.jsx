@@ -1,6 +1,7 @@
 import React from 'react';
 import { render, fireEvent } from '@testing-library/react';
 import Sidebar from '../DragAndDropCanvas/Sidebar';
+import '@testing-library/jest-dom';
 
 describe('<Sidebar />', () => {
   it('renders without crashing', () => {

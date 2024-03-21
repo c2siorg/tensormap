@@ -1,3 +1,4 @@
+import React from "react";
 import { Suspense } from "react";
 import { BrowserRouter, Route, Routes, Navigate } from "react-router-dom";
 import Home from "./containers/Home/Home";

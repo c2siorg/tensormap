@@ -1,6 +1,6 @@
 import React from 'react';
 import { render } from '@testing-library/react';
-import HeatMapComp from '../Process/HeatMapComp';
+import HeatMapComp from '../../../src/components/Process/HeatMapComp';
 import '@testing-library/jest-dom'
 
 // Mocking the external HeatMap component

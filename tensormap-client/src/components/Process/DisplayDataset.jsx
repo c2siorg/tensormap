@@ -1,20 +1,21 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { Table, Loader } from "semantic-ui-react";
 import { getFileData } from "../../services/FileServices";
 
 const DisplayDataset = ({ fileId }) => {
     const [data, setData] = useState(null);
 
-    useEffect(async () => {
-        try {
-            console.log(fileId);
-            const fileData = await getFileData(fileId);
-            const parsedData = JSON.parse(fileData);
-            setData(parsedData);
-        } catch (error) {
-            console.error(error);
+    const fetchData = useCallback(async (fileId) => {
+        const fileData = await getFileData(fileId);
+        const parsedData = JSON.parse(fileData);
+        setData(parsedData);
+    }, []);
+
+    useEffect(() => {
+        if (fileId) {
+            fetchData(fileId);
         }
-    }, [fileId]);
+    }, [fileId, fetchData]);
 
     return (
         <div>

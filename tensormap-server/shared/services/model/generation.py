@@ -22,7 +22,7 @@ def model_generation(model_params):
         else:
             target_nodes[target_node] = [source_node]
 
-    with open('templates\code-templates\model_func.json', 'r') as file:
+     with open('templates/code-templates/model_func.json', 'r') as file:
         starter_json = json.load(file)
     
     visited = set()

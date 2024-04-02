@@ -11,21 +11,42 @@ from flask_restful import Resource
 
 class ProcessAddNGet(Resource):
     def post(self):
-        validator = target_add_post_validator()
-        args = validator.parse_args()
-        return add_target_service(incoming=args)
+        try:
+            validator = target_add_post_validator()
+            args = validator.parse_args()
+            return add_target_service(incoming=args)
+        except Exception as e:
+            # Handle the exception appropriately
+            return {'message': 'An error occurred while processing the request.', 'error': str(e)}, 500
 
     def get(self):
-        return get_all_targets_service()
+        try:
+            return get_all_targets_service()
+        except Exception as e:
+            # Handle the exception appropriately
+            return {'message': 'An error occurred while processing the request.', 'error': str(e)}, 500
 
 
 class ProcessIDOperations(Resource):
     def delete(self, file_id):
-        return delete_one_target_by_id_service(file_id=file_id)
+        try:
+            return delete_one_target_by_id_service(file_id=file_id)
+        except Exception as e:
+            # Handle the exception appropriately
+            return {'message': 'An error occurred while processing the request.', 'error': str(e)}, 500
 
     def get(self, file_id):
-        return get_one_target_by_id_service(file_id=file_id)
-    
+        try:
+            return get_one_target_by_id_service(file_id=file_id)
+        except Exception as e:
+            # Handle the exception appropriately
+            return {'message': 'An error occurred while processing the request.', 'error': str(e)}, 500
+
+
 class GetDataMetrics(Resource):
-    def get(self,file_id):
-        return get_data_metrics(file_id=file_id)
+    def get(self, file_id):
+        try:
+            return get_data_metrics(file_id=file_id)
+        except Exception as e:
+            # Handle the exception appropriately
+            return {'message': 'An error occurred while processing the request.', 'error': str(e)}, 500

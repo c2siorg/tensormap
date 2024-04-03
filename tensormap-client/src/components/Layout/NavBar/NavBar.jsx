@@ -6,7 +6,7 @@ function NavBar() {
     <div>
       <Menu stackable size="huge">
         <Menu.Item>
-          <img src="https://react.semantic-ui.com/logo.png" alt="logo" />
+          <img src="/favicon.png" alt="logo" />
         </Menu.Item>
 
         <Menu.Item

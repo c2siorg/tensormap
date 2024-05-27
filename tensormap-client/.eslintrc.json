@@ -20,6 +20,7 @@
         "no-unused-vars": "off",
         "react/function-component-definition": "off",
         "indent": "off",
-        "camelcase": "off"
+        "camelcase": "off",
+        "consistent-return": "off"
     }
 }

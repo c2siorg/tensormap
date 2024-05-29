@@ -43,12 +43,15 @@
     "preview": "vite preview",
     "lint": "eslint . --ext js,jsx --report-unused-disable-directives --max-warnings 0",
     "lint:fix": "eslint . --ext js,jsx --fix"
+<<<<<<< HEAD
 =======
     "test": "react-scripts test",
     "eject": "react-scripts eject",
     "lint": "eslint .",
     "lint:fix": "eslint --fix ."
 >>>>>>> f0e29d7 (switching to vite from react-scripts)
+=======
+>>>>>>> 6a03608 (feature: linting)
   },
   "eslintConfig": {
     "extends": [

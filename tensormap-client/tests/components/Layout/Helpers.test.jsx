@@ -1,4 +1,4 @@
-import { enableValidateButton, generateModelJSON, InitialFormState } from '../DragAndDropCanvas/Helpers';
+import { enableValidateButton, generateModelJSON, InitialFormState } from '../../../src/components/DragAndDropCanvas/Helpers';
 
 describe('Utility Functions', () => {
 

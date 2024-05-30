@@ -9,10 +9,10 @@ describe('<NavBar />', () => {
     render(<BrowserRouter><NavBar/></BrowserRouter>);
   });
 
-  // it('renders the logo image correctly', () => {
-  //   const { getByAltText } = render(<NavBar />);
-  //   const logoImg = getByAltText('logo');
-  //   expect(logoImg).toBeInTheDocument();
-  //   expect(logoImg.src).toBe('../../../public/favicon.png');
-  // });
+  it('renders the logo image correctly', () => {
+    const { getByAltText } = render(<BrowserRouter><NavBar/></BrowserRouter>);
+    const logoImg = getByAltText('logo');
+    expect(logoImg).toBeInTheDocument();
+    expect(logoImg.src).toBe('http://localhost/favicon.png');
+  });
 });

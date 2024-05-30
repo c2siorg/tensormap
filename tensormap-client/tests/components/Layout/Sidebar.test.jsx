@@ -1,6 +1,6 @@
 import React from 'react';
 import { render, fireEvent } from '@testing-library/react';
-import Sidebar from '../DragAndDropCanvas/Sidebar';
+import Sidebar from '../../../src/components/DragAndDropCanvas/Sidebar';
 import '@testing-library/jest-dom';
 
 describe('<Sidebar />', () => {

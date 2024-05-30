@@ -27,7 +27,7 @@
     "lint": "eslint . --ext js,jsx --report-unused-disable-directives --max-warnings 0",
     "lint:fix": "eslint . --ext js,jsx --fix",
     "prettier": "prettier . --write",
-    "prepare": "cd ../ husky tensormap-client/"
+    "prepare": "cd ../  && husky tensormap-client/.husky"
   },
   "eslintConfig": {
     "extends": [

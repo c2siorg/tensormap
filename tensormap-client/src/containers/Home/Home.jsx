@@ -19,7 +19,7 @@ function Home() {
   };
 
   const handleButtonGoToGit = () => {
-    navigate(urls.TENSOR_MAP_URL);
+    window.open("https://github.com/scorelab/TensorMap");
   };
 
   return (

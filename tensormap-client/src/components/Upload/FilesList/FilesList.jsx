@@ -1,4 +1,4 @@
-import File from './File/File';
+import File from "./File/File";
 
 function FilesList(props) {
   const fileList = props.fileList.map((file, index) => (
@@ -11,11 +11,7 @@ function FilesList(props) {
       refresh={props.refresh}
     />
   ));
-  return (
-    <div>
-      {fileList}
-    </div>
-  );
+  return <div>{fileList}</div>;
 }
 
 export default FilesList;

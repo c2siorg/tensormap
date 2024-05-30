@@ -1,18 +1,23 @@
-import { Grid } from 'semantic-ui-react';
-import HeatMapComp from './HeatMapComp';
-import DataTypes from './DataTypes';
-import MetricTable from './MetricTable';
+import { Grid } from "semantic-ui-react";
+import HeatMapComp from "./HeatMapComp";
+import DataTypes from "./DataTypes";
+import MetricTable from "./MetricTable";
 
-function Metrics({dataTypes, metrics, corrMatrix}) {
+function Metrics({ dataTypes, metrics, corrMatrix }) {
   return (
     <div>
       <Grid>
-        <Grid.Row centered style={{ display: 'flex', alignItems: 'stretch' }}>
+        <Grid.Row centered style={{ display: "flex", alignItems: "stretch" }}>
           <Grid.Column
             textAlign="center"
             width={4}
             style={{
-              backgroundColor: 'white', borderRadius: '10px', margin: '0px 20px', padding: '15px', display: 'flex', flexDirection: 'column',
+              backgroundColor: "white",
+              borderRadius: "10px",
+              margin: "0px 20px",
+              padding: "15px",
+              display: "flex",
+              flexDirection: "column",
             }}
           >
             <DataTypes dataTypes={dataTypes} />
@@ -20,7 +25,12 @@ function Metrics({dataTypes, metrics, corrMatrix}) {
           <Grid.Column
             textAlign="center"
             style={{
-              backgroundColor: 'white', borderRadius: '10px', padding: '15px', display: 'flex', flexDirection: 'column', margin: '0px 11px',
+              backgroundColor: "white",
+              borderRadius: "10px",
+              padding: "15px",
+              display: "flex",
+              flexDirection: "column",
+              margin: "0px 11px",
             }}
             width={11}
           >
@@ -30,7 +40,10 @@ function Metrics({dataTypes, metrics, corrMatrix}) {
         <Grid.Row centered>
           <Grid.Column
             style={{
-              backgroundColor: 'white', borderRadius: '10px', margin: '0px 20px 0px 20px', padding: '15px',
+              backgroundColor: "white",
+              borderRadius: "10px",
+              margin: "0px 20px 0px 20px",
+              padding: "15px",
             }}
             width={16}
           >

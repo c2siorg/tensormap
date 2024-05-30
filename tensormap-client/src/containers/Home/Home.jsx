@@ -1,10 +1,15 @@
 import {
-  Message, Segment, Grid, Header, Icon, Button,
-} from 'semantic-ui-react';
+  Message,
+  Segment,
+  Grid,
+  Header,
+  Icon,
+  Button,
+} from "semantic-ui-react";
 
-import { useNavigate } from 'react-router-dom';
-import * as urls from '../../constants/Urls';
-import * as strings from '../../constants/Strings';
+import { useNavigate } from "react-router-dom";
+import * as urls from "../../constants/Urls";
+import * as strings from "../../constants/Strings";
 
 function Home() {
   const navigate = useNavigate();
@@ -23,7 +28,12 @@ function Home() {
 
   return (
     <div>
-      <Message size="huge" icon="cogs" header={strings.HOME_MAIN_TITLE} content={strings.HOME_MAIN_CONTENT} />
+      <Message
+        size="huge"
+        icon="cogs"
+        header={strings.HOME_MAIN_TITLE}
+        content={strings.HOME_MAIN_CONTENT}
+      />
 
       <Message
         size="big"

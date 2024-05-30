@@ -1,12 +1,15 @@
-import { Table, Header } from 'semantic-ui-react';
+import { Table, Header } from "semantic-ui-react";
 
 function MetricTable({ metrics }) {
-  const roundValue = (value) => (typeof value === 'number' ? value.toFixed(2) : value);
+  const roundValue = (value) =>
+    typeof value === "number" ? value.toFixed(2) : value;
 
   return (
     <div>
-      <Header size="medium" textAlign="center" style={{ marginTop: '20px' }}>Dataset Metrics</Header>
-      <Table celled style={{ fontSize: '0.7em' }}>
+      <Header size="medium" textAlign="center" style={{ marginTop: "20px" }}>
+        Dataset Metrics
+      </Header>
+      <Table celled style={{ fontSize: "0.7em" }}>
         <Table.Header>
           <Table.Row>
             <Table.HeaderCell>Feature</Table.HeaderCell>
@@ -29,9 +32,9 @@ function MetricTable({ metrics }) {
               <Table.Cell>{roundValue(values.mean)}</Table.Cell>
               <Table.Cell>{roundValue(values.std)}</Table.Cell>
               <Table.Cell>{roundValue(values.min)}</Table.Cell>
-              <Table.Cell>{roundValue(values['25%'])}</Table.Cell>
-              <Table.Cell>{roundValue(values['50%'])}</Table.Cell>
-              <Table.Cell>{roundValue(values['75%'])}</Table.Cell>
+              <Table.Cell>{roundValue(values["25%"])}</Table.Cell>
+              <Table.Cell>{roundValue(values["50%"])}</Table.Cell>
+              <Table.Cell>{roundValue(values["75%"])}</Table.Cell>
               <Table.Cell>{roundValue(values.max)}</Table.Cell>
             </Table.Row>
           ))}

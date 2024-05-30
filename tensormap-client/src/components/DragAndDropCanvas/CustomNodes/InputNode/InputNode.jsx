@@ -1,8 +1,6 @@
-import {
-  Handle, Position, useStoreApi, useReactFlow,
-} from 'reactflow';
+import { Handle, Position, useStoreApi, useReactFlow } from "reactflow";
 
-import './InputNode.css';
+import "./InputNode.css";
 
 function InputNode({ data, id }) {
   const { setNodes } = useReactFlow();
@@ -29,14 +27,46 @@ function InputNode({ data, id }) {
     <div className="input-node">
       <div className="node-header">Input Node</div>
       <label htmlFor="dim-1">Dim 1</label>
-      <input id="dim-1" name="dim-1" type="number" min="0" onChange={updateNodeState} className="nodrag" value={data.params['dim-1']} placeholder="Enter dim-1" />
+      <input
+        id="dim-1"
+        name="dim-1"
+        type="number"
+        min="0"
+        onChange={updateNodeState}
+        className="nodrag"
+        value={data.params["dim-1"]}
+        placeholder="Enter dim-1"
+      />
       <br />
       <label htmlFor="dim-2">Dim 2</label>
-      <input id="dim-2" name="dim-2" type="number" min="0" onChange={updateNodeState} className="nodrag" value={data.params['dim-2']} placeholder="Enter dim-2" />
+      <input
+        id="dim-2"
+        name="dim-2"
+        type="number"
+        min="0"
+        onChange={updateNodeState}
+        className="nodrag"
+        value={data.params["dim-2"]}
+        placeholder="Enter dim-2"
+      />
       <br />
       <label htmlFor="dim-3">Dim 3</label>
-      <input id="dim-3" name="dim-3" type="number" min="0" onChange={updateNodeState} className="nodrag" value={data.params['dim-3']} placeholder="Enter dim-3" />
-      <Handle type="source" position={Position.Right} isConnectable id={`${id}_out`} />
+      <input
+        id="dim-3"
+        name="dim-3"
+        type="number"
+        min="0"
+        onChange={updateNodeState}
+        className="nodrag"
+        value={data.params["dim-3"]}
+        placeholder="Enter dim-3"
+      />
+      <Handle
+        type="source"
+        position={Position.Right}
+        isConnectable
+        id={`${id}_out`}
+      />
     </div>
   );
 }

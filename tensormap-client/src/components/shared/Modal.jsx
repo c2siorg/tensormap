@@ -1,11 +1,13 @@
-import {
-  Button, Icon, Modal, Header,
-} from 'semantic-ui-react';
+import { Button, Icon, Modal, Header } from "semantic-ui-react";
 
-import * as strings from '../../constants/Strings';
+import * as strings from "../../constants/Strings";
 
 function ModalComponent({
-  modalOpen, modelClose, success, Modalmessage, modalText = '',
+  modalOpen,
+  modelClose,
+  success,
+  Modalmessage,
+  modalText = "",
 }) {
   const successModelButton = strings.PROCESS_SUCCESS_MODEL_BUTTON;
   const failModelButton = strings.PROCESS_FAIL_MODEL_BUTTON;
@@ -13,18 +15,13 @@ function ModalComponent({
   return (
     <Modal open={modalOpen} onClose={modelClose} basic size="small">
       <Header
-        icon={success ? 'check circle' : 'exclamation'}
+        icon={success ? "check circle" : "exclamation"}
         content={Modalmessage}
       />
       {!success && <Header.Subheader content={modalText} />}
       <Modal.Actions>
-        <Button
-          color={success ? 'green' : 'red'}
-          onClick={modelClose}
-          inverted
-        >
-          <Icon name="checkmark" />
-          {' '}
+        <Button color={success ? "green" : "red"} onClick={modelClose} inverted>
+          <Icon name="checkmark" />{" "}
           {success ? successModelButton : failModelButton}
         </Button>
       </Modal.Actions>

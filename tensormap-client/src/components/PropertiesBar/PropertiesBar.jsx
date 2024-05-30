@@ -1,33 +1,32 @@
-import { Component } from 'react';
-import {
-  Form, Message, Segment, Dropdown,
-} from 'semantic-ui-react';
-import { getAllFiles } from '../../services/FileServices';
+import { Component } from "react";
+import { Form, Message, Segment, Dropdown } from "semantic-ui-react";
+import { getAllFiles } from "../../services/FileServices";
 
 class PropertiesBar extends Component {
   componentDidMount() {
     // Get the list of datafiles from the backend for the file selector
     getAllFiles()
-      .then(
-        (response) => {
-          const fileList = response.map((file, index) => (
-            { text: `${file.file_name}.${file.file_type}`, value: file.file_id, key: index }
-          ));
-          this.props.setFormState((prevState) => ({
-            ...prevState,
-            fileList,
-            totalDetails: response,
-          }));
-        },
-
-      )
+      .then((response) => {
+        const fileList = response.map((file, index) => ({
+          text: `${file.file_name}.${file.file_type}`,
+          value: file.file_id,
+          key: index,
+        }));
+        this.props.setFormState((prevState) => ({
+          ...prevState,
+          fileList,
+          totalDetails: response,
+        }));
+      })
       .catch((err) => {
         console.error(err);
       });
   }
 
   fileSelectHandler = (event, val) => {
-    const selectedFIleDetails = this.props.formState.totalDetails.filter((item) => item.file_id === val.value);
+    const selectedFIleDetails = this.props.formState.totalDetails.filter(
+      (item) => item.file_id === val.value,
+    );
     const newFieldsList = selectedFIleDetails[0].fields.map((item, index) => ({
       text: item,
       value: item,
@@ -90,38 +89,44 @@ class PropertiesBar extends Component {
   };
 
   batchSizeHandler = (event) => {
-    this.props.setFormState((prevState) => (
-      {
-        ...prevState,
-        batchSize: event.target.value,
-      }
-    ));
+    this.props.setFormState((prevState) => ({
+      ...prevState,
+      batchSize: event.target.value,
+    }));
   };
 
   optimizerOptions = [
-    { key: 'opt_1', text: 'Adam', value: 'adam' },
-    { key: 'opt_2', text: 'SGD', value: 'sgd' },
+    { key: "opt_1", text: "Adam", value: "adam" },
+    { key: "opt_2", text: "SGD", value: "sgd" },
   ];
 
   metricOptions = [
-    { key: 'acc_1', text: 'Accuracy', value: 'accuracy' },
-    { key: 'acc_2', text: 'MSE', value: 'mse' },
+    { key: "acc_1", text: "Accuracy", value: "accuracy" },
+    { key: "acc_2", text: "MSE", value: "mse" },
   ];
 
   problemTypeOptions = [
-    { key: 'prob_type_1', text: 'Multi class classification [All values float]', value: 1 },
-    { key: 'prob_type_2', text: 'Linear Regression [All values float]', value: 2 },
+    {
+      key: "prob_type_1",
+      text: "Multi class classification [All values float]",
+      value: 1,
+    },
+    {
+      key: "prob_type_2",
+      text: "Linear Regression [All values float]",
+      value: 2,
+    },
   ];
 
   activationOptions = [
-    { key: 'act_1', text: 'ReLU', value: 'relu' },
-    { key: 'act_2', text: 'Linear', value: 'linear' },
+    { key: "act_1", text: "ReLU", value: "relu" },
+    { key: "act_2", text: "Linear", value: "linear" },
   ];
 
   render() {
     const fileFieldsList = (
       <Dropdown
-        style={{ marginTop: '2%' }}
+        style={{ marginTop: "2%" }}
         fluid
         placeholder="Target field"
         search
@@ -133,16 +138,21 @@ class PropertiesBar extends Component {
 
     return (
       <div>
-        <Segment style={{
-          overflow: 'auto', maxHeight: '55vh', minWidth: '15vw', marginLeft: '-13px', marginRight: '-28px',
-        }}
+        <Segment
+          style={{
+            overflow: "auto",
+            maxHeight: "55vh",
+            minWidth: "15vw",
+            marginLeft: "-13px",
+            marginRight: "-28px",
+          }}
         >
-          <Message style={{ textAlign: 'center' }}>Code Related </Message>
+          <Message style={{ textAlign: "center" }}>Code Related </Message>
           <Form>
             <Form.Field required>
               <input
                 placeholder="Model Name"
-                style={{ marginTop: '5px', marginBottom: '5px' }}
+                style={{ marginTop: "5px", marginBottom: "5px" }}
                 onChange={this.modalNameHandler}
               />
             </Form.Field>
@@ -151,7 +161,7 @@ class PropertiesBar extends Component {
                 fluid
                 options={this.problemTypeOptions}
                 placeholder="Select Problem Type"
-                style={{ marginTop: '5px', marginBottom: '5px' }}
+                style={{ marginTop: "5px", marginBottom: "5px" }}
                 onChange={this.problemTypeHandler}
               />
             </Form.Field>
@@ -160,7 +170,7 @@ class PropertiesBar extends Component {
                 fluid
                 options={this.optimizerOptions}
                 placeholder="Optimizer"
-                style={{ marginTop: '5px', marginBottom: '5px' }}
+                style={{ marginTop: "5px", marginBottom: "5px" }}
                 onChange={this.optimizerHandler}
               />
             </Form.Field>
@@ -169,7 +179,7 @@ class PropertiesBar extends Component {
                 fluid
                 options={this.metricOptions}
                 placeholder="Result Metrics"
-                style={{ marginTop: '5px', marginBottom: '5px' }}
+                style={{ marginTop: "5px", marginBottom: "5px" }}
                 onChange={this.metricHandler}
               />
             </Form.Field>
@@ -177,7 +187,7 @@ class PropertiesBar extends Component {
               <input
                 placeholder="No of Epochs"
                 type="number"
-                style={{ marginTop: '5px', marginBottom: '5px' }}
+                style={{ marginTop: "5px", marginBottom: "5px" }}
                 onChange={this.epochCountHandler}
               />
             </Form.Field>
@@ -185,7 +195,7 @@ class PropertiesBar extends Component {
               <input
                 placeholder="Batch Size"
                 type="number"
-                style={{ marginTop: '5px', marginBottom: '5px' }}
+                style={{ marginTop: "5px", marginBottom: "5px" }}
                 onChange={this.batchSizeHandler}
               />
             </Form.Field>
@@ -199,20 +209,17 @@ class PropertiesBar extends Component {
                 options={this.props.formState.fileList}
               />
             </Form.Field>
-            <Form.Field required>
-              {fileFieldsList}
-            </Form.Field>
+            <Form.Field required>{fileFieldsList}</Form.Field>
             <Form.Field required>
               <input
                 placeholder="Train:Test ratio"
                 type="number"
-                style={{ marginTop: '5px', marginBottom: '5px' }}
+                style={{ marginTop: "5px", marginBottom: "5px" }}
                 onChange={this.trainTestRatioHandler}
               />
             </Form.Field>
           </Form>
         </Segment>
-
       </div>
     );
   }

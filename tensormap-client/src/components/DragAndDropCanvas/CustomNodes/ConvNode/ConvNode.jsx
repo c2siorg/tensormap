@@ -1,12 +1,6 @@
 import { Handle, Position, useStoreApi, useReactFlow } from "reactflow";
 import "./ConvNode.css";
 
-const activations = [
-    { value: "default", label: "Select activation" },
-    { value: "relu", label: "ReLU" },
-    { value: "linear", label: "Linear" },
-];
-
 function ConvNode({ data, id }) {
     const paddingOptions = ["valid", "same"];
     const activationOptions = ["none", "relu"];

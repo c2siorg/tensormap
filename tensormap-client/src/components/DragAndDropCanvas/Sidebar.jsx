@@ -1,5 +1,3 @@
-import React from 'react';
-
 function Sidebar() {
   const onDragStart = (event, nodeType) => {
     event.dataTransfer.setData('application/reactflow', nodeType);

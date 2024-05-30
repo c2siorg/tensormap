@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from "react";
-import { Segment, Dropdown, Form, Button, Tab } from "semantic-ui-react";
+import{ useState, useEffect } from "react";
+import {Button } from "semantic-ui-react";
 import { getCovMatrix, transformData } from "../../services/FileServices";
 import TransformationCreator from "./TransformationCreator";
 import TransformationList from "./TransformationList";

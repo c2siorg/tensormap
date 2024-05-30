@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import io from "socket.io-client";
 import { Grid, Menu, Button, Form, Dropdown, Segment, Dimmer, Loader } from "semantic-ui-react";
 import { useRecoilState } from "recoil";
@@ -55,7 +55,7 @@ function ResultPanel() {
         } catch (error) {
             console.error("Error connecting to the socket:", error);
         }
-    }, []);
+    });
 
     const modelSelectHandler = (event, { value }) => {
         setSelectedModel(value);

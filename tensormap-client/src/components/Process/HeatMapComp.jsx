@@ -1,4 +1,3 @@
-import React from "react";
 import HeatMap from "react-heatmap-grid";
 import { Header } from "semantic-ui-react";
 
@@ -29,7 +28,7 @@ function HeatMapComp({ corrMatrix }) {
                     yLabelsLocation="left"
                     data={data_val}
                     height={30}
-                    cellStyle={(background, value, min, max, data, x, y) => ({
+                    cellStyle={(background, value, min, max) => ({
                         background: `rgba(66, 86, 244, ${1 - (max - value) / (max - min)})`,
                         fontSize: "11px",
                     })}

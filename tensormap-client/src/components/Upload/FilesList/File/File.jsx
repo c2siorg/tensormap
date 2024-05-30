@@ -1,11 +1,9 @@
-import React from "react";
 import { Segment, Button } from "semantic-ui-react";
 import { deleteFile } from "../../../../services/FileServices";
-import { useState } from "react";
 function File(props) {
 
     const deleteFileHandeler = async () => {
-      const a = await deleteFile(props.savedFileId)
+      await deleteFile(props.savedFileId)
       props.setRefresh(!props.refresh)
     } 
     return (

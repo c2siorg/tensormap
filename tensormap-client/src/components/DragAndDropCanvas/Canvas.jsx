@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback, Fragment } from "react";
+import { useState, useRef, useCallback } from "react";
 import { Grid, Form, Button } from "semantic-ui-react";
 import ReactFlow, { ReactFlowProvider, addEdge, useNodesState, useEdgesState, Controls, Background, BackgroundVariant } from "reactflow";
 import { useRecoilState } from "recoil";
@@ -22,7 +22,7 @@ const getId = () => `dndnode_${id++}`;
 const nodeTypes = { custominput: InputNode, customdense: DenseNode, customflatten: FlattenNode, customconv: ConvNode };
 function Canvas() {
     const reactFlowWrapper = useRef(null);
-    const [modelList, setModelList] = useRecoilState(allModels);
+    const [, setModelList] = useRecoilState(allModels);
     const [nodes, setNodes, onNodesChange] = useNodesState([]);
     const [edges, setEdges, onEdgesChange] = useEdgesState([]);
     const [reactFlowInstance, setReactFlowInstance] = useState(null);

@@ -1,4 +1,3 @@
-import React from 'react';
 import { Table, Header } from 'semantic-ui-react';
 
 function MetricTable({ metrics }) {

@@ -12,11 +12,10 @@ module.exports = {
         "quotes": "off",
         "react/jsx-filename-extension": "off",
         "react/prop-types": "off",
-        "no-unused-vars": "off",
         "react/function-component-definition": "off",
         "indent": "off",
         "camelcase": "off",
         "consistent-return": "off",
-        "no-undef": "off",
+        "no-undef": "off"
     },
 };

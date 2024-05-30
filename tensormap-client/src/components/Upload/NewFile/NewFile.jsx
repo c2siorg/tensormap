@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import { Form, Button, Icon } from "semantic-ui-react";
 import * as strings from "../../../constants/Strings";
 import ModalComponent from "../../shared/Modal";

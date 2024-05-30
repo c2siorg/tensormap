@@ -1,4 +1,3 @@
-import React from 'react';
 import {
   Message, Segment, Grid, Header, Icon, Button,
 } from 'semantic-ui-react';

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Grid, Segment, Divider, Dimmer, Loader } from "semantic-ui-react";
 import FilesList from "../../components/Upload/FilesList/FilesList";
 import * as strings from "../../constants/Strings";

@@ -1,4 +1,3 @@
-import React from 'react';
 import { Grid } from 'semantic-ui-react';
 import ResultPanel from '../../components/ResultPanel/ResultPanel';
 import Canvas from '../../components/DragAndDropCanvas/Canvas';

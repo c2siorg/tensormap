@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Table, Loader } from "semantic-ui-react";
 import { getFileData } from "../../services/FileServices";
 

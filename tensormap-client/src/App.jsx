@@ -8,19 +8,49 @@ import * as urls from "./constants/Urls";
 import Layout from "./components/Layout/Layout";
 
 function App() {
-    return (
-        <BrowserRouter>
-            <Suspense fallback={<div>Loading...</div>}>
-                <Routes>
-                        <Route exact path={urls.HOME_URL} element={<Layout > <Home /></Layout>} />
-                        <Route path={urls.DATA_UPLOAD_URL} element={<Layout><DataUpload /></Layout>} />
-                        <Route path={urls.DATA_PROCESS_URL} element={<Layout><DataProcess/></Layout>} />
-                        <Route path={urls.DEEP_LEARN_URL} element={<Layout><DeepLearning /></Layout>}/>
-                        <Route exact path="/" element={<Navigate to={urls.HOME_URL} />} />
-                </Routes>
-            </Suspense>
-        </BrowserRouter>
-    );
+  return (
+    <BrowserRouter>
+      <Suspense fallback={<div>Loading...</div>}>
+        <Routes>
+          <Route
+            exact
+            path={urls.HOME_URL}
+            element={
+              <Layout>
+                {" "}
+                <Home />
+              </Layout>
+            }
+          />
+          <Route
+            path={urls.DATA_UPLOAD_URL}
+            element={
+              <Layout>
+                <DataUpload />
+              </Layout>
+            }
+          />
+          <Route
+            path={urls.DATA_PROCESS_URL}
+            element={
+              <Layout>
+                <DataProcess />
+              </Layout>
+            }
+          />
+          <Route
+            path={urls.DEEP_LEARN_URL}
+            element={
+              <Layout>
+                <DeepLearning />
+              </Layout>
+            }
+          />
+          <Route exact path="/" element={<Navigate to={urls.HOME_URL} />} />
+        </Routes>
+      </Suspense>
+    </BrowserRouter>
+  );
 }
 
 export default App;

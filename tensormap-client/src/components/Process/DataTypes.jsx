@@ -1,10 +1,12 @@
-import { Table, Header } from 'semantic-ui-react';
+import { Table, Header } from "semantic-ui-react";
 
 function DataTypes({ dataTypes }) {
   return (
     <div>
-      <Header size="medium" textAlign="center" style={{ marginTop: '20px' }}>Datatypes</Header>
-      <Table style={{ fontSize: '0.8em' }}>
+      <Header size="medium" textAlign="center" style={{ marginTop: "20px" }}>
+        Datatypes
+      </Header>
+      <Table style={{ fontSize: "0.8em" }}>
         <Table.Header>
           <Table.Row>
             <Table.HeaderCell>Column Name</Table.HeaderCell>

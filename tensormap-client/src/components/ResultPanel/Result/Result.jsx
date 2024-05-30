@@ -1,12 +1,9 @@
-import { Message } from 'semantic-ui-react';
+import { Message } from "semantic-ui-react";
 
 function Result(props) {
   return (
-    <div style={{ marginLeft: '10px', marginRight: '10px', marginTop: '10px' }}>
-      <Message
-        success
-        content={props.result}
-      />
+    <div style={{ marginLeft: "10px", marginRight: "10px", marginTop: "10px" }}>
+      <Message success content={props.result} />
     </div>
   );
 }

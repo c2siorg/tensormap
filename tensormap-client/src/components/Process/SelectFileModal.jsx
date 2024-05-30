@@ -1,10 +1,14 @@
-import { Header, Icon } from 'semantic-ui-react';
+import { Header, Icon } from "semantic-ui-react";
 
 function SelectFileModal() {
   return (
-    <div style={{
-      display: 'flex', alignItems: 'center', justifyContent: 'center', height: '50vh',
-    }}
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        height: "50vh",
+      }}
     >
       <Header as="h2" icon>
         <Icon name="file alternate outline" />

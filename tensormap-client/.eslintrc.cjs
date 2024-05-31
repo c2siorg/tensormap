@@ -19,12 +19,7 @@ module.exports = {
       { allowConstantExport: true },
     ],
     quotes: "off",
-    "react/jsx-filename-extension": "off",
     "react/prop-types": "off",
-    "react/function-component-definition": "off",
-    indent: "off",
-    camelcase: "off",
-    "consistent-return": "off",
     "no-undef": "off",
   },
 };

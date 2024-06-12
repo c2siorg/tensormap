@@ -23,6 +23,8 @@ ipython_config.py
 .env
 env
 
+#VS Code Files
+.vscode
 
 
 templates/generated-code/*.py

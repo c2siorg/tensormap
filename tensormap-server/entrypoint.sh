@@ -7,6 +7,8 @@ success=0
 
 while [ $attempt_num -le $max_attempts ]
 do
+  flask db init 
+  flask db migrate
   flask db upgrade
   if [ $? -eq 0 ]
   then

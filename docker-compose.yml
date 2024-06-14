@@ -1,16 +1,14 @@
 version: '3'
 services:
   database:
-    image: mysql
-    command: --default-authentication-plugin=mysql_native_password
+    image: postgres
     restart: always
     environment:
-      MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: c2si_db
-      MYSQL_USER: c2si
-      MYSQL_PASSWORD: c2si
+      POSTGRES_DB: c2si_db
+      POSTGRES_USER: c2si
+      POSTGRES_PASSWORD: c2si
     ports:
-      - 3306:3306
+      - 5432:5432
   server:
     build: ./tensormap-server
     environment:

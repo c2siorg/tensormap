@@ -21,6 +21,7 @@ dependencies:
   - flatten_json
   - python-decouple
   - pymysql
+  - psycopg2-binary
   - pip
 channels:
   - conda-forge

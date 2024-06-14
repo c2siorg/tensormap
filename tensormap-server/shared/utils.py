@@ -37,14 +37,15 @@ def get_socket_ref():
 
 def create_db_connection():
     return (
-        'mysql+pymysql://'
-        + os.getenv('db_user')
-        + ':'
-        + os.getenv('db_password')
-        + '@'
-        + os.getenv('db_host')
-        + '/'
-        + os.getenv('db_name')
+        # 'postgresql+psycopg2://'
+        # + os.getenv('db_user')
+        # + ':'
+        # + os.getenv('db_password')
+        # + '@'
+        # + os.getenv('db_host', 'localhost')
+        # + ':5432/'
+        # + os.getenv('db_name')
+        'postgresql+psycopg2://postgres:c2si@localhost:5432/postgres'
     )
 
 

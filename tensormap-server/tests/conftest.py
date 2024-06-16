@@ -1,7 +1,7 @@
 import os
 from dotenv import load_dotenv
 import pytest
-import pymysql
+import psycopg2
 import urllib.parse
 from flask_migrate import Migrate, upgrade
 from flask import Flask
@@ -24,7 +24,7 @@ def app():
     # Basic setup of a new Flask App
     flask_app = Flask(__name__)
     flask_app.config['TESTING'] = True
-    flask_app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://'+ os.getenv('db_user')+ ':'+ os.getenv('db_password')+ '@'+ os.getenv('db_host') + '/'+ db_name
+    flask_app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql+psycopg2://' + os.getenv('db_user') + ':'+ os.getenv('db_password') + '@' + os.getenv('db_host', 'localhost') + ':5432/' + os.getenv('db_name')
     flask_app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     
     # Setting up for TensorMap
@@ -49,10 +49,11 @@ def client(app):
 
 def init_test_database():
     # Create a test database
-    connection = pymysql.connect(
+    connection = psycopg2.connect(
         host=os.getenv('db_host').split(":")[0],
         user= os.getenv('db_user'),
-        password=urllib.parse.unquote('ANTHeRAX%4099')
+        password=os.getenv('db_password'),
+        dbname=os.getenv('db_name')
     )
     cursor = connection.cursor()
     cursor.execute(f"DROP DATABASE IF EXISTS {db_name}")
@@ -62,10 +63,11 @@ def init_test_database():
 
 
 def destroy_test_database():
-    connection = pymysql.connect(
+    connection = psycopg2.connect(
         host=os.getenv('db_host').split(":")[0],
         user= os.getenv('db_user'),
-        password=urllib.parse.unquote(os.getenv('db_password'))
+        password=os.getenv('db_password'),
+        dbname=os.getenv('db_name')
     )
     cursor = connection.cursor()
 

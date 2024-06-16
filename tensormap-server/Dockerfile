@@ -2,9 +2,15 @@ FROM python:3.9-slim-buster
 
 WORKDIR /app
 
-ADD . /app
+RUN pip install --no-cache-dir poetry
 
-RUN pip install --no-cache-dir -r requirements.txt
+COPY pyproject.toml poetry.lock* /app/
+
+RUN poetry config virtualenvs.create false
+
+RUN poetry install --no-dev --no-interaction --no-ansi
+
+COPY . /app
 
 EXPOSE 80
 

@@ -1,0 +1,33 @@
+[tool.poetry]
+name = "tensormap-server"
+version = "0.1.0"
+description = "TensorMap Python Server"
+authors = ["Saatwik Vasishtha <saatwik.vasishtha@gmail.com>"]
+readme = "README.md"
+package-mode = false
+
+[tool.poetry.dependencies]
+python = "^3.9"
+notebook = "^7.2.1"
+jupyterlab = "^4.2.2"
+ipywidgets = "^8.1.3"
+numpy = "^1.26.4"
+pandas = "^2.2.2"
+flask = "^3.0.3"
+flask-cors = "^4.0.1"
+flask-restful = "^0.3.10"
+flask-migrate = "^4.0.7"
+flask-sqlalchemy = "^3.1.1"
+flask-socketio = "^5.3.6"
+tensorflow = "^2.16.1"
+tensorboard = ">=2.16,<2.17"
+python-dotenv = "^1.0.1"
+alembic = "^1.13.1"
+pyyaml = "^6.0.1"
+flatten-json = "^0.1.14"
+python-decouple = "^3.8"
+psycopg2-binary = "^2.9.9"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

@@ -11,7 +11,8 @@ from shared.request.response import generic_response
 from shared.services.code.generation import generate_code
 from shared.services.model.generation import model_generation
 from shared.utils import get_socket_ref, save_multiple_records, save_one_record
-import pymysql
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import sessionmaker
 from endpoints.DeepLearning.modelRun import model_run
 
 socketio = get_socket_ref()
@@ -60,7 +61,7 @@ def model_validate_service(incoming):
     try:
         save_one_record(record=model)
         save_multiple_records(records=configs)
-    except pymysql.err.IntegrityError as e:
+    except IntegrityError as e:
         print(e)
         for error in errors.err_msgs.keys():
             if error in str(e):

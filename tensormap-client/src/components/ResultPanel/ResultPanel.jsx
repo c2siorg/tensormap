@@ -36,7 +36,6 @@ function ResultPanel() {
       const socket = io(urls.WS_DL_RESULTS);
 
       const dlResultListener = (resp) => {
-        console.log(resp)
         if (resp.message && resp.message.includes("Starting")) {
           setResultValues([]);
         } else if (resp.message && resp.message.includes("Finish")) {

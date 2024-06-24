@@ -36,6 +36,7 @@ function ResultPanel() {
       const socket = io(urls.WS_DL_RESULTS);
 
       const dlResultListener = (resp) => {
+        console.log(resp)
         if (resp.message && resp.message.includes("Starting")) {
           setResultValues([]);
         } else if (resp.message && resp.message.includes("Finish")) {
@@ -66,9 +67,9 @@ function ResultPanel() {
         socket.off(strings.DL_RESULT_LISTENER, dlResultListener);
       };
     } catch (error) {
-      console.error("Error connecting to the socket:", error);
+      console.log("Error connecting to the socket:", error);
     }
-  });
+  }, []);
 
   const modelSelectHandler = (event, { value }) => {
     setSelectedModel(value);

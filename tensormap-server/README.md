@@ -1,9 +1,27 @@
 ## Backend setup and architecture
 
 
-First, make sure you have MySQL server and Python 3.x installed in your system.
+First, make sure you have PostgreSQL server and Python 3.x installed in your system.
 (the recommended version is python 3.9)
 
+### Starting the Server and Database using Docker
+Requirements
+- docker compose 
+- docker 
+```
+docker compose up
+```
+### Starting PostgreSQL using Docker
+The database with portgreSQL can be setup on docker using the following command
+```
+docker run -d \
+  --name database \
+  -e POSTGRES_DB='database name' \
+  -e POSTGRES_USER='database username' \
+  -e POSTGRES_PASSWORD='database user password' \
+  -p 5432:5432 \
+  postgres
+```
 
 ### Installation instructions
 
@@ -11,16 +29,9 @@ First, make sure you have MySQL server and Python 3.x installed in your system.
   Before installing the libraries, install a python virtual environment. You can install
   the python virtual environment by following [this](https://packaging.python.org/guides/installing-using-pip-and-virtual-environments/)
   guide. Follow the relevant guide based on your operating system.
-
-* run the setup script using `./setup.sh` to create a virtual environment and activate it.
-
-* Then Active the virtual environment and run the following
-  command to install the pip packages to your virtual
-  environment.
-
-`pip install -r requirements.txt`
-
-* To set up the database, open your MySQL console and create a database.
+* run the setup script using `./setup.sh` to create a virtual environment and install dependencies.
+* Activate the environment by running `poetry shell`
+* To set up the database, open your PosgresSQL console and create a database.
   And add a .env file and add the following details as shown below.
 
 ```
@@ -88,6 +99,12 @@ The application architecture is set up as follows.
 
 ##### TODO: Describe architecture and how to do incremental developments.
 
+### Setting up databse locally
+```
+flask db init // initialized the database
+flask db migrate // migrating the database 
+flask db upgrade // apply changes to the database
+```
 ### Database modifications
 
 Once you change to database models or create one, it will not affect as soon you have done it.

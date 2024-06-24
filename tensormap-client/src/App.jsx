@@ -6,44 +6,37 @@ import DataProcess from "./containers/DataProcess/DataProcess";
 import DeepLearning from "./containers/DeepLearning/DeepLearning";
 import * as urls from "./constants/Urls";
 import Layout from "./components/Layout/Layout";
+import NavBar from "./components/Layout/NavBar/NavBar";
 
 function App() {
   return (
     <BrowserRouter>
+      <NavBar />
       <Suspense fallback={<div>Loading...</div>}>
         <Routes>
           <Route
             exact
             path={urls.HOME_URL}
             element={
-              <Layout>
-                {" "}
-                <Home />
-              </Layout>
+              <Home />
             }
           />
           <Route
             path={urls.DATA_UPLOAD_URL}
             element={
-              <Layout>
-                <DataUpload />
-              </Layout>
+              <DataUpload />
             }
           />
           <Route
             path={urls.DATA_PROCESS_URL}
             element={
-              <Layout>
-                <DataProcess />
-              </Layout>
+              <DataProcess />
             }
           />
           <Route
             path={urls.DEEP_LEARN_URL}
             element={
-              <Layout>
-                <DeepLearning />
-              </Layout>
+              <DeepLearning />
             }
           />
           <Route exact path="/" element={<Navigate to={urls.HOME_URL} />} />

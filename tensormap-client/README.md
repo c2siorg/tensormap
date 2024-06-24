@@ -25,4 +25,4 @@ Follow the steps below to create your machine learning algorithm:
 
 ## Testing
 
-For the front end, `Jest` is used for testing. All the configurations and sample tests are added in the `__tests__` directory located inside the `components` directory. To run the rests simply run `npm run test` in the terminal.
+For the front end, `Jest` is used for testing. All the configurations and sample tests are added in the `test` directory located inside the `root` directory. To run the rests simply run `npm run test` in the terminal.

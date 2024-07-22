@@ -2,7 +2,7 @@ from flask import request
 from flask_restful import reqparse
 from shared.constants import *
 
-ALLOWED_EXTENSIONS = {'csv'}
+ALLOWED_EXTENSIONS = {'csv', 'zip'}
 
 
 def data_upload_post_validator():

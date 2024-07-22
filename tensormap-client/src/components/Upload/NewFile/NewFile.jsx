@@ -14,7 +14,10 @@ function NewFile() {
     modalOpen: false,
   });
 
-  const fileTypes = [{ key: "csv", text: "CSV", value: "csv" }, {key: "zip", text: "ZIP", value: "zip"}];
+  const fileTypes = [
+    { key: "csv", text: "CSV", value: "csv" },
+    { key: "zip", text: "ZIP", value: "zip" },
+  ];
   function submitButtonEnableHandler() {
     setState((prevState) => {
       if (

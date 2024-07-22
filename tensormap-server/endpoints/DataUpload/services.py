@@ -73,15 +73,9 @@ def get_all_files_service():
     try:
         data = []
         files = DataFile.query.all()
-        count = 1
         for file in files:
-            if(file.file_type == 'zip' and count == 3):
-                print(file.file_name)
-                count += 1
-                # data.append({FILE_NAME: file.file_name, FILE_TYPE: file.file_type, FILE_ID: file.id, FILE_FIELDS: []})
-            elif(file.file_type == 'zip'):
-                count += 1
-                continue
+            if(file.file_type == 'zip'):
+                data.append({FILE_NAME: file.file_name, FILE_TYPE: file.file_type, FILE_ID: file.id, FILE_FIELDS: []})
             else:
                 df = pd.read_csv(upload_folder + '/' + file.file_name + '.' + file.file_type)
                 fields = list(df.columns)
@@ -95,15 +89,27 @@ def get_all_files_service():
 
 def delete_one_file_by_id_service(file_id):
     try:
-        # Check file exists in DB and check the file in ./data directory if exist, file deleted
-        if DataFile.query.filter_by(id=file_id).count() > 0:
-            file = DataFile.query.filter_by(id=file_id).first()
-            if os.path.isfile(upload_folder + '/' + file.file_name + '.' + file.file_type):
-                os.remove(upload_folder + '/' + file.file_name + '.' + file.file_type)
-                delete_one_record(record=file)
-                return generic_response(status_code=200, success=True, message='Files deleted successfully')
+        file = DataFile.query.filter_by(id=file_id).first()
+        if file:
+            file_path = os.path.join(upload_folder, f"{file.file_name}.{file.file_type}")
+            if file.file_type == 'zip':
+                zip_file_path = file_path  
+                directory_path = os.path.join(upload_folder, file.file_name)
+                if os.path.isdir(directory_path):
+                    shutil.rmtree(directory_path)
+                    if os.path.isfile(zip_file_path):
+                        os.remove(zip_file_path)
+                    delete_one_record(record=file)
+                    return generic_response(status_code=200, success=True, message='Zip file and directory deleted successfully')
+                else:
+                    return generic_response(status_code=400, success=False, message='Zip file not found')
             else:
-                return generic_response(status_code=400, success=False, message='File not found')
+                if os.path.isfile(file_path):
+                    os.remove(file_path)
+                    delete_one_record(record=file)
+                    return generic_response(status_code=200, success=True, message='File deleted successfully')
+                else:
+                    return generic_response(status_code=400, success=False, message='File not found')
         else:
             return generic_response(status_code=400, success=False, message='File not in the DB')
     except Exception as e:

@@ -44,7 +44,7 @@ def add_file_service():
                 future = executor.submit(load_dataset, file_path, filename)
                 result = future.result(timeout=10)  # 10 seconds timeout
             if(result == False):
-                raise Exception("Error loading dataset")
+                raise Exception("The ZIP file doesnt have images in the proper format.")
             unzip_folder = os.path.join(upload_folder, filename.rsplit('.', 1)[0])
             # If successful, save details in the database (omitted for brevity)
             file_name_db = secure_filename(file.filename.rsplit('.', 1)[0].lower())

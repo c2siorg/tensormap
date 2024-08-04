@@ -2,7 +2,7 @@ from flask import request
 from flask_restful import reqparse
 from shared.constants import *
 
-ALLOWED_EXTENSIONS = {'csv'}
+ALLOWED_EXTENSIONS = {'csv', 'zip'}
 
 
 def data_upload_post_validator():
@@ -19,7 +19,7 @@ def data_upload_post_validator():
         # Check for the correct format
         if not is_file_allowed:
             data_post_args.add_argument(
-                DATA, help='Please check the file type. you added wrong format. (CSV only)', required=True
+                DATA, help='Please check the file type. you added wrong format. (CSV, ZIP only)', required=True
             )
 
     return data_post_args

@@ -66,9 +66,9 @@ function ResultPanel() {
         socket.off(strings.DL_RESULT_LISTENER, dlResultListener);
       };
     } catch (error) {
-      console.error("Error connecting to the socket:", error);
+      console.log("Error connecting to the socket:", error);
     }
-  });
+  }, []);
 
   const modelSelectHandler = (event, { value }) => {
     setSelectedModel(value);

@@ -1,24 +1,24 @@
-import { useState } from 'react';
-import { Button, Table, Input, Select } from 'semantic-ui-react';
-import axios from 'axios';
+import { useState } from "react";
+import { Button, Table, Input, Select } from "semantic-ui-react";
+import axios from "axios";
 
 const colorModeOptions = [
-  { key: 'grayscale', value: 'grayscale', text: 'Grayscale' },
-  { key: 'rgb', value: 'rgb', text: 'RGB' },
-  { key: 'rgba', value: 'rgba', text: 'RGBA' },
+  { key: "grayscale", value: "grayscale", text: "Grayscale" },
+  { key: "rgb", value: "rgb", text: "RGB" },
+  { key: "rgba", value: "rgba", text: "RGBA" },
 ];
 
 const labelModeOptions = [
-  { key: 'int', value: 'int', text: 'Int' },
-  { key: 'categorical', value: 'categorical', text: 'Categorical' },
-  { key: 'binary', value: 'binary', text: 'Binary' },
+  { key: "int", value: "int", text: "Int" },
+  { key: "categorical", value: "categorical", text: "Categorical" },
+  { key: "binary", value: "binary", text: "Binary" },
 ];
 
 const ImagePreprocess = () => {
-  const [imageSize, setImageSize] = useState('');
-  const [batchSize, setBatchSize] = useState('');
-  const [colorMode, setColorMode] = useState('rgb');
-  const [labelMode, setLabelMode] = useState('int');
+  const [imageSize, setImageSize] = useState("");
+  const [batchSize, setBatchSize] = useState("");
+  const [colorMode, setColorMode] = useState("rgb");
+  const [labelMode, setLabelMode] = useState("int");
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -29,12 +29,13 @@ const ImagePreprocess = () => {
       label_mode: labelMode,
     };
 
-    axios.post('/api/image-preprocess', data)
-      .then(response => {
-        console.log('Success:', response.data);
+    axios
+      .post("/api/image-preprocess", data)
+      .then((response) => {
+        console.log("Success:", response.data);
       })
-      .catch(error => {
-        console.error('Error:', error);
+      .catch((error) => {
+        console.error("Error:", error);
       });
   };
 

@@ -102,7 +102,9 @@ function PreprocessData({ fileId, fileType, updateFileList }) {
     return (
       <div>
         {duplicateFeature}
-        {datasetCreatedSuccesfully ? successDatasetCreated : errorDatasetCreated}
+        {datasetCreatedSuccesfully
+          ? successDatasetCreated
+          : errorDatasetCreated}
         <TransformationCreator
           features={data ? data : []}
           onAdd={handleAddTransformation}
@@ -125,9 +127,7 @@ function PreprocessData({ fileId, fileType, updateFileList }) {
         </Button>
       </div>
     );
-  }
-  else 
-    return <ImagePreprocess fileType = {fileType} />
+  } else return <ImagePreprocess fileType={fileType} />;
 }
 
 export default PreprocessData;

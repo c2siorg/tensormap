@@ -15,6 +15,7 @@ function DataProcess() {
   const [state, setState] = useState({
     fileList: null,
     selectedFile: null,
+    selectedFileType: null,
     totalDetails: null,
     showFieldsList: false,
     fieldsList: null,
@@ -29,11 +30,13 @@ function DataProcess() {
 
   const updateFileList = () => {
     getAllFiles().then((response) => {
-      const fileList = response.map((file, index) => ({
+      const fileList = response.map((file, index) => {
+        return {
         text: `${file.file_name}.${file.file_type}`,
+        type: file.file_type,
         value: file.file_id,
         key: index,
-      }));
+    }});
       setState((prevState) => ({
         ...prevState,
         fileList,
@@ -80,6 +83,7 @@ function DataProcess() {
           <Tab.Pane>
             <PreprocessData
               fileId={state.selectedFile}
+              fileType={state.selectedFileType}
               updateFileList={updateFileList}
             />
           </Tab.Pane>
@@ -93,11 +97,13 @@ function DataProcess() {
 
   useEffect(() => {
     getAllFiles().then((response) => {
-      const fileList = response.map((file, index) => ({
+      const fileList = response.map((file, index) => {
+        return {
         text: `${file.file_name}.${file.file_type}`,
+        type: file.file_type,
         value: file.file_id,
         key: index,
-      }));
+      }});
       setState((prevState) => ({
         ...prevState,
         fileList,
@@ -120,13 +126,13 @@ function DataProcess() {
           key: index,
         }),
       );
-
       setState({
         ...state,
         corrMatrix: response.correlation_matrix,
         dataTypes: response.data_types,
         metrics: response.metric,
         selectedFile: val.value,
+        selectedFileType: val.options[val.value - 1].type,
         showFieldsList: true,
         fieldsList: fileDetailsArr,
       });

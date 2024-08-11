@@ -6,11 +6,13 @@ from endpoints.DataProcess.services import (
     get_one_target_by_id_service,
     get_data_metrics,
     get_file_name, 
-    preprocess_data
+    preprocess_data,
+    update_image_properties
 )
 from endpoints.DataProcess.validators import target_add_post_validator
 from flask_restful import Resource
 from flask import request
+from shared.request.response import generic_response
 
 
 class ProcessAddNGet(Resource):
@@ -42,3 +44,8 @@ class PreprocessData(Resource):
     def post(self, file_id):
         data = request.get_json()
         return preprocess_data(file_id=file_id, data=data)
+
+class ImagePreprocessProps(Resource):
+    def post(self, file_id):
+        data = request.get_json()
+        return update_image_properties(file_id=data["fileId"], file_type=data["fileType"], image_size=data["image_size"], batch_size=data["batch_size"], color_mode=data["color_mode"], label_mode=data["label_mode"])

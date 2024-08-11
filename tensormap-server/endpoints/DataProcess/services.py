@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 
-from endpoints.DataProcess.models import DataProcess
+from endpoints.DataProcess.models import DataProcess, ImageProperties, db
 from endpoints.DataUpload.models import DataFile
 from shared.constants import *
 from shared.request.response import generic_response
@@ -135,3 +135,34 @@ def preprocess_data(file_id, data):
             return generic_response(status_code=500, success=False, message=f"Error preprocessing data: {str(e)}")
             
     return generic_response(status_code=400, success=False, message="File doesn't exist in DB")
+
+def update_image_properties(file_id, file_type, image_size, batch_size, color_mode, label_mode):
+    try:
+        # Query the ImageProperties table using the file_id
+        image_properties = ImageProperties.query.filter_by(id=file_id).first()
+
+        if image_properties:
+            # Update the existing record with new parameters
+            image_properties.image_size = image_size
+            image_properties.batch_size = batch_size
+            image_properties.color_mode = color_mode
+            image_properties.label_mode = label_mode
+            db.session.commit()
+            return generic_response(status_code=200, success=True, message='Image properties updated successfully')
+        else:
+            # Insert a new record with the provided parameters
+            new_image_properties = ImageProperties(
+                id=file_id,
+                image_size=image_size,
+                batch_size=batch_size,
+                color_mode=color_mode,
+                label_mode=label_mode
+            )
+            db.session.add(new_image_properties)
+            db.session.commit()
+            return generic_response(status_code=201, success=True, message='Image properties added successfully')
+    except Exception as e:
+        # Log the error message and return a generic response
+        print(f"An error occurred: {str(e)}")
+        return generic_response(status_code=500, success=False, message='An error occurred while upserting the image properties')
+

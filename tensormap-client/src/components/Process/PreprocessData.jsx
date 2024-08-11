@@ -98,7 +98,7 @@ function PreprocessData({ fileId, fileType, updateFileList }) {
     }
     updateFileList();
   };
-  if (fileType !== "csv") {
+  if (fileType !== "zip") {
     return (
       <div>
         {duplicateFeature}

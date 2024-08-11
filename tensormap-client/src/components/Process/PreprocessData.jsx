@@ -127,7 +127,7 @@ function PreprocessData({ fileId, fileType, updateFileList }) {
         </Button>
       </div>
     );
-  } else return <ImagePreprocess fileType={fileType} />;
+  } else return <ImagePreprocess fileId={fileId} fileType={fileType} />;
 }
 
 export default PreprocessData;

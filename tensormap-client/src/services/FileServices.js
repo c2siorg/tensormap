@@ -111,3 +111,15 @@ export const deleteFile = async (fileId) => {
       console.error("Error:", error);
     });
 };
+
+export const submitImageParameters = async (data) => {
+  console.log(data.fileId)
+    axios
+      .post(urls.BACKEND_IMAGE_PREPROCESS + data.fileId, data)
+      .then((response) => {
+        console.log("Success:", response.data);
+      })
+      .catch((error) => {
+        console.error("Error:", error);
+      });
+};

@@ -3,9 +3,10 @@ import { Button } from "semantic-ui-react";
 import { getCovMatrix, transformData } from "../../services/FileServices";
 import TransformationCreator from "./TransformationCreator";
 import TransformationList from "./TransformationList";
+import ImagePreprocess from "./ImagePreprocess";
 import ModalComponent from "../shared/Modal";
 
-function PreprocessData({ fileId, updateFileList }) {
+function PreprocessData({ fileId, fileType, updateFileList }) {
   const [data, setData] = useState(null);
   const [transformations, setTransformations] = useState([]);
   const [disableButton, setDisableButton] = useState(true);
@@ -31,12 +32,10 @@ function PreprocessData({ fileId, updateFileList }) {
   }
 
   useEffect(() => {
-    console.log(fileId);
     const fetchData = async () => {
       try {
         const response = await getCovMatrix(fileId);
         setData(Object.keys(response.data_types));
-        console.log(response.data_types);
       } catch (e) {
         console.error(e);
       }
@@ -99,33 +98,36 @@ function PreprocessData({ fileId, updateFileList }) {
     }
     updateFileList();
   };
-
-  return (
-    <div>
-      {duplicateFeature}
-      {datasetCreatedSuccesfully ? successDatasetCreated : errorDatasetCreated}
-      <TransformationCreator
-        features={data ? data : []}
-        onAdd={handleAddTransformation}
-      />
-      {!disableButton ? (
-        <TransformationList
-          transformations={transformations}
-          onDelete={handleDeleteTransformation}
+  if (fileType !== "csv") {
+    return (
+      <div>
+        {duplicateFeature}
+        {datasetCreatedSuccesfully ? successDatasetCreated : errorDatasetCreated}
+        <TransformationCreator
+          features={data ? data : []}
+          onAdd={handleAddTransformation}
         />
-      ) : (
-        <></>
-      )}
-      <Button
-        color="green"
-        size="large"
-        onClick={handleSubmit}
-        disabled={disableButton}
-      >
-        Transform Dataset
-      </Button>
-    </div>
-  );
+        {!disableButton ? (
+          <TransformationList
+            transformations={transformations}
+            onDelete={handleDeleteTransformation}
+          />
+        ) : (
+          <></>
+        )}
+        <Button
+          color="green"
+          size="large"
+          onClick={handleSubmit}
+          disabled={disableButton}
+        >
+          Transform Dataset
+        </Button>
+      </div>
+    );
+  }
+  else 
+    return <ImagePreprocess fileType = {fileType} />
 }
 
 export default PreprocessData;

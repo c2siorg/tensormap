@@ -32,11 +32,12 @@ function DataProcess() {
     getAllFiles().then((response) => {
       const fileList = response.map((file, index) => {
         return {
-        text: `${file.file_name}.${file.file_type}`,
-        type: file.file_type,
-        value: file.file_id,
-        key: index,
-    }});
+          text: `${file.file_name}.${file.file_type}`,
+          type: file.file_type,
+          value: file.file_id,
+          key: index,
+        };
+      });
       setState((prevState) => ({
         ...prevState,
         fileList,
@@ -99,11 +100,12 @@ function DataProcess() {
     getAllFiles().then((response) => {
       const fileList = response.map((file, index) => {
         return {
-        text: `${file.file_name}.${file.file_type}`,
-        type: file.file_type,
-        value: file.file_id,
-        key: index,
-      }});
+          text: `${file.file_name}.${file.file_type}`,
+          type: file.file_type,
+          value: file.file_id,
+          key: index,
+        };
+      });
       setState((prevState) => ({
         ...prevState,
         fileList,

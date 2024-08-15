@@ -55,6 +55,7 @@ function DataProcess() {
             <Metrics
               corrMatrix={state.corrMatrix}
               dataTypes={state.dataTypes}
+              fileType={state.selectedFileType}
               metrics={state.metrics}
             />
           </Tab.Pane>
@@ -69,7 +70,9 @@ function DataProcess() {
       render: () =>
         state.selectedFile !== null ? (
           <Tab.Pane>
-            <DisplayDataset fileId={state.selectedFile} />
+            <DisplayDataset fileId={state.selectedFile}
+              fileType={state.selectedFileType}
+            />
           </Tab.Pane>
         ) : (
           <Tab.Pane style={{ padding: "30px" }}>
@@ -120,23 +123,32 @@ function DataProcess() {
 
   async function fileSelectHandler(event, val) {
     try {
-      const response = await getCorrMatrix(val.value);
-      const fileDetailsArr = Object.entries(response.data_types).map(
-        ([key], index) => ({
-          text: key,
-          value: index + 1,
-          key: index,
-        }),
-      );
+      console.log("selected file: " + val.options[val.value - 1].type)
+      if (val.options[val.value - 1].type !== "zip") {
+        const response = await getCorrMatrix(val.value);
+        const fileDetailsArr = Object.entries(response.data_types).map(
+          ([key], index) => ({
+            text: key,
+            value: index + 1,
+            key: index,
+          }),
+        );
+        setState({
+          ...state,
+          corrMatrix: response.correlation_matrix,
+          dataTypes: response.data_types,
+          metrics: response.metric,
+          selectedFile: val.value,
+          selectedFileType: val.options[val.value - 1].type,
+          showFieldsList: true,
+          fieldsList: fileDetailsArr,
+        });
+      }
       setState({
         ...state,
-        corrMatrix: response.correlation_matrix,
-        dataTypes: response.data_types,
-        metrics: response.metric,
         selectedFile: val.value,
         selectedFileType: val.options[val.value - 1].type,
         showFieldsList: true,
-        fieldsList: fileDetailsArr,
       });
     } catch (e) {
       console.error(e);

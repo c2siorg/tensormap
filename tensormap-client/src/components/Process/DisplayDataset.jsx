@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Table, Loader } from "semantic-ui-react";
 import { getFileData } from "../../services/FileServices";
 
-const DisplayDataset = ({ fileId }) => {
+const DisplayDataset = ({ fileId, fileType }) => {
   const [data, setData] = useState(null);
 
   const fetchData = useCallback(async (fileId) => {
@@ -12,12 +12,13 @@ const DisplayDataset = ({ fileId }) => {
   }, []);
 
   useEffect(() => {
-    if (fileId) {
+    if (fileId && fileType !== "zip") {
       fetchData(fileId);
     }
-  }, [fileId, fetchData]);
+  }, [fileId, fileType, fetchData]);
 
   return (
+    (fileType === "zip") ? <div>ZIP files currently cannot be displayed</div> :
     <div>
       {data ? (
         <div style={{ maxHeight: "500px", maxWidth: "100%", overflow: "auto" }}>

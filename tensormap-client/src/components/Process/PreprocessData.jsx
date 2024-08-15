@@ -34,8 +34,8 @@ function PreprocessData({ fileId, fileType, updateFileList }) {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        console.log(fileType)
-        if(fileType === "zip") return;
+        console.log(fileType);
+        if (fileType === "zip") return;
         const response = await getCovMatrix(fileId);
         setData(Object.keys(response.data_types));
       } catch (e) {

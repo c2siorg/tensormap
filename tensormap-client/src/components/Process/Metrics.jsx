@@ -4,8 +4,9 @@ import DataTypes from "./DataTypes";
 import MetricTable from "./MetricTable";
 
 function Metrics({ dataTypes, metrics, corrMatrix, fileType }) {
-  return (
-    (fileType === "zip") ? <div>Metrics not available for ZIP files</div> : 
+  return fileType === "zip" ? (
+    <div>Metrics not available for ZIP files</div>
+  ) : (
     <div>
       <Grid>
         <Grid.Row centered style={{ display: "flex", alignItems: "stretch" }}>

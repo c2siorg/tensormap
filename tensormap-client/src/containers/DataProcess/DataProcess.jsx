@@ -70,7 +70,8 @@ function DataProcess() {
       render: () =>
         state.selectedFile !== null ? (
           <Tab.Pane>
-            <DisplayDataset fileId={state.selectedFile}
+            <DisplayDataset
+              fileId={state.selectedFile}
               fileType={state.selectedFileType}
             />
           </Tab.Pane>
@@ -123,7 +124,7 @@ function DataProcess() {
 
   async function fileSelectHandler(event, val) {
     try {
-      console.log("selected file: " + val.options[val.value - 1].type)
+      console.log("selected file: " + val.options[val.value - 1].type);
       if (val.options[val.value - 1].type !== "zip") {
         const response = await getCorrMatrix(val.value);
         const fileDetailsArr = Object.entries(response.data_types).map(

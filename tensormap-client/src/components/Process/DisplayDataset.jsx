@@ -17,8 +17,9 @@ const DisplayDataset = ({ fileId, fileType }) => {
     }
   }, [fileId, fileType, fetchData]);
 
-  return (
-    (fileType === "zip") ? <div>ZIP files currently cannot be displayed</div> :
+  return fileType === "zip" ? (
+    <div>ZIP files currently cannot be displayed</div>
+  ) : (
     <div>
       {data ? (
         <div style={{ maxHeight: "500px", maxWidth: "100%", overflow: "auto" }}>

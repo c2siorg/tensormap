@@ -5,6 +5,7 @@ import numpy as np
 import yaml
 
 from endpoints.DeepLearning.models import ModelBasic
+from endpoints.DataProcess.models import ImageProperties
 from endpoints.DataUpload.models import DataFile
 from shared.constants import *
 from shared.services.config import get_configs
@@ -61,6 +62,8 @@ def model_result(message, test):
 def helper_generate_file_location(file_id):
     configs = get_configs()
     file = DataFile.query.filter_by(id=file_id).first()
+    if file.file_type == 'zip':
+        return configs['api']['upload']['folder'] + '/' + file.file_name
     return configs['api']['upload']['folder'] + '/' + file.file_name + '.' + file.file_type
 
 def helper_generate_json_model_file_location(model_name):
@@ -70,18 +73,49 @@ def model_run(incoming):
     model_name = incoming[MODEL_NAME]
     model_configs = ModelBasic.query.filter_by(model_name=model_name).first()
 
-    FILE_NAME = helper_generate_file_location(file_id=getattr(model_configs,FILE_ID))
-    features = pd.read_csv(FILE_NAME)
-    features.dropna(inplace=True)
+    if model_configs.model_type == 3:
+        image_properties = ImageProperties.query.filter_by(id=getattr(model_configs, FILE_ID)).first()
+        image_size = (image_properties.image_size, image_properties.image_size)
+        batch_size = image_properties.batch_size
+        color_mode = image_properties.color_mode
+        label_mode = image_properties.label_mode
 
-    X = features.drop(getattr(model_configs,FILE_TARGET), axis=1)
-    y = features[getattr(model_configs,FILE_TARGET)]
+        directory = helper_generate_file_location(file_id=getattr(model_configs, FILE_ID))
+        print(directory, image_size, batch_size, color_mode, label_mode)
+        validation_split = 1 - (getattr(model_configs, MODEL_TRAINING_SPLIT) / 100)
+        train_data = tf.keras.preprocessing.image_dataset_from_directory(
+            directory,
+            validation_split=validation_split,
+            subset="training",
+            seed=123,
+            image_size=image_size,
+            batch_size=batch_size,
+            color_mode=color_mode,
+            label_mode=label_mode
+        )
+        test_data = tf.keras.preprocessing.image_dataset_from_directory(
+            directory,
+            validation_split=validation_split,
+            subset="validation",
+            seed=123,
+            image_size=image_size,
+            batch_size=batch_size,
+            color_mode=color_mode,
+            label_mode=label_mode
+        )
+    else:
+        FILE_NAME = helper_generate_file_location(file_id=getattr(model_configs, FILE_ID))
+        features = pd.read_csv(FILE_NAME)
+        features.dropna(inplace=True)
 
-    split_index = int(len(X) * getattr(model_configs,MODEL_TRAINING_SPLIT) / 100)
-    x_training = X[:split_index]
-    y_training = y[:split_index]
-    x_testing = X[split_index:]
-    y_testing = y[split_index:]
+        X = features.drop(getattr(model_configs, FILE_TARGET), axis=1)
+        y = features[getattr(model_configs, FILE_TARGET)]
+
+        split_index = int(len(X) * getattr(model_configs, MODEL_TRAINING_SPLIT) / 100)
+        x_training = X[:split_index]
+        y_training = y[:split_index]
+        x_testing = X[split_index:]
+        y_testing = y[split_index:]
 
     json_string = json.dumps(yaml.load(open(helper_generate_json_model_file_location(model_name=model_name))))
     model = tf.keras.models.model_from_json(json_string, custom_objects=None)
@@ -96,6 +130,10 @@ def model_run(incoming):
         metrics=[getattr(model_configs,MODEL_METRIC)],
     )
 
-    model.fit(x_training, y_training, epochs = getattr(model_configs,MODEL_EPOCHS),callbacks=[CustomProgressBar()], verbose=0)
-    # model.fit(x_training, y_training, validation_data=(x_testing, y_testing), epochs = getattr(model_configs,MODEL_EPOCHS))
-    model.evaluate(x_testing, y_testing, callbacks=[CustomProgressBar()], verbose=0)
+    if model_configs.model_type == 3:
+        model.fit(train_data, validation_data=test_data, epochs=getattr(model_configs,MODEL_EPOCHS), callbacks=[CustomProgressBar()], verbose=0)
+        model.evaluate(test_data, callbacks=[CustomProgressBar()], verbose=0)
+    else: 
+        model.fit(x_training, y_training, epochs = getattr(model_configs,MODEL_EPOCHS),callbacks=[CustomProgressBar()], verbose=0)
+        # model.fit(x_training, y_training, validation_data=(x_testing, y_testing), epochs = getattr(model_configs,MODEL_EPOCHS))
+        model.evaluate(x_testing, y_testing, callbacks=[CustomProgressBar()], verbose=0)

@@ -8,7 +8,7 @@ class ModelBasic(db.Model):
     model_name = db.Column(db.String(50), nullable=False,unique=True)
     file_id = db.Column(db.Integer, db.ForeignKey('data_file.id'))
     model_type = db.Column(db.Integer, nullable=False)
-    target_field = db.Column(db.String(50), nullable=False)
+    target_field = db.Column(db.String(50))
     training_split = db.Column(db.Float,nullable=False)
     optimizer = db.Column(db.String(50),nullable=False)
     metric = db.Column(db.String(50),nullable=False)

@@ -116,6 +116,11 @@ class PropertiesBar extends Component {
       text: "Linear Regression [All values float]",
       value: 2,
     },
+    {
+      key: "prob_type_3",
+      text: "Simple CNN Classifications",
+      value: 3,
+    },
   ];
 
   activationOptions = [

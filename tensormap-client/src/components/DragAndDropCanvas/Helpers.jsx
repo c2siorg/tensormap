@@ -28,7 +28,7 @@ export const InitialFormState = {
 export const enableValidateButton = (formState, modelData) => {
   if (
     formState.selectedFile !== null &&
-    formState.targetField !== null &&
+    (formState.targetField !== null || formState.problemType == 3) &&
     formState.modalName !== "" &&
     formState.problemType !== null &&
     formState.optimizer !== null &&
@@ -56,7 +56,7 @@ export const enableValidateButton = (formState, modelData) => {
           }
         } else if (modelData.nodes[i].type === "customflatten") {
           if (
-            modelData.nodes[i].data.params["dim-x"] === 0 ||
+            modelData.nodes[i].data.params["dim-x"] === "" ||
             modelData.nodes[i].data.params["dim-y"] === "" ||
             modelData.nodes[i].data.params.units === ""
           ) {

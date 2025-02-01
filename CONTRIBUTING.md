@@ -1,4 +1,4 @@
-# Contributing to GDB-UI
+# Contributing to Tensorflow
 
 _First of all, thank you for considering contributing to TensorMap! We welcome contributions from the community. By participating in this project, you agree to abide by our guidelines and our Code of Conduct._
 

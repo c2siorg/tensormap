@@ -1,19 +1,189 @@
-[![Build Status](https://travis-ci.com/scorelab/TensorMap.svg?branch=master)](https://travis-ci.com/scorelab/TensorMap)  [![Join the chat at https://gitter.im/scorelab/TensorMap](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/scorelab/TensorMap)
-[![HitCount](http://hits.dwyl.com/scorelab/TensorMap.svg)](http://hits.dwyl.com/scorelab/TensorMap)
+[![Build Status](https://travis-ci.com/scorelab/TensorMap.svg?branch=master)](https://travis-ci.com/scorelab/TensorMap)
+[![Gitter Chat](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/scorelab/TensorMap)
 
 
+# TensorMap - Visual Machine Learning Workflow Builder
 
-# TensorMap
+**Version 2.1** 
 
-TensorMap is a web application that will allow the users to create machine learning algorithms visually. TensorMap supports reverse engineering of the visual layout to a Tensorflow implementation in preferred languages. The goal of the project is to let the beginners play with machine learning algorithms in Tensorflow without less background knowledge about the library. For more details about the project, read our [project wiki.](https://github.com/scorelab/TensorMap/wiki)
+---
 
-## Getting Started
-Follow these steps the steps in the `tensormap-server` and `tensormap-client` directories to setup each component.
+## 🌟 Overview
+TensorMap is an innovative web application that enables visual creation of machine learning algorithms with automatic translation to TensorFlow code. Designed to lower the barrier for ML beginners, it supports reverse engineering of visual layouts to production-ready implementations.
 
-## Contributing
+---
 
-Please read ['Note to Contributors'](https://github.com/scorelab/TensorMap/wiki/Note-to-Contributors) in project wiki for more details.
+## 🚀 Key Features
+- Drag-and-drop interface for neural network design
+- Auto-generation of TensorFlow code (Python/JavaScript)
+- Model visualization and version control
+- Export capabilities for trained models
+- Collaborative workspace support
 
-## License
+---
 
-This project is licensed under the MIT License - see the [LICENSE.md](https://github.com/scorelab/TensorMap/blob/master/LICENSE) file for details
+## 🛠 Prerequisites
+- Node.js v14+
+- Python 3.7+
+- TensorFlow 2.x
+- MongoDB 4.4+
+- npm v6+
+- Docker (optional for containerized deployment)
+
+---
+
+## ⚡ Getting Started
+
+### System Architecture
+This repository has the following structure:
+```
+TensorMap/
+├── tensormap-server/  # Backend services
+├── tensormap-client/  # Frontend interface
+├── docs/             # Documentation
+└── scripts/          # Deployment 
+```
+
+
+### Installation
+
+#### 1. Server Setup
+```bash
+cd tensormap-server
+npm install
+cp .env.example .env  # Configure environment variables
+npm run migrate       # Database setup
+npm start
+```
+#### 2. Client Setup
+```
+cd tensormap-client
+npm install
+npm run build
+npm start
+```
+
+#### 3. Run in Development Mode
+```
+# From root directory
+docker-compose -f docker-compose.dev.yml up --build
+```
+---
+
+## 🧩 Core Components
+
+### 1. Visual Builder
+```
+#Python
+# Sample generated TensorFlow code
+
+model = tf.keras.Sequential([
+    tf.keras.layers.Dense(128, activation='relu'),
+    tf.keras.layers.Dropout(0.2),
+    tf.keras.layers.Dense(10)
+])
+```
+
+### 2. Code Translator
+
++ Supports Python and JavaScript output
++ Custom layer configuration via JSON
+
+```
+// JSON
+
+{
+  "layer_type": "conv2d",
+  "filters": 32,
+  "kernel_size": [3, 3]
+}
+```
+---
+## 🔄 Development Workflow
+
+### Branching Strategy
+
+```
+git checkout -b feat/new-layer-type   # Feature development
+git checkout -b fix/issue-123         # Bug fixes
+git checkout -b docs/readme-update    # Documentation improvements
+```
+
+### Testing
+
+```
+# Run server tests
+cd tensormap-server
+npm test
+
+# Run client tests
+cd tensormap-client
+npm test
+```
+
+---
+## 📈 Production Deployment
+
+```
+# Build production images
+docker-compose -f docker-compose.prod.yml build
+
+# Start services
+docker-compose -f docker-compose.prod.yml up -d
+```
+
+### Environment Variables
+
+```
+NODE_ENV=production
+MONGO_URI=mongodb://production-db:27017/tensormap
+JWT_SECRET=your_secure_secret
+```
+
+---
+## 🤝 Contributing
+
+#### Please read ['Note to Contributors'](https://github.com/scorelab/TensorMap/wiki/Note-to-Contributors) in [project wiki.](https://github.com/scorelab/TensorMap/wiki) for more details.
+
+1. Fork the repository
+
+1. Create your feature branch (git checkout -b feature/AmazingFeature)
+
+1. Commit changes following Conventional Commits
+
+1. Push to the branch (git push origin feature/AmazingFeature)
+
+1. Open a Pull Request
+
+
+### Code Standards
+
++ ES6+ for client code
+
++ Python PEP-8 for server code
+
++ 100% test coverage for new features
+
+
+---
+## 📚 Resources
+
+[Project wiki.](https://github.com/scorelab/TensorMap/wiki)
+
+---
+## 📜 License
+
+- This project is licensed under the MIT License
+- see the [LICENSE.md](https://github.com/scorelab/TensorMap/blob/master/LICENSE) file for details
+
+---
+## 📞 Support
++ [GitHub Issues](https://github.com/c2siorg/tensormap/issues)
+
+
++ [Gitter Chat](	https://gitter.im/scorelab/TensorMap)
+
++ [Email Support](support@tensormap.org)
+
++ [Pull Requests](https://github.com/c2siorg/tensormap/pulls)
+---

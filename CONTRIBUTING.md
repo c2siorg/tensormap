@@ -56,7 +56,7 @@ If you want to fix a bug or add a new feature:
    ```bash
    git clone https://github.com/your-username/tensormap.git
 
-4. **Make Changes::**  
+4. **Make Changes:**  
   - Follow our [Coding Standards](#coding-standards).
   - Make sure to update tests/documentation if applicable
 
@@ -68,7 +68,7 @@ If you want to fix a bug or add a new feature:
    ```bash
    git push origin feature/your-feature-name
 
-7. **Make Changes::**  
+7. **Open a Pull Request:**  
   - Follow the Pull Request Template to provide all necessary information.
   - Link your PR to any related issues.
 

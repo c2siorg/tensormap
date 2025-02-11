@@ -9,6 +9,7 @@ services:
       POSTGRES_PASSWORD: c2si
     ports:
       - 5432:5432
+
   server:
     build: ./tensormap-server
     environment:
@@ -22,3 +23,19 @@ services:
       - database
     ports:
       - 5000:80
+
+  client:
+    build: ./tensormap-client
+    ports:
+      - 5173:5173
+    environment:
+      - NODE_ENV=development
+    volumes:
+      - ./tensormap-client:/app
+      - /app/node_modules
+    depends_on:
+      - server
+    expose:
+      - 5173
+    stdin_open: true
+    tty: true

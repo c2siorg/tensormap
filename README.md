@@ -1,3 +1,8 @@
+<<<<<<< HEAD
+=======
+Here’s an updated version of your `README.md` file with Docker commands added to help users quickly set up and run TensorMap using Docker:
+
+>>>>>>> e3fe572 (fix : fixing docker server compose file and adding dockerfile for client)
 ---
 
 [![Build Status](https://travis-ci.com/scorelab/TensorMap.svg?branch=master)](https://travis-ci.com/scorelab/TensorMap)  

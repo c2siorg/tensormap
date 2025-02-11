@@ -3,8 +3,7 @@ import os
 import pandas as pd
 import zipfile
 import shutil
-import threading
-from concurrent.futures import ThreadPoolExecutor, TimeoutError
+from concurrent.futures import ThreadPoolExecutor
 from endpoints.DataUpload.models import DataFile
 import tensorflow as tf
 from flask import request
@@ -53,7 +52,7 @@ def add_file_service():
             data = DataFile(file_name=file_name_db, file_type=file_type_db)
             save_one_record(record=data)
             return generic_response(status_code=201, success=True, message='File processed successfully')
-        except Exception as e:
+        except Exception:
             # If an error occurs, delete the directory and the zip file
             unzip_folder = os.path.join(upload_folder, filename.rsplit('.', 1)[0])
             if os.path.exists(unzip_folder):

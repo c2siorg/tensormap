@@ -1,5 +1,4 @@
 import pandas as pd
-import numpy as np
 
 from endpoints.DataProcess.models import DataProcess, ImageProperties, db
 from endpoints.DataUpload.models import DataFile

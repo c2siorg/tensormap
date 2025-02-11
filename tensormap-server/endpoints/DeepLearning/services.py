@@ -12,7 +12,6 @@ from shared.services.code.generation import generate_code
 from shared.services.model.generation import model_generation
 from shared.utils import get_socket_ref, save_multiple_records, save_one_record
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import sessionmaker
 from endpoints.DeepLearning.modelRun import model_run
 
 socketio = get_socket_ref()

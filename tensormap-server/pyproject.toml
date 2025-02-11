@@ -31,6 +31,18 @@ zope-event = "4.6"
 python-socketio = "5.4.1"
 python-engineio = "4.2.1"
 
+[tool.poetry.group.dev.dependencies]
+ruff = "^0.9.6"
+
+[tool.ruff]
+select = ["E", "F", "W", "I", "B", "C", "N", "UP", "YTT"]  # Choose your rules
+ignore = []  # Add any rules you want to ignore
+line-length = 88  # Set your desired line length
+
+[tool.ruff.isort]
+known-first-party = ["tensormap_server"]
+profile = "black"
+
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"

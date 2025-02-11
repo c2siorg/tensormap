@@ -2,7 +2,6 @@ import os
 from dotenv import load_dotenv
 import pytest
 import psycopg2
-import urllib.parse
 from flask_migrate import Migrate, upgrade
 from flask import Flask
 from flask_sqlalchemy import SQLAlchemy

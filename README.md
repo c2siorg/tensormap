@@ -24,9 +24,9 @@ TensorMap is an innovative web application that enables visual creation of machi
 
 ## 🛠 Prerequisites
 - Node.js v14+
-- Python 3.7+
+- Python 3.9+
 - TensorFlow 2.x
-- MongoDB 4.4+
+- PostgresSQL 4.4+
 - npm v6+
 - Docker (optional for containerized deployment)
 
@@ -50,16 +50,15 @@ TensorMap/
 #### 1. Server Setup
 ```bash
 cd tensormap-server
-npm install
+python -m venv env
+pip install -r requirements.txt
 cp .env.example .env  # Configure environment variables
-npm run migrate       # Database setup
-npm start
+python app.py
 ```
 #### 2. Client Setup
 ```
 cd tensormap-client
 npm install
-npm run build
 npm start
 ```
 
@@ -135,9 +134,11 @@ docker-compose -f docker-compose.prod.yml up -d
 ### Environment Variables
 
 ```
-NODE_ENV=production
-MONGO_URI=mongodb://production-db:27017/tensormap
-JWT_SECRET=your_secure_secret
+#fill according your postgreSQL
+db_name = 'database name'
+db_host = 'host ip address' #comment this line out if the database is at localhost
+db_user = 'database username'
+db_password = 'database user password'
 ```
 
 ---

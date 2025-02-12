@@ -1,7 +1,6 @@
 import tensorflow as tf
 import json
 import pandas as pd
-import numpy as np
 import yaml
 
 from endpoints.DeepLearning.models import ModelBasic

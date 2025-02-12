@@ -5,14 +5,12 @@ from endpoints.DataProcess.services import (
     get_file_data,
     get_one_target_by_id_service,
     get_data_metrics,
-    get_file_name, 
     preprocess_data,
     update_image_properties
 )
 from endpoints.DataProcess.validators import target_add_post_validator
 from flask_restful import Resource
 from flask import request
-from shared.request.response import generic_response
 
 
 class ProcessAddNGet(Resource):

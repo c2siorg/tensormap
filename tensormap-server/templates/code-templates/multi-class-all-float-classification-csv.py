@@ -7,15 +7,15 @@ import yaml
 
 
 def deep_learning_model():
-    features = pd.read_csv('{{data.dataset.file_name}}')
+    features = pd.read_csv("{{data.dataset.file_name}}")
     features.dropna(inplace=True)
 
     # Split Training and testing sets
-    X = features.drop('{{data.dataset.target_field}}', axis=1)
-    y = features['{{data.dataset.target_field}}']
+    X = features.drop("{{data.dataset.target_field}}", axis=1)
+    y = features["{{data.dataset.target_field}}"]
 
     split_index = int(len(X) * {{data.dataset.training_split}} / 100)
-    
+
     x_training = X[:split_index]
     y_training = y[:split_index]
     x_testing = X[split_index:]
@@ -25,13 +25,13 @@ def deep_learning_model():
     x_training = x_training / np.linalg.norm(x_training)
     x_testing = x_testing / np.linalg.norm(x_testing)
 
-    json_string = json.dumps(yaml.load(open('{{data.dl_model.json_file}}')))
+    json_string = json.dumps(yaml.load(open("{{data.dl_model.json_file}}")))
     model = tf.keras.models.model_from_json(json_string, custom_objects=None)
 
     model.compile(
-        optimizer='{{data.dl_model.optimizer}}',
+        optimizer="{{data.dl_model.optimizer}}",
         loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
-        metrics=['{{data.dl_model.metric}}'],
+        metrics=["{{data.dl_model.metric}}"],
     )
 
     history = model.fit(x_training, y_training, epochs={{data.dl_model.epochs}})
@@ -41,6 +41,6 @@ def deep_learning_model():
     return history, test_loss, test_acc
 
 
-print('Starting')
+print("Starting")
 history, test_loss, test_acc = deep_learning_model()
-print('Finish')
+print("Finish")

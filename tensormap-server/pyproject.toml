@@ -30,9 +30,12 @@ rsa = "4.7.2"
 zope-event = "4.6"
 python-socketio = "5.4.1"
 python-engineio = "4.2.1"
+pytest = "^8.3.4"
 
 [tool.poetry.group.dev.dependencies]
 ruff = "^0.9.6"
+pytest = "^8.3.4"
+pytest-cov = "^6.0.0"
 
 [tool.ruff]
 select = ["E", "F", "W", "I", "B", "C", "N", "UP", "YTT"]  # Choose your rules

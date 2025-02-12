@@ -1,10 +1,10 @@
 import os
 from dotenv import load_dotenv
 import pytest
-import psycopg2
-from flask_migrate import Migrate, upgrade
+from unittest.mock import patch, MagicMock
 from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
+from flask_migrate import Migrate, upgrade
 from setup.test_settings import SettingUp
 from setup.urls import MainURLRegister
 from werkzeug.utils import secure_filename
@@ -16,69 +16,31 @@ from endpoints.DataUpload.models import DataFile
 load_dotenv()
 db = SQLAlchemy()
 configs = get_configs()
-db_name = 'tensormap_test_db'
+db_name = "tensormap_test_db"
 
-@pytest.fixture(scope='session')
+
+@pytest.fixture(scope="session")
 def app():
-    # Basic setup of a new Flask App
     flask_app = Flask(__name__)
-    flask_app.config['TESTING'] = True
-    flask_app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql+psycopg2://' + os.getenv('db_user') + ':'+ os.getenv('db_password') + '@' + os.getenv('db_host', 'localhost') + ':5432/' + os.getenv('db_name')
-    flask_app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-    
-    # Setting up for TensorMap
+    flask_app.config["TESTING"] = True
+    flask_app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///:memory:"
+    flask_app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+
     MainURLRegister(app=flask_app)
     SettingUp(app=flask_app)
 
-    # Create a test database and once the tests are complete delete the database
     db.init_app(flask_app)
     with flask_app.app_context():
-        init_test_database()
-        migrate = Migrate(flask_app, db)
-        upgrade() 
+        db.create_all()  # Create tables in the in-memory db
         yield flask_app
         db.session.remove()
-        db.drop_all()
-        db.engine.dispose()
-        destroy_test_database()
+        db.drop_all()  # Drop tables after tests
 
-@pytest.fixture(scope='session')
+
+@pytest.fixture(scope="session")
 def client(app):
-    return app.test_client() 
+    return app.test_client()
 
-def init_test_database():
-    # Create a test database
-    connection = psycopg2.connect(
-        host=os.getenv('db_host').split(":")[0],
-        user= os.getenv('db_user'),
-        password=os.getenv('db_password'),
-        dbname=os.getenv('db_name')
-    )
-    cursor = connection.cursor()
-    cursor.execute(f"DROP DATABASE IF EXISTS {db_name}")
-    cursor.execute(f"CREATE DATABASE {db_name}")
-    cursor.close()
-    connection.close()
-
-
-def destroy_test_database():
-    connection = psycopg2.connect(
-        host=os.getenv('db_host').split(":")[0],
-        user= os.getenv('db_user'),
-        password=os.getenv('db_password'),
-        dbname=os.getenv('db_name')
-    )
-    cursor = connection.cursor()
-
-    # Terminate active connections to the database
-    cursor.execute(f"SELECT * FROM information_schema.processlist WHERE db='{db_name}'")
-    for row in cursor.fetchall():
-        kill_query = f"KILL {row[0]}"
-        cursor.execute(kill_query)
-    cursor.execute(f"DROP DATABASE {db_name}")
-    connection.commit()  # Commit any outstanding changes
-    cursor.close()
-    connection.close()
 
 @pytest.fixture(scope="session")
 def db_session(app):
@@ -87,26 +49,47 @@ def db_session(app):
         db.session.rollback()
 
 
-@pytest.fixture(scope="session")
-def add_sample_file():
-    # This file is stored inside tests folder
-    filename = 'test.csv'
-    
-    # Convert the filename and copy it into the data folder
+@pytest.fixture(scope="function")  # Changed to function scope for better isolation
+def add_sample_file(db_session):  # Inject the db_session
+    filename = "test.csv"
     file_name = secure_filename(filename.lower())
-    upload_folder = configs['api']['upload']['folder']
+    upload_folder = configs["api"]["upload"][
+        "folder"
+    ]  # Ensure this path exists or mock it
     destination_path = os.path.join(upload_folder, file_name)
-    shutil.copy("tests/"+filename,os.path.join(upload_folder, file_name))
-    
-    # Store the file in the Database aswell
-    file_name_db = secure_filename(filename.rsplit('.', 1)[0].lower())
-    file_type_db = filename.rsplit('.', 1)[1].lower()
-    data = DataFile(file_name=file_name_db, file_type=file_type_db)
-    db.session.add(data)
-    db.session.commit()
-    
-    yield
-    # Once test is complete remove the file from the data directory and remove the record from the db
-    os.remove(destination_path)
-    db.session.delete(data)
-    db.session.commit()
+
+    # Mock shutil.copy to avoid actual file system interaction
+    with patch("shutil.copy") as mock_copy:
+        mock_copy.return_value = None  # Make sure the mock behaves as expected
+
+        file_name_db = secure_filename(filename.rsplit(".", 1)[0].lower())
+        file_type_db = filename.rsplit(".", 1)[1].lower()
+        data = DataFile(file_name=file_name_db, file_type=file_type_db)
+        db_session.add(data)
+        db_session.commit()
+
+        yield data  # Yield the created DataFile object
+
+    # Clean up after the test
+    db_session.delete(data)
+    db_session.commit()
+
+    # Mock os.remove to avoid actual file system interaction
+    with patch("os.remove") as mock_remove:
+        mock_remove.return_value = None
+
+
+# Example test using the fixtures:
+def test_data_upload(client, add_sample_file, db_session):
+    # Access the DataFile object yielded by the fixture
+    data_file = add_sample_file
+
+    # Assertions or other test logic using the database and client
+    assert data_file.file_name == "test"
+    assert data_file.file_type == "csv"
+
+    # Example: Querying the database (using the in-memory SQLite)
+    retrieved_file = db_session.query(DataFile).filter_by(file_name="test").first()
+    assert retrieved_file is not None
+
+    # ... Your test logic ...

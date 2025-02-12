@@ -1,0 +1,57 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  test-and-lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install Poetry
+        run: |
+          curl -sSL https://install.python-poetry.org | python -
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Install dependencies
+        run: |
+          poetry config virtualenvs.create false
+          poetry install --no-interaction --no-ansi
+
+      - name: Run Ruff (Code Quality)
+        run: |
+          poetry run ruff check .
+
+      - name: Run tests with pytest and generate coverage
+        run: |
+          poetry run pytest --cov=app --cov-report=xml --cov-report=term-missing tests/
+
+      - name: Upload coverage report to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage.xml
+          flags: unittests
+          name: codecov-umbrella
+          fail_ci_if_error: true
+
+      - name: Build Docker image
+        run: |
+          docker build -t tensormap-server .
+
+      - name: Test Docker image
+        run: |
+          docker run --rm tensormap-server flask --help

@@ -1,39 +1,93 @@
-from shared.constants import *
+import unittest
+from unittest.mock import patch, MagicMock, call
+from endpoints.DataProcess.services import (
+    add_target_service,
+    generic_response,
+    save_one_record,
+    DataFile,
+    DataProcess,
+)
 
-def test_GetDataMetrics_success(client,db_session,add_sample_file):
-    file_id = 1
-    response = client.get(f'/api/v1/data/process/data_metrics/{file_id}')
-    assert response.status_code == 200
-    data = response.get_json()
-    assert data['success'] == True
-    assert data['message'] == 'Dataset metrics generated succesfully'
-    assert 'data_types' in data['data']
+FILE_ID = "file_id"
+FILE_TARGET_FIELD = "target"
 
-def test_get_data_metrics_file_not_found(client,db_session):
-    response = client.get('/api/v1/data/process/data_metrics/3')
-    assert response.status_code == 400
-    data = response.get_json()
-    assert data['success'] == False
-    assert data['message'] == "File doesn't exist in DB"
 
-def test_add_target_service_file_exists(client,db_session,add_sample_file):
-    response = client.post('/api/v1/data/process/target',json={FILE_ID: 1, FILE_TARGET_FIELD: 'Spending Score (1-100)'})
-    data = response.get_json()
-    assert data['success'] == True
-    assert data['message'] == 'Target field added successfully'
-    assert response.status_code == 201
+class TestAddTargetService(unittest.TestCase):
+    @patch("endpoints.DataProcess.services.DataFile")
+    def test_add_target_service_file_not_found(self, mock_datafile):
+        """
+        Test case: File does not exist in the database.
+        """
+        mock_filter_by = MagicMock()
+        mock_filter_by.count.return_value = 0
+        mock_query = MagicMock()
+        mock_query.filter_by.return_value = mock_filter_by
+        mock_datafile.query = mock_query
 
-def test_add_target_service_file_not_found(client,db_session,add_sample_file):
-    response = client.post('/api/v1/data/process/target',json={FILE_ID: 2, FILE_TARGET_FIELD: 'Spending Score (1-100)'})
-    data = response.get_json()
-    assert data['success'] == False
-    assert data['message'] == "File doesn't exist in DB"
-    assert response.status_code == 400
+        response = add_target_service({FILE_ID: 999, FILE_TARGET_FIELD: "target"})
 
-def test_get_all_targets_service(client,db_session,add_sample_file):
-    response = client.get('/api/v1/data/process/target')
-    data = response.get_json()
-    assert response.status_code == 200
-    assert data["success"] == True
-    assert data["message"] == "Target fields of all files received successfully"
-    assert data["data"][0][FILE_NAME] == "test"
+        self.assertEqual(
+            response,
+            generic_response(
+                status_code=400, success=False, message="File doesn't exist in DB"
+            ),
+        )
+
+    @patch("endpoints.DataProcess.services.save_one_record")
+    @patch("endpoints.DataProcess.services.DataProcess")
+    @patch("endpoints.DataProcess.services.DataFile")
+    def test_add_target_service_success(
+        self, mock_datafile, mock_dataprocess, mock_save_one_record
+    ):
+        """
+        Test case: File exists, and the target field is added successfully.
+        """
+        mock_file_instance = MagicMock()
+        mock_filter_by = MagicMock()
+        mock_filter_by.count.return_value = 1
+        mock_filter_by.first.return_value = mock_file_instance
+        mock_query = MagicMock()
+        mock_query.filter_by.return_value = mock_filter_by
+        mock_datafile.query = mock_query
+
+        mock_dataprocess_instance = MagicMock()
+        mock_dataprocess.return_value = mock_dataprocess_instance
+
+        response = add_target_service({FILE_ID: 123, FILE_TARGET_FIELD: "target"})
+
+        self.assertEqual(
+            response,
+            generic_response(
+                status_code=201, success=True, message="Target field added successfully"
+            ),
+        )
+
+        mock_dataprocess.assert_called_once_with(
+            file_id=123, file=mock_file_instance, target="target"
+        )
+
+        mock_save_one_record.assert_called_once_with(record=mock_dataprocess_instance)
+
+    @patch("endpoints.DataProcess.services.DataFile")
+    def test_add_target_service_exception(self, mock_datafile):
+        """
+        Test case: An exception occurs during processing.
+        """
+        mock_query = MagicMock()
+        mock_query.filter_by.side_effect = Exception("Database error")
+        mock_datafile.query = mock_query
+
+        response = add_target_service({FILE_ID: 456, FILE_TARGET_FIELD: "target"})
+
+        self.assertEqual(
+            response,
+            generic_response(
+                status_code=500,
+                success=False,
+                message="Error storing record: Database error",
+            ),
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()

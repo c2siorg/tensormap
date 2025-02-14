@@ -1,12 +1,32 @@
+
 ---
+
 
 [![Build Status](https://travis-ci.com/scorelab/TensorMap.svg?branch=master)](https://travis-ci.com/scorelab/TensorMap)  
 [![Join the chat at https://gitter.im/scorelab/TensorMap](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/scorelab/TensorMap)  
 [![HitCount](http://hits.dwyl.com/scorelab/TensorMap.svg)](http://hits.dwyl.com/scorelab/TensorMap)
 
+
 # TensorMap
 
+
+## 🌟 Overview
+
 TensorMap is a web application that allows users to create machine learning algorithms visually. TensorMap supports reverse engineering of the visual layout to a TensorFlow implementation in preferred languages. The goal of the project is to let beginners play with machine learning algorithms in TensorFlow without requiring extensive background knowledge about the library. For more details about the project, read our [project wiki](https://github.com/scorelab/TensorMap/wiki).
+
+---
+
+## 🚀 Key Features
+
+- Drag-and-drop interface for neural network design
+
+- Auto-generation of TensorFlow code (Python/JavaScript)
+
+- Model visualization and version control
+
+- Export capabilities for trained models
+
+- Collaborative workspace support
 
 ---
 
@@ -15,39 +35,65 @@ TensorMap is a web application that allows users to create machine learning algo
 Follow these steps to set up and run TensorMap using Docker.
 
 ### Prerequisites
+
 - [Docker](https://docs.docker.com/get-docker/)
+
 - [Docker Compose](https://docs.docker.com/compose/install/)
+
+---
+
+### System Architecture
+
+This repository has the following structure:
+
+```
+TensorMap/
+├── tensormap-server/  # Backend services
+├── tensormap-client/  # Frontend interface
+├── docs/              # Documentation
+└── scripts/           # Deployment 
+```
 
 ---
 
 ### Running TensorMap with Docker
 
 1. **Clone the Repository**:
+
    ```bash
    git clone https://github.com/c2siorg/tensormap.git
    cd TensorMap
    ```
 
 2. **Set Up Environment**:
+
    - Ensure Docker and Docker Compose are installed and running on your machine.
 
 3. **Build and Run the Application**:
+
    Use Docker Compose to build and start the TensorMap services (database, server, and client):
+
    ```bash
    docker-compose up --build
    ```
 
    This will:
    - Start a PostgreSQL database.
+
    - Build and run the TensorMap server (Flask backend).
+
    - Build and run the TensorMap client (React frontend).
 
 4. **Access the Application**:
+
    - **Frontend (Client)**: Open your browser and go to `http://localhost:5173`.
+
    - **Backend (Server)**: The Flask API will be available at `http://localhost:5000`.
 
 5. **Stop the Application**:
+
    To stop the running services, press `Ctrl+C` in the terminal or run:
+
    ```bash
    docker-compose down
    ```
@@ -55,9 +101,13 @@ Follow these steps to set up and run TensorMap using Docker.
 ---
 
 ### Docker Compose Configuration
+
 The `docker-compose.yml` file defines the following services:
+
 - **Database**: PostgreSQL database for storing application data.
+
 - **Server**: Flask backend for TensorMap.
+
 - **Client**: React frontend for TensorMap.
 
 You can modify the `docker-compose.yml` file to customize the setup (e.g., change ports or environment variables).
@@ -65,15 +115,21 @@ You can modify the `docker-compose.yml` file to customize the setup (e.g., chang
 ---
 
 ### Development with Docker
+
 If you're developing TensorMap, you can use Docker to streamline your workflow:
+
 - **Rebuild and Restart the Client**:
+
   ```bash
   docker-compose up --build client
   ```
+
 - **View Logs**:
+
   ```bash
   docker-compose logs client
   ```
+
 - **Access the Container Shell**:
   ```bash
   docker exec -it <client-container-id> /bin/sh
@@ -81,9 +137,33 @@ If you're developing TensorMap, you can use Docker to streamline your workflow:
 
 ---
 
+## Development Workflow
+
+### Branching Strategy
+
+```
+git checkout -b feat/new-layer-type   # Feature development
+git checkout -b fix/issue-123         # Bug fixes
+git checkout -b docs/readme-update    # Documentation i
+```
+
+### Testing 
+
+```
+# Run backend tests
+cd tensormap-server
+pytest
+
+# Run frontend tests
+cd tensormap-client
+npm test
+```
+
+---
+
 ## Contributing
 
-Please read the ['Note to Contributors'](https://github.com/scorelab/TensorMap/wiki/Note-to-Contributors) in the project wiki for more details.
+Please read the ['Note to Contributors'](https://github.com/scorelab/TensorMap/wiki/Note-to-Contributors) in the project wiki for more details and the ['Contributing.md'](CONTRIBUTING.md)
 
 ---
 

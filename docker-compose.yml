@@ -43,6 +43,8 @@ services:
       - 5173
     stdin_open: true
     tty: true
+volumes:
+  tensormap-server:
 
 volumes:  # This is the crucial missing piece!
   tensormap-server:  # Define the named volume here

@@ -1,121 +1,175 @@
-## Backend setup and architecture
+```markdown
+# TensorMap Backend
 
+This document provides information on setting up and running the backend for TensorMap, a web application that allows users to visually create machine learning algorithms.
 
-First, make sure you have PostgreSQL server and Python 3.x installed in your system.
-(the recommended version is python 3.9)
+## Prerequisites
 
-### Starting the Server and Database using Docker
-Requirements
-- docker compose 
-- docker 
-```
+* **PostgreSQL server:** Install a PostgreSQL server. You can download and install it from the official website.
+* **Python 3.x:** Ensure you have Python 3.x installed (Python 3.9 is recommended).
+
+## Starting the Server and Database using Docker
+
+The easiest way to get started is using Docker. 
+
+**Requirements:**
+
+* **Docker Compose:** Install Docker Compose.
+* **Docker:** Install Docker.
+
+**Run with Docker Compose:**
+
+```bash
 docker compose up
 ```
-### Starting PostgreSQL using Docker
-The database with portgreSQL can be setup on docker using the following command
-```
+
+This will start both the PostgreSQL database and the Flask backend server.
+
+## Starting PostgreSQL using Docker (Alternative)
+
+If you prefer to run only the PostgreSQL database in Docker:
+
+```bash
 docker run -d \
   --name database \
-  -e POSTGRES_DB='database name' \
-  -e POSTGRES_USER='database username' \
-  -e POSTGRES_PASSWORD='database user password' \
+  -e POSTGRES_DB='your_database_name' \
+  -e POSTGRES_USER='your_database_user' \
+  -e POSTGRES_PASSWORD='your_database_password' \
   -p 5432:5432 \
   postgres
 ```
 
-### Installation instructions
+Replace `your_database_name`, `your_database_user`, and `your_database_password` with your desired credentials.
 
-* All the backend related required libraries are listed in the **requirements.txt** file.
-  Before installing the libraries, install a python virtual environment. You can install
-  the python virtual environment by following [this](https://packaging.python.org/guides/installing-using-pip-and-virtual-environments/)
-  guide. Follow the relevant guide based on your operating system.
-* run the setup script using `./setup.sh` to create a virtual environment and install dependencies.
-* Activate the environment by running `poetry shell`
-* To set up the database, open your PosgresSQL console and create a database.
-  And add a .env file and add the following details as shown below.
+## Manual Installation Instructions
+
+1. **Install Python dependencies:**
+   * Create a virtual environment: Follow this guide to set up a virtual environment.
+   * Install required packages:
+     ```bash
+     pip install -r requirements.txt
+     ```
+
+2. **Set up the database:**
+   * Create a PostgreSQL database and note the database name, username, and password.
+   * Create a `.env` file in the `tensormap-server` directory and add the following:
+
+     ```
+     secret_key = 'your_secret_key' 
+     db_name = 'your_database_name'
+     db_host = 'your_database_host'
+     db_password = 'your_database_password'
+     db_user = 'your_database_user'
+     ```
+
+     Replace the placeholders with your actual database details.
+
+3. **Set up the Flask app:**
+
+   ```bash
+   export FLASK_APP=app.py
+   ```
+
+4. **Run the backend:**
+
+   ```bash
+   flask run
+   ```
+
+## Application Architecture
+
+The backend application has the following structure:
 
 ```
-secret_key = 'Your secret key'
-db_name = 'database name'
-db_host = 'host ip address'
-db_password = 'database user password'
-db_user = 'database username'
-```
-
-* set up the FLASK_APP environment variable:
-
-`export FLASK_APP=app.py`
-
-* Now the backend is ready to go ! You can run the backend
-  by the following command.
-
-`python app.py`
- or
-`flask run`
-
-
-### Application Architecture
-
-The application architecture is set up as follows.
-
-```
-.
+tensormap-server/
 ├── README.md
-├── app.py
-├── .env
+├── app.py                      # Main application file
+├── .env                        # Environment variables
 ├── .gitignore
-├── config.yaml
-├── endpoints
-│   ├── DataProcess
-│   ├── DataUpload
-│   └── DeepLearning
-├── requirements.txt
-├── migrations
-│   ├── README
-│   ├── __pycache__
-│   │   └── env.cpython-39.pyc
-│   ├── alembic.ini
-│   ├── env.py
-│   ├── script.py.mako
-│   └── versions
-│       ├── db_migration_table_v1.py
-
-├── setup
-│   ├── settings.py
-│   └── urls.py
-├── shared
-│   ├── request
-│   │   └── response.py
-│   ├── services
-│   │   └── config.py
-│   └── utils.py
-├── static
-├── templates
-|__ tests
-    |_ unit
-    |_ test.csv
-    |_ conftest.py
+├── config.yaml                 # Configuration file
+├── endpoints/                  # API endpoints
+│   ├── DataProcess/
+│   ├── DataUpload/
+│   └── DeepLearning/
+├── requirements.txt            # Python dependencies
+├── migrations/                 # Database migrations
+│   ├── README
+│   ├── __pycache__
+│   │   └── env.cpython-39.pyc
+│   ├── alembic.ini
+│   ├── env.py
+│   ├── script.py.mako
+│   └── versions/
+│       └── db_migration_table_v1.py
+├── setup/                      # Setup and utilities
+│   ├── settings.py
+│   └── urls.py
+├── shared/                     # Shared modules
+│   ├── request/
+│   │   └── response.py
+│   ├── services/
+│   │   └── config.py
+│   └── utils.py
+├── static/
+├── templates/                  # HTML templates (if any)
+└── tests/                      # Unit tests
+    └── unit/
+        └── test_DataUpload.py 
 ```
 
-##### TODO: Describe architecture and how to do incremental developments.
 
-### Setting up databse locally
-```
-flask db init // initialized the database
-flask db migrate // migrating the database 
-flask db upgrade // apply changes to the database
-```
-### Database modifications
+## Setting up the Database Locally
 
-Once you change to database models or create one, it will not affect as soon you have done it.
-You have to migrate the database accordingly. To migrate database, please follow the below steps.
+1. **Initialize the database:**
 
-* run `flask db migrate`
-This will generate migration scripts in `migrations/versions` directory.
+   ```bash
+   flask db init
+   ```
 
-* To apply migrations to the database, run `flask db upgrade`
+2. **Migrate the database:**
 
-* Don't forget to commit the generated migration scripts to code.
+   ```bash
+   flask db migrate
+   ```
+
+3. **Apply changes to the database:**
+
+   ```bash
+   flask db upgrade
+   ```
+
+## Database Modifications
+
+If you modify database models, you need to generate and apply migrations:
+
+1. **Generate migration scripts:**
+
+   ```bash
+   flask db migrate
+   ```
+
+2. **Apply migrations to the database:**
+
+   ```bash
+   flask db upgrade
+   ```
+
+3. **Commit the generated migration scripts** to version control.
 
 ## Testing
-For the backend, `PyTest` is used for testing. Sample unit tests and configurations are added inside the `tests` directory. For database tests make sure to create a mock database and add a sample datafile using `db_session` and `add_sample_file` fixtures in `conftest.py`. To run backend tests simply run `pytest .` in the terminal.
+
+The backend uses `PyTest` for testing. Sample unit tests and configurations are in the `tests` directory.
+
+To run backend tests:
+
+```bash
+pytest .
+```
+
+For database tests, create a mock database and add a sample data file using the `db_session` and `add_sample_file` fixtures in `conftest.py`.
+
+## Further Documentation
+
+* **API Endpoints:** See the API documentation for details on the available endpoints and their usage.
+* **Contributing:** Refer to the contributing guidelines for information on how to contribute to the project.
+```

@@ -15,7 +15,7 @@ class SOK:
     socket_ref = None
 
     def __init__(self):
-        SOK.socket_ref = SocketIO(cors_allowed_origins='*')
+        SOK.socket_ref = SocketIO(cors_allowed_origins="*")
 
 
 def get_db_ref():
@@ -37,14 +37,14 @@ def get_socket_ref():
 
 def create_db_connection():
     return (
-        'postgresql+psycopg2://'
-        + os.getenv('db_user')
-        + ':'
-        + os.getenv('db_password')
-        + '@'
-        + os.getenv('db_host', 'localhost')
-        + ':5432/'
-        + os.getenv('db_name')
+        "postgresql+psycopg2://"
+        + os.getenv("db_user")
+        + ":"
+        + os.getenv("db_password")
+        + "@"
+        + os.getenv("db_host", "localhost")
+        + ":5432/"
+        + os.getenv("db_name")
     )
 
 

@@ -21,6 +21,7 @@ ipython_config.py
 
 # Environment
 .env
+.venv
 env
 
 #VS Code Files

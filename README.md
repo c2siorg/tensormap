@@ -328,6 +328,10 @@ We encourage a welcoming and inclusive community. Please be respectful of others
     * (Purpose unclear from the code. Likely retrieves image preprocessing properties for a dataset.)
     * Response: (Details needed based on the actual implementation)
 
+Please read the ['Note to Contributors'](https://github.com/scorelab/TensorMap/wiki/Note-to-Contributors) in the project wiki for more details and the ['Contributing.md'](CONTRIBUTING.md)
+
+
+
 **3. Deep Learning** (`tensormap-server/endpoints/DeepLearning/urls.py`)
 
 * **POST /model/validate**
@@ -352,3 +356,4 @@ We encourage a welcoming and inclusive community. Please be respectful of others
     * Response:
         * 200 OK: JSON object with model execution results.
         * 400 Bad Request: Invalid model or input data.
+

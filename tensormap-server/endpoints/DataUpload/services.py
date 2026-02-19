@@ -20,7 +20,15 @@ upload_folder = configs['api']['upload']['folder']
 def load_dataset(file_path, filename , timeout = 10):
     try: 
         with zipfile.ZipFile(file_path, 'r') as zip_ref:
-                unzip_folder = os.path.join(upload_folder, filename.rsplit('.', 1)[0])
+                unzip_folder = os.path.abspath(os.path.join(upload_folder, filename.rsplit('.', 1)[0]))
+                
+                # Check for Zip Slip vulnerability
+                for member in zip_ref.namelist():
+                    target_path = os.path.abspath(os.path.join(unzip_folder, member))
+                    if not target_path.startswith(unzip_folder + os.sep):
+                        print(f"Malicious member detected in ZIP: {member}")
+                        return False
+                
                 zip_ref.extractall(unzip_folder)
         with tf.device('/CPU:0'):
             tf.keras.preprocessing.image_dataset_from_directory(unzip_folder)

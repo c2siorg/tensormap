@@ -4,6 +4,7 @@ from shared.constants import *
 from shared.services.config import get_configs
 from endpoints.DeepLearning.models import ModelBasic
 from endpoints.DataProcess.models import ImageProperties
+from werkzeug.utils import secure_filename
 
 
 def code_generation(code_params):
@@ -33,9 +34,9 @@ def code_generation(code_params):
     template_loader = FileSystemLoader(searchpath=TEMPLATE_ROOT)
     template_env = Environment(loader=template_loader)
     template = template_env.get_template(helper_map_correct_code_template(problem_type_id=code_params[PROBLEM_TYPE]))
-
+    model_name_safe = secure_filename(model[MODEL_NAME])
     output = template.render(data=data)
-    generated_code_file = open(CODE_GENERATION_LOCATION + model[MODEL_NAME] + CODE_GENERATION_TYPE, 'w+')
+    generated_code_file = open(CODE_GENERATION_LOCATION + model_name_safe + CODE_GENERATION_TYPE, 'w+')
     generated_code_file.write(output + '\n')
     generated_code_file.close()
     return True
@@ -103,4 +104,5 @@ def helper_get_image_properties(file_id):
     return data.image_size, data.batch_size, data.color_mode, data.label_mode
 
 def helper_generate_json_model_file_location(model_name):
-    return MODEL_GENERATION_LOCATION + model_name + MODEL_GENERATION_TYPE
+    model_name_safe = secure_filename(model_name)
+    return MODEL_GENERATION_LOCATION + model_name_safe + MODEL_GENERATION_TYPE

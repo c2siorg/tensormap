@@ -14,6 +14,7 @@ from shared.utils import get_socket_ref, save_multiple_records, save_one_record
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 from endpoints.DeepLearning.modelRun import model_run
+from werkzeug.utils import secure_filename
 
 socketio = get_socket_ref()
 
@@ -70,7 +71,8 @@ def model_validate_service(incoming):
         else:
             return generic_response(status_code=400,success=False,message='Model saving failed. Please recheck the model configs')
     
-    generated_model_file = open(MODEL_GENERATION_LOCATION + incoming[CODE][DL_MODEL][MODEL_NAME] + MODEL_GENERATION_TYPE, 'w+')
+    model_name_safe = secure_filename(incoming[CODE][DL_MODEL][MODEL_NAME])
+    generated_model_file = open(MODEL_GENERATION_LOCATION + model_name_safe + MODEL_GENERATION_TYPE, 'w+')
     
     try:
         generated_model_file.write(json.dumps(model_generated) + '\n')

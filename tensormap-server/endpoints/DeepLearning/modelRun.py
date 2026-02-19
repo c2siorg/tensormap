@@ -10,6 +10,7 @@ from endpoints.DataUpload.models import DataFile
 from shared.constants import *
 from shared.services.config import get_configs
 from shared.utils import get_socket_ref
+from werkzeug.utils import secure_filename
 
 socketio = get_socket_ref()
 
@@ -67,7 +68,8 @@ def helper_generate_file_location(file_id):
     return configs['api']['upload']['folder'] + '/' + file.file_name + '.' + file.file_type
 
 def helper_generate_json_model_file_location(model_name):
-    return MODEL_GENERATION_LOCATION + model_name + MODEL_GENERATION_TYPE
+    model_name_safe = secure_filename(model_name)
+    return MODEL_GENERATION_LOCATION + model_name_safe + MODEL_GENERATION_TYPE
 
 def model_run(incoming):
     model_name = incoming[MODEL_NAME]
@@ -117,7 +119,7 @@ def model_run(incoming):
         x_testing = X[split_index:]
         y_testing = y[split_index:]
 
-    json_string = json.dumps(yaml.load(open(helper_generate_json_model_file_location(model_name=model_name))))
+    json_string = json.dumps(yaml.safe_load(open(helper_generate_json_model_file_location(model_name=model_name))))
     model = tf.keras.models.model_from_json(json_string, custom_objects=None)
     model.summary()
     if getattr(model_configs,MODEL_LOSS) == 'sparse_categorical_crossentropy':

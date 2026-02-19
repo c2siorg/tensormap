@@ -57,7 +57,7 @@ TensorMap/
 
    ```bash
    git clone https://github.com/c2siorg/tensormap.git
-   cd TensorMap
+   cd tensormap
    ```
 
 2. **Set Up Environment**:
@@ -137,7 +137,7 @@ If you're developing TensorMap, you can use Docker to streamline your workflow:
 ```
 git checkout -b feat/new-layer-type   # Feature development
 git checkout -b fix/issue-123         # Bug fixes
-git checkout -b docs/readme-update    # Documentation i
+git checkout -b docs/readme-update    # Documentation improvements
 ```
 
 ### Testing 
@@ -156,7 +156,7 @@ npm test
 
 ## Contributing
 
-Please read the ['Note to Contributors'](https://github.com/scorelab/TensorMap/wiki/Note-to-Contributors) in the project wiki for more details and the ['Contributing.md'](CONTRIBUTING.md)
+Please read the ['Note to Contributors'](https://github.com/scorelab/TensorMap/wiki/Note-to-Contributors) in the project wiki for more details and the ['Contributing.md'](CONTRIBUTING.md) file.
 
 ---
 

@@ -14,7 +14,7 @@ services:
     build: ./tensormap-server
     environment:
       - FLASK_APP=app.py
-      - secret_key=none
+      - secret_key=${SECRET_KEY:-default_insecure_secret_for_dev}
       - db_name=c2si_db
       - db_host=database
       - db_password=c2si

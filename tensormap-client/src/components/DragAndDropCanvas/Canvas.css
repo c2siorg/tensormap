@@ -68,3 +68,19 @@
 .dndflow .dndnode.conv-sidebar {
   border-color: var(--conv_background);
 }
+
+.canvas-stats-bar {
+  display: flex;
+  gap: 20px;
+  padding: 5px 14px;
+  background: #2b2b2b;
+  border-bottom: 1px solid #444;
+  font-size: 12px;
+  color: #aaa;
+  font-family: Helvetica, Arial, sans-serif;
+  letter-spacing: 0.03em;
+}
+
+.canvas-stats-bar strong {
+  color: #4a90e2;
+}

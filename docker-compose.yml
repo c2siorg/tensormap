@@ -8,7 +8,7 @@ services:
       POSTGRES_USER: c2si
       POSTGRES_PASSWORD: c2si
     ports:
-      - 5433:5432
+      - 5432:5432
 
   server:
     build: ./tensormap-server

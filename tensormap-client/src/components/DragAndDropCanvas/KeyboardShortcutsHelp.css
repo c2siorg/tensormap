@@ -1,0 +1,126 @@
+.kbd-help-container {
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  z-index: 10;
+}
+
+.kbd-help-trigger {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: none;
+  background: #4a90e2;
+  color: #fff;
+  font-size: 16px;
+  font-weight: bold;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  transition: background 0.2s, transform 0.15s;
+}
+
+.kbd-help-trigger:hover {
+  background: #2a70c2;
+  transform: scale(1.1);
+}
+
+.kbd-help-panel {
+  position: absolute;
+  bottom: 40px;
+  left: 0;
+  background: #2b2b2b;
+  border: 1px solid #444;
+  border-radius: 8px;
+  padding: 12px;
+  min-width: 280px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+  animation: fadeInUp 0.15s ease-out;
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.kbd-help-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+  color: #ccc;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.kbd-help-close {
+  background: none;
+  border: none;
+  color: #888;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0;
+  line-height: 1;
+}
+
+.kbd-help-close:hover {
+  color: #fff;
+}
+
+.kbd-help-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.kbd-help-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.kbd-help-desc {
+  color: #ccc;
+  font-size: 12px;
+  flex: 1;
+}
+
+.kbd-help-keys {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+}
+
+.kbd-key {
+  display: inline-block;
+  background: #3c3c3c;
+  border: 1px solid #666;
+  border-bottom: 2px solid #555;
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 10px;
+  font-family: monospace;
+  color: #ddd;
+  white-space: nowrap;
+}
+
+.kbd-plus {
+  color: #777;
+  font-size: 10px;
+  margin: 0 1px;
+}

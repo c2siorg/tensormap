@@ -1,3 +1,0 @@
-cd tensormap-client/
-npm run test
-npm run prettier

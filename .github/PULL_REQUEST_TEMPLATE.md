@@ -1,39 +1,30 @@
-# Description
+## Description
 
-Please include a summary of the change and which issue is fixed. Please also include relevant motivation and context. List any dependencies that are required for this change.
+Brief summary of the changes. Reference any related issues.
 
-Fixes # (issue)
+Fixes #(issue number)
 
-## Type of change
+## Type of Change
 
-- [ ] Bug fix (non-breaking change which fixes an issue)
-- [ ] New feature (non-breaking change which adds functionality)
-- [ ] Breaking change (fix or feature that would cause existing functionality to not work as expected)
-- [ ] This change requires a documentation update
+- [ ] Bug fix
+- [ ] New feature
+- [ ] Breaking change
+- [ ] Documentation update
 
-# How Has This Been Tested?
+## How Has This Been Tested?
 
-Please describe the tests that you ran to verify your changes. Provide instructions so we can reproduce. Please also list any relevant details for your test configuration
+Describe the tests you ran to verify your changes.
 
-- [ ] Test A
-- [ ] Test B
+- [ ] Existing tests pass
+- [ ] New tests added
+- [ ] Manual testing
 
-**Test Configuration**:
+## Screenshots (if applicable)
 
-- Firmware version:
-- Hardware:
-- Toolchain:
-- SDK:
+## Checklist
 
-Also, include screenshots for verification and reviewing purpose.
-
-# Checklist:
-
-- [ ] My code follows the style guidelines of this project
-- [ ] I have performed a self-review of my own code
-- [ ] I have commented my code, particularly in hard-to-understand areas
-- [ ] I have made corresponding changes to the documentation
+- [ ] My code follows the project's style guidelines
+- [ ] I have performed a self-review
+- [ ] I have added/updated documentation as needed
 - [ ] My changes generate no new warnings
-- [ ] I have added tests that prove my fix is effective or that my feature works
-- [ ] New and existing unit tests pass locally with my changes
-- [ ] Any dependent changes have been merged and published in downstream modules
+- [ ] Tests pass locally

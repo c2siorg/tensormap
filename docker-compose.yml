@@ -1,41 +1,35 @@
-version: '3'
 services:
-  database:
-    image: postgres
-    restart: always
+  db:
+    image: postgres:16
+    restart: unless-stopped
     environment:
       POSTGRES_DB: c2si_db
       POSTGRES_USER: c2si
       POSTGRES_PASSWORD: c2si
     ports:
-      - 5432:5432
-
-  server:
-    build: ./tensormap-server
-    environment:
-      - FLASK_APP=app.py
-      - secret_key=none
-      - db_name=c2si_db
-      - db_host=database
-      - db_password=c2si
-      - db_user=c2si
-    depends_on:
-      - database
-    ports:
-      - 5000:80
-
-  client:
-    build: ./tensormap-client
-    ports:
-      - 5173:5173
-    environment:
-      - NODE_ENV=development
+      - "5432:5432"
     volumes:
-      - ./tensormap-client:/app
-      - /app/node_modules
+      - pgdata:/var/lib/postgresql/data
+
+  backend:
+    build: ./tensormap-backend
+    restart: unless-stopped
+    ports:
+      - "4300:4300"
+    env_file:
+      - ./tensormap-backend/.env
     depends_on:
-      - server
-    expose:
-      - 5173
-    stdin_open: true
-    tty: true
+      - db
+    volumes:
+      - ./tensormap-backend/data:/app/data
+
+  frontend:
+    build: ./tensormap-frontend
+    restart: unless-stopped
+    ports:
+      - "3300:3300"
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:

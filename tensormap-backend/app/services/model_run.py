@@ -106,7 +106,15 @@ def model_run(model_name: str, db: Session, loop: asyncio.AbstractEventLoop | No
     """Load, compile, and train a Keras model, emitting progress via Socket.IO."""
     global _main_loop
     _main_loop = loop
+    try:
+        _run(model_name, db)
+    except Exception as e:
+        logger.exception("Training failed for model '%s': %s", model_name, str(e))
+        _model_result(f"Training failed: {e}", -1)
+        raise
 
+
+def _run(model_name: str, db: Session) -> None:
     model_configs = db.exec(select(ModelBasic).where(ModelBasic.model_name == model_name)).first()
 
     if model_configs.model_type == ProblemType.IMAGE_CLASSIFICATION:

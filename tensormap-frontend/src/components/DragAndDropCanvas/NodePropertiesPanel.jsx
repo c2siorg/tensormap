@@ -248,6 +248,66 @@ function NodePropertiesPanel({
     );
   }
 
+  if (type === "customlstm") {
+    return (
+      <Card className="h-fit">
+        <CardHeader>
+          <CardTitle className="text-sm">LSTM Layer</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="space-y-1">
+            <Label>Units</Label>
+            <Input
+              type="number"
+              min="1"
+              max="10000"
+              placeholder="Number of units"
+              value={params.units}
+              onChange={(e) => updateParam("units", e.target.value)}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label>Return Sequences</Label>
+            <Select
+              value={params.returnSequences}
+              onValueChange={(v) => updateParam("returnSequences", v)}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Return sequences" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="false">False</SelectItem>
+                <SelectItem value="true">True</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (type === "customdropout") {
+    return (
+      <Card className="h-fit">
+        <CardHeader>
+          <CardTitle className="text-sm">Dropout</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="space-y-1">
+            <Label>Rate (0–1)</Label>
+            <Input
+              type="number"
+              min="0"
+              max="1"
+              step="0.1"
+              value={params.rate}
+              onChange={(e) => updateParam("rate", e.target.value)}
+            />
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
   return null;
 }
 

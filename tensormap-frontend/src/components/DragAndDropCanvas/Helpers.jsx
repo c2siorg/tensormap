@@ -1,4 +1,22 @@
 /**
+ * Per-node-type validation rules.
+ * Each function receives the node's params and returns true when valid.
+ */
+const VALIDATION_RULES = {
+  customdense: (params) => !!params.units && !!params.activation,
+  custominput: (params) => !!params["dim-1"],
+  customconv: (params) =>
+    !!(params.filter && params.kernelX && params.kernelY && params.strideX && params.strideY),
+  customlstm: (params) => {
+    const units = Number(params.units);
+    const returnSeq = params.returnSequences;
+    return units > 0 && !isNaN(units) && (returnSeq === "true" || returnSeq === "false");
+  },
+  customflatten: () => true,
+  customdropout: () => true,
+};
+
+/**
  * Determines whether the model can be saved.
  * Returns true when model name is filled, nodes present, all params valid, and graph connected.
  */
@@ -7,26 +25,8 @@ export const canSaveModel = (modelName, modelData) => {
   if (!modelData.nodes || modelData.nodes.length === 0) return false;
 
   for (const node of modelData.nodes) {
-    if (node.type === "customdense") {
-      if (
-        !node.data.params.units ||
-        node.data.params.units === "" ||
-        !node.data.params.activation ||
-        node.data.params.activation === ""
-      ) {
-        return false;
-      }
-    } else if (node.type === "custominput") {
-      if (!node.data.params["dim-1"] || node.data.params["dim-1"] === "") {
-        return false;
-      }
-    } else if (node.type === "customconv") {
-      const p = node.data.params;
-      if (!p.filter || !p.kernelX || !p.kernelY || !p.strideX || !p.strideY) {
-        return false;
-      }
-    }
-    // customflatten has no params to validate
+    const validator = VALIDATION_RULES[node.type];
+    if (validator && !validator(node.data.params)) return false;
   }
 
   return isGraphConnected(modelData);

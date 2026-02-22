@@ -28,7 +28,7 @@ A web application for visually creating machine learning algorithms via drag-and
 # Backend
 cd tensormap-backend
 docker build -t tensormap-backend .
-docker run -p 4300:80 --env-file .env tensormap-backend
+docker run -p 4300:4300 --env-file .env tensormap-backend
 
 # Frontend
 cd tensormap-frontend

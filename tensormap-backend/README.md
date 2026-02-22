@@ -42,7 +42,7 @@ docker run -d \
    ```
 5. Start the server:
    ```bash
-   uv run uvicorn app.main:app --host 0.0.0.0 --port 4300 --reload
+   uv run uvicorn app.main:socket_app --host 0.0.0.0 --port 4300 --reload
    ```
 
 ### Application Architecture

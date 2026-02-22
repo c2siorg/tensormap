@@ -21,7 +21,7 @@ router = APIRouter(tags=["project"])
 
 
 @router.post("/project")
-async def create_project(request: ProjectCreateRequest, db: Session = Depends(get_db)):
+def create_project(request: ProjectCreateRequest, db: Session = Depends(get_db)):
     """Create a new project with a name and optional description."""
     logger.debug("Creating project: name=%s", request.name)
     body, status_code = create_project_service(db, data=request)
@@ -29,7 +29,7 @@ async def create_project(request: ProjectCreateRequest, db: Session = Depends(ge
 
 
 @router.get("/project")
-async def get_all_projects(
+def get_all_projects(
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=100),
     db: Session = Depends(get_db),
@@ -40,14 +40,14 @@ async def get_all_projects(
 
 
 @router.get("/project/{project_id}")
-async def get_project(project_id: uuid_pkg.UUID, db: Session = Depends(get_db)):
+def get_project(project_id: uuid_pkg.UUID, db: Session = Depends(get_db)):
     """Retrieve a single project by its ID."""
     body, status_code = get_project_by_id_service(db, project_id=project_id)
     return JSONResponse(status_code=status_code, content=body)
 
 
 @router.patch("/project/{project_id}")
-async def update_project(project_id: uuid_pkg.UUID, request: ProjectUpdateRequest, db: Session = Depends(get_db)):
+def update_project(project_id: uuid_pkg.UUID, request: ProjectUpdateRequest, db: Session = Depends(get_db)):
     """Partially update a project's name and/or description."""
     logger.debug("Updating project_id=%s", project_id)
     body, status_code = update_project_service(db, project_id=project_id, data=request)
@@ -55,7 +55,7 @@ async def update_project(project_id: uuid_pkg.UUID, request: ProjectUpdateReques
 
 
 @router.delete("/project/{project_id}")
-async def delete_project(project_id: uuid_pkg.UUID, db: Session = Depends(get_db)):
+def delete_project(project_id: uuid_pkg.UUID, db: Session = Depends(get_db)):
     """Delete a project and cascade-delete its files and models."""
     logger.debug("Deleting project_id=%s", project_id)
     body, status_code = delete_project_service(db, project_id=project_id)

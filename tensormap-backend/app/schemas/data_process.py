@@ -17,6 +17,7 @@ class TransformationItem(BaseModel):
 
     transformation: str
     feature: str
+    params: dict | None = None
 
 
 class PreprocessRequest(BaseModel):

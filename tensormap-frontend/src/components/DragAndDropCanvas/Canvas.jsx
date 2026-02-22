@@ -336,7 +336,7 @@ function Canvas() {
       <div className="flex gap-4">
         <ReactFlowProvider>
           <Sidebar />
-          <div className="h-[62vh] flex-1" ref={reactFlowWrapper}>
+          <div className="min-w-0 h-[65vh] flex-1 rounded-md border" ref={reactFlowWrapper}>
             <ReactFlow
               nodes={nodes}
               edges={edges}
@@ -377,7 +377,7 @@ function Canvas() {
               onClose={closeContextMenu}
             />
           )}
-          <div className="w-64 shrink-0">
+          <div className="w-72 shrink-0">
             <NodePropertiesPanel
               selectedNode={selectedNode || null}
               modelName={modelName}

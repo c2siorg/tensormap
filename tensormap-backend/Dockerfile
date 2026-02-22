@@ -16,7 +16,9 @@ RUN groupadd -r appuser && useradd -r -g appuser appuser
 COPY --from=builder /app/.venv /app/.venv
 COPY . .
 
-RUN chown -R appuser:appuser /app
+RUN chown -R appuser:appuser /app \
+    # chmod ensures appuser can write Keras JSON during seed migration (f4a8c2e91b37)
+    && chmod u+w /app/templates/json-model
 
 ENV PATH="/app/.venv/bin:$PATH"
 

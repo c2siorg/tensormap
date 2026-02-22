@@ -102,6 +102,9 @@ def model_validate_service(db: Session, incoming: dict, project_id: uuid_pkg.UUI
             f.write(json.dumps(model_generated) + "\n")
     except OSError:
         logger.exception("Error writing model file")
+        # Cleanup orphaned database records
+        db.delete(model)
+        db.commit()
         return _resp(400, False, "Model validated but failed to save")
 
     return _resp(200, True, "Model Validation and saving successful")

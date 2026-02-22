@@ -174,3 +174,6 @@ def helper_generate_layers(layer_params: dict) -> dict:
             "inbound_nodes": [],
         }
         return default_conv
+    
+    else:
+        raise ValueError(f"Unknown custom layer type: {layer_params.get('type')}")

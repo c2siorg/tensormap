@@ -43,6 +43,7 @@ export default {
         "node-input": { DEFAULT: "rgb(105, 172, 61)", header: "rgb(93, 149, 34)" },
         "node-flatten": { DEFAULT: "rgb(247, 173, 20)", header: "rgb(170, 121, 24)" },
         "node-conv": { DEFAULT: "rgb(255, 128, 43)", header: "rgb(255, 128, 43)" },
+        "node-dropout": { DEFAULT: "rgb(220, 80, 80)", header: "rgb(180, 50, 50)" },
       },
       borderRadius: {
         lg: "var(--radius)",

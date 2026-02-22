@@ -40,6 +40,13 @@ function Sidebar() {
         >
           Conv2D
         </div>
+        <div
+          className="cursor-grab rounded-md border border-l-4 border-l-node-dropout bg-white px-3 py-2 text-xs font-medium"
+          onDragStart={(e) => onDragStart(e, "customdropout")}
+          draggable
+        >
+          Dropout
+        </div>
       </CardContent>
     </Card>
   );

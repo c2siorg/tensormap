@@ -168,18 +168,27 @@ def preprocess_data(db: Session, file_id: uuid_pkg.UUID, transformations: list) 
             if t.transformation == "Min-Max Normalization":
                 col_min = df[t.feature].min()
                 col_max = df[t.feature].max()
-                df[t.feature] = 0.0 if col_max == col_min else (df[t.feature] - col_min) / (col_max - col_min)
+                df[t.feature] = 0.0 if np.isclose(col_min, col_max) else (df[t.feature] - col_min) / (col_max - col_min)
             if t.transformation == "Z-score Standardization":
                 std = df[t.feature].std()
                 df[t.feature] = 0.0 if std == 0 else (df[t.feature] - df[t.feature].mean()) / std
             if t.transformation == "Log Transform":
-                df[t.feature] = np.log1p(df[t.feature])
+                s = df[t.feature]
+                if (s < -1).any():
+                    logger.warning(
+                        "Log Transform skipped for column '%s': %d value(s) below -1",
+                        t.feature,
+                        int((s < -1).sum()),
+                    )
+                else:
+                    df[t.feature] = np.log1p(s)
             if t.transformation == "Fill Missing Values":
                 strategy = (t.params or {}).get("strategy", "mean")
                 if strategy == "median":
                     df[t.feature] = df[t.feature].fillna(df[t.feature].median())
                 elif strategy == "mode":
-                    df[t.feature] = df[t.feature].fillna(df[t.feature].mode()[0])
+                    mode_vals = df[t.feature].mode()
+                    df[t.feature] = df[t.feature].fillna(mode_vals[0] if not mode_vals.empty else df[t.feature].mean())
                 else:
                     df[t.feature] = df[t.feature].fillna(df[t.feature].mean())
 

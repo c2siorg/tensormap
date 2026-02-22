@@ -147,6 +147,9 @@ def get_file_data(db: Session, file_id: uuid_pkg.UUID) -> tuple:
     return _resp(200, True, "Data sent successfully", data_json)
 
 
+_VALID_TRANSFORMATIONS = {"One Hot Encoding", "Categorical to Numerical", "Drop Column"}
+
+
 def preprocess_data(db: Session, file_id: uuid_pkg.UUID, transformations: list) -> tuple:
     """Apply column transformations to a CSV, overwriting the existing file."""
     file = db.exec(select(DataFile).where(DataFile.id == file_id)).first()
@@ -157,6 +160,25 @@ def preprocess_data(db: Session, file_id: uuid_pkg.UUID, transformations: list) 
 
     try:
         df = pd.read_csv(file_path)
+
+        # Validate all transformations before applying any, so the request either
+        # fully succeeds or fully fails — no partial mutations.
+        for t in transformations:
+            if t.transformation not in _VALID_TRANSFORMATIONS:
+                return _resp(
+                    422,
+                    False,
+                    f"Unknown transformation '{t.transformation}'. "
+                    f"Valid options: {sorted(_VALID_TRANSFORMATIONS)}",
+                )
+            if t.feature not in df.columns:
+                return _resp(
+                    422,
+                    False,
+                    f"Column '{t.feature}' not found. "
+                    f"Available columns: {list(df.columns)}",
+                )
+
         for t in transformations:
             if t.transformation == "One Hot Encoding":
                 df = pd.get_dummies(df, columns=[t.feature])

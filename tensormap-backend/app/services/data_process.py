@@ -1,6 +1,7 @@
 import uuid as uuid_pkg
 from typing import Any
 
+import numpy as np
 import pandas as pd
 from sqlalchemy import func
 from sqlmodel import Session, select
@@ -164,6 +165,23 @@ def preprocess_data(db: Session, file_id: uuid_pkg.UUID, transformations: list) 
                 df[t.feature] = pd.Categorical(df[t.feature]).codes
             if t.transformation == "Drop Column":
                 df = df.drop(columns=[t.feature])
+            if t.transformation == "Min-Max Normalization":
+                col_min = df[t.feature].min()
+                col_max = df[t.feature].max()
+                df[t.feature] = 0.0 if col_max == col_min else (df[t.feature] - col_min) / (col_max - col_min)
+            if t.transformation == "Z-score Standardization":
+                std = df[t.feature].std()
+                df[t.feature] = 0.0 if std == 0 else (df[t.feature] - df[t.feature].mean()) / std
+            if t.transformation == "Log Transform":
+                df[t.feature] = np.log1p(df[t.feature])
+            if t.transformation == "Fill Missing Values":
+                strategy = (t.params or {}).get("strategy", "mean")
+                if strategy == "median":
+                    df[t.feature] = df[t.feature].fillna(df[t.feature].median())
+                elif strategy == "mode":
+                    df[t.feature] = df[t.feature].fillna(df[t.feature].mode()[0])
+                else:
+                    df[t.feature] = df[t.feature].fillna(df[t.feature].mean())
 
         df.to_csv(file_path, index=False)
         return _resp(200, True, "Dataset preprocessed successfully")

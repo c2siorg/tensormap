@@ -10,7 +10,15 @@ import {
 } from "@/components/ui/select";
 
 function TransformationCreator({ features, onAdd }) {
-  const transformations = ["One Hot Encoding", "Categorical to Numerical", "Drop Column"];
+  const transformations = [
+    "One Hot Encoding",
+    "Categorical to Numerical",
+    "Drop Column",
+    "Min-Max Normalization",
+    "Z-score Standardization",
+    "Log Transform",
+    "Fill Missing Values",
+  ];
   const [selectedFeature, setSelectedFeature] = useState(features[0]);
   const [selectedTransformation, setSelectedTransformation] = useState(transformations[0]);
   const [disabledButton, setDisabledButton] = useState(true);

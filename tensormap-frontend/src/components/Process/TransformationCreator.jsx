@@ -35,7 +35,7 @@ function TransformationCreator({ features, onAdd }) {
   return (
     <div className="flex items-center justify-between gap-4">
       <div className="w-[40%]">
-        <Select onValueChange={(value) => setSelectedFeature(value)}>
+        <Select value={selectedFeature} onValueChange={(value) => setSelectedFeature(value)}>
           <SelectTrigger>
             <SelectValue placeholder="Feature" />
           </SelectTrigger>
@@ -49,7 +49,7 @@ function TransformationCreator({ features, onAdd }) {
         </Select>
       </div>
       <div className="w-[40%]">
-        <Select onValueChange={(value) => setSelectedTransformation(value)}>
+        <Select value={selectedTransformation} onValueChange={(value) => setSelectedTransformation(value)}>
           <SelectTrigger>
             <SelectValue placeholder="Transformation" />
           </SelectTrigger>

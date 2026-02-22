@@ -42,4 +42,4 @@ app.include_router(project.router, prefix=settings.api_base)
 # Wrap FastAPI with SocketIO so socket.io requests are handled,
 # and everything else passes through to FastAPI.
 # Run this combined app with: uvicorn app.main:socket_app
-socket_app = socketio.ASGIApp(sio, other_asgi_app=app)
+socket_app = socketio.ASGIApp(sio, app)

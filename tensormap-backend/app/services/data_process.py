@@ -92,13 +92,18 @@ def get_data_metrics(db: Session, file_id: uuid_pkg.UUID) -> tuple:
         return _resp(400, False, "File doesn't exist in DB")
 
     file_path = _get_file_path(file)
-    df = pd.read_csv(file_path)
-    metrics = {
-        "data_types": df.dtypes.apply(str).to_dict(),
-        "correlation_matrix": df.corr(numeric_only=True).map(str).to_dict(),
-        "metric": df.describe().map(str).to_dict(),
-    }
-    return _resp(200, True, "Dataset metrics generated successfully", metrics)
+    try:
+        # Read a smaller sample to prevent DoS via massive CSVs
+        df = pd.read_csv(file_path, nrows=5000)
+        metrics = {
+            "data_types": df.dtypes.apply(str).to_dict(),
+            "correlation_matrix": df.corr(numeric_only=True).map(str).to_dict(),
+            "metric": df.describe().map(str).to_dict(),
+        }
+        return _resp(200, True, "Dataset metrics generated successfully", metrics)
+    except Exception as e:
+        logger.exception("Error generating data metrics: %s", str(e))
+        return _resp(500, False, "Error generating data metrics")
 
 
 def get_file_data(db: Session, file_id: uuid_pkg.UUID) -> tuple:
@@ -107,9 +112,14 @@ def get_file_data(db: Session, file_id: uuid_pkg.UUID) -> tuple:
         return _resp(400, False, "Unable to open file")
 
     file_path = _get_file_path(file)
-    df = pd.read_csv(file_path)
-    data_json = df.to_json(orient="records")
-    return _resp(200, True, "Data sent successfully", data_json)
+    try:
+        # Only read top 1000 records to prevent memory explosion sending JSON
+        df = pd.read_csv(file_path, nrows=1000)
+        data_json = df.to_json(orient="records")
+        return _resp(200, True, "Data sent successfully", data_json)
+    except Exception as e:
+        logger.exception("Error extracting file data: %s", str(e))
+        return _resp(500, False, "Error extracting file data")
 
 
 def preprocess_data(db: Session, file_id: uuid_pkg.UUID, transformations: list) -> tuple:

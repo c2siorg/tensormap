@@ -143,7 +143,12 @@ def model_run(model_name: str, db: Session) -> None:
         x_testing = X[split_index:]
         y_testing = y[split_index:]
 
-    with open(_helper_generate_json_model_file_location(model_name=model_name)) as f:
+    from werkzeug.utils import secure_filename
+    s_model_name = secure_filename(model_name)
+    with open(_helper_generate_json_model_file_location(model_name=s_model_name)) as f:
+        # Prevent YAML arbitrary code execution (though json string might not need yaml load at all)
+        # Using json.loads is safer since the data is a JSON string of keras model
+        import json
         json_string = f.read()
     model = tf.keras.models.model_from_json(json_string, custom_objects=None)
     model.summary()

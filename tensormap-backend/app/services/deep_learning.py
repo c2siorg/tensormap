@@ -94,9 +94,11 @@ def model_validate_service(db: Session, incoming: dict, project_id: uuid_pkg.UUI
                 return _resp(400, False, errors.err_msgs[error])
         return _resp(400, False, "Model saving failed. Please recheck the model configs")
 
+    from werkzeug.utils import secure_filename
+    s_model_name = secure_filename(code[DL_MODEL][MODEL_NAME])
     try:
         with open(
-            MODEL_GENERATION_LOCATION + code[DL_MODEL][MODEL_NAME] + MODEL_GENERATION_TYPE,
+            MODEL_GENERATION_LOCATION + s_model_name + MODEL_GENERATION_TYPE,
             "w+",
         ) as f:
             f.write(json.dumps(model_generated) + "\n")

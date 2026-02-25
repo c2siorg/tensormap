@@ -147,6 +147,10 @@ def get_column_stats_service(db: Session, file_id: uuid_pkg.UUID) -> tuple:
     total_rows = len(df)
     total_cols = len(df.columns)
 
+    def _safe_float(v) -> float | None:
+        """Return float(v) if v is a finite number, else None."""
+        return float(v) if pd.notna(v) else None
+
     numeric_cols = df.select_dtypes(include="number").columns
     columns = []
     for col in df.columns:
@@ -157,9 +161,9 @@ def get_column_stats_service(db: Session, file_id: uuid_pkg.UUID) -> tuple:
             "dtype": str(df[col].dtype),
             "count": int(df[col].count()),
             "null_count": null_count,
-            "mean": float(df[col].mean()) if is_numeric else None,
-            "min": float(df[col].min()) if is_numeric else None,
-            "max": float(df[col].max()) if is_numeric else None,
+            "mean": _safe_float(df[col].mean()) if is_numeric else None,
+            "min": _safe_float(df[col].min()) if is_numeric else None,
+            "max": _safe_float(df[col].max()) if is_numeric else None,
         }
         columns.append(entry)
 

@@ -38,11 +38,15 @@ const ColumnStatsPanel = ({ fileId }) => {
     if (fileId) {
       setStats(null);
       fetchStats(fileId);
+    } else {
+      setStats(null);
     }
   }, [fileId, fetchStats]);
 
   const summary =
-    stats ? `${stats.total_rows} rows · ${stats.total_cols} columns` : "";
+    stats?.total_rows != null && stats?.total_cols != null
+      ? `${stats.total_rows} rows · ${stats.total_cols} columns`
+      : "";
 
   return (
     <div>
@@ -75,12 +79,12 @@ const ColumnStatsPanel = ({ fileId }) => {
               Loading statistics...
             </div>
           )}
-          {!error && stats && stats.columns.length === 0 && (
+          {!error && stats && Array.isArray(stats.columns) && stats.columns.length === 0 && (
             <div className="flex h-16 items-center justify-center text-muted-foreground text-sm">
               No statistics available
             </div>
           )}
-          {!error && stats && stats.columns.length > 0 && (
+          {!error && stats && Array.isArray(stats.columns) && stats.columns.length > 0 && (
             <div className="mt-2 overflow-auto max-h-[400px]">
               <table className="w-full border-collapse text-sm">
                 <thead>
@@ -97,8 +101,8 @@ const ColumnStatsPanel = ({ fileId }) => {
                     <tr key={row.column} className="border-b hover:bg-muted/30">
                       <td className="border px-3 py-2 font-medium">{row.column}</td>
                       <td className="border px-3 py-2 text-muted-foreground">{row.dtype}</td>
-                      <td className="border px-3 py-2 text-muted-foreground">{row.count}</td>
-                      <td className="border px-3 py-2 text-muted-foreground">{row.null_count}</td>
+                      <td className="border px-3 py-2 text-muted-foreground">{fmt(row.count)}</td>
+                      <td className="border px-3 py-2 text-muted-foreground">{fmt(row.null_count)}</td>
                       <td className="border px-3 py-2 text-muted-foreground">{fmt(row.mean)}</td>
                       <td className="border px-3 py-2 text-muted-foreground">{fmt(row.min)}</td>
                       <td className="border px-3 py-2 text-muted-foreground">{fmt(row.max)}</td>

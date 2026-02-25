@@ -1,32 +1,16 @@
-"""API integration tests for TensorMap backend.
-
-Tests exercise the full request-response cycle via FastAPI TestClient backed
-by an in-process SQLite database (no PostgreSQL required).  All 12 tests
-should complete in well under 30 seconds.
-"""
 import io
 import uuid
+from unittest.mock import mock_open, patch
 
-import pytest
 from fastapi.testclient import TestClient
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 CSV_BYTES = b"col1,col2\nval1,val2\nval3,val4\n"
 
 
 def _create_project(client: TestClient, name: str = "TestProject") -> dict:
-    """Create a project and return the parsed response body."""
     resp = client.post("/api/v1/project", json={"name": name})
     assert resp.status_code == 201, resp.text
     return resp.json()
-
-
-# ---------------------------------------------------------------------------
-# Project CRUD 
-# ---------------------------------------------------------------------------
 
 
 def test_create_project_valid(client: TestClient):
@@ -82,14 +66,8 @@ def test_delete_project(client: TestClient):
     body = resp.json()
     assert body["success"] is True
 
-    # Confirm it is gone
     resp2 = client.get(f"/api/v1/project/{project_id}")
     assert resp2.status_code == 404
-
-
-# ---------------------------------------------------------------------------
-# Data upload 
-# ---------------------------------------------------------------------------
 
 
 def test_upload_valid_csv(client: TestClient):
@@ -113,9 +91,6 @@ def test_upload_non_csv_extension(client: TestClient):
 
 
 def test_upload_no_filename(client: TestClient):
-    # FastAPI validates the UploadFile before the handler runs when the filename
-    # is empty, so it returns 422 (framework validation) rather than the
-    # handler's 400.  Both codes signal an invalid request.
     resp = client.post(
         "/api/v1/data/upload/file",
         files={"data": ("", io.BytesIO(b""), "text/csv")},
@@ -132,11 +107,6 @@ def test_list_files_empty(client: TestClient):
     assert "pagination" in body
 
 
-# ---------------------------------------------------------------------------
-# Deep learning
-# ---------------------------------------------------------------------------
-
-
 def test_model_list_empty(client: TestClient):
     resp = client.get("/api/v1/model/model-list")
     assert resp.status_code == 200
@@ -149,3 +119,33 @@ def test_model_list_empty(client: TestClient):
 def test_validate_model_missing_body(client: TestClient):
     resp = client.post("/api/v1/model/validate", json={})
     assert resp.status_code == 422
+
+
+def test_validate_model_valid(client: TestClient):
+    payload = {
+        "model": {
+            "nodes": [{"id": "input-1", "type": "custominput", "data": {"params": {"dim-1": 4}}}],
+            "edges": [],
+            "model_name": "ValidModel",
+        },
+        "code": {
+            "dataset": {
+                "file_id": str(uuid.uuid4()),
+                "target_field": "col1",
+                "training_split": 80,
+            },
+            "dl_model": {
+                "model_name": "ValidModel",
+                "optimizer": "adam",
+                "metric": "mse",
+                "epochs": 10,
+            },
+            "problem_type_id": 1,
+        },
+    }
+    with patch("app.services.deep_learning.open", mock_open()):
+        resp = client.post("/api/v1/model/validate", json=payload)
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["success"] is True

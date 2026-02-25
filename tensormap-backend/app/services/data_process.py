@@ -171,6 +171,46 @@ def get_column_stats_service(db: Session, file_id: uuid_pkg.UUID) -> tuple:
     return _resp(200, True, "Column statistics generated successfully", data)
 
 
+def get_correlation_matrix(db: Session, file_id: uuid_pkg.UUID) -> tuple:
+    """Compute the pairwise correlation matrix for all numeric columns in a CSV.
+
+    Returns a dict with:
+    - ``columns``: ordered list of column names included in the matrix
+    - ``matrix``: NxN list of floats (NaN serialised as ``null``)
+
+    Non-numeric and constant columns (std == 0) are silently excluded so that
+    the heatmap only shows meaningful relationships.
+    """
+    file = db.exec(select(DataFile).where(DataFile.id == file_id)).first()
+    if not file:
+        return _resp(400, False, "File doesn't exist in DB")
+
+    file_path = _get_file_path(file)
+    try:
+        df = pd.read_csv(file_path)
+    except FileNotFoundError:
+        return _resp(500, False, f"File not found: {file_path}")
+    except pd.errors.ParserError as e:
+        logger.exception("CSV parsing error: %s", str(e))
+        return _resp(500, False, f"Error reading CSV: {e}")
+    except Exception as e:
+        logger.exception("Error reading file: %s", str(e))
+        return _resp(500, False, f"Error reading CSV: {e}")
+
+    numeric_df = df.select_dtypes(include="number")
+    if numeric_df.empty:
+        return _resp(200, True, "No numeric columns found", {"columns": [], "matrix": []})
+
+    corr = numeric_df.corr()
+    # Convert the DataFrame to a plain list-of-lists; NaN becomes None (JSON null)
+    columns = corr.columns.tolist()
+    matrix = [
+        [None if pd.isna(v) else round(float(v), 6) for v in row]
+        for row in corr.to_numpy()
+    ]
+    return _resp(200, True, "Correlation matrix computed successfully", {"columns": columns, "matrix": matrix})
+
+
 def get_file_data(db: Session, file_id: uuid_pkg.UUID) -> tuple:
     """Read and return the full contents of a CSV file as JSON."""
     file = db.exec(select(DataFile).where(DataFile.id == file_id)).first()

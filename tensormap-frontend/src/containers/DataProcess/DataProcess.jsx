@@ -5,6 +5,7 @@ import ColumnStatsPanel from "../../components/Process/ColumnStatsPanel";
 import DisplayDataset from "../../components/Process/DisplayDataset";
 import SelectFileModal from "../../components/Process/SelectFileModal";
 import PreprocessData from "../../components/Process/PreprocessData";
+import CorrelationHeatmap from "../../components/Process/CorrelationHeatmap";
 import { getAllFiles } from "../../services/FileServices";
 import { projectFiles } from "../../shared/atoms";
 import logger from "../../shared/logger";
@@ -32,7 +33,7 @@ function DataProcess() {
       {selectedFile === null ? (
         <SelectFileModal />
       ) : (
-        <>
+        <div className="space-y-6">
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
             <Card>
               <CardHeader>
@@ -56,7 +57,15 @@ function DataProcess() {
               <ColumnStatsPanel fileId={selectedFile} />
             </CardContent>
           </Card>
-        </>
+          <Card>
+            <CardHeader>
+              <CardTitle>Correlation Heatmap</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <CorrelationHeatmap fileId={selectedFile} />
+            </CardContent>
+          </Card>
+        </div>
       )}
     </div>
   );

@@ -125,8 +125,8 @@ def get_data_metrics(db: Session, file_id: uuid_pkg.UUID) -> tuple:
     return _resp(200, True, "Dataset metrics generated successfully", metrics)
 
 
-def get_file_data(db: Session, file_id: uuid_pkg.UUID) -> tuple:
-    """Read and return the full contents of a CSV file as JSON."""
+def get_file_data(db: Session, file_id: uuid_pkg.UUID, page: int = 1, page_size: int = 50) -> tuple:
+    """Read and return the paginated contents of a CSV file as JSON."""
     file = db.exec(select(DataFile).where(DataFile.id == file_id)).first()
     if not file:
         return _resp(400, False, "Unable to open file")
@@ -143,8 +143,29 @@ def get_file_data(db: Session, file_id: uuid_pkg.UUID) -> tuple:
         logger.exception("Error reading file: %s", str(e))
         return _resp(500, False, f"Error reading CSV: {e}")
 
-    data_json = df.to_json(orient="records")
-    return _resp(200, True, "Data sent successfully", data_json)
+    total_rows = len(df)
+    total_pages = (total_rows + page_size - 1) // page_size if page_size > 0 else 0
+
+    start_idx = (page - 1) * page_size
+    end_idx = start_idx + page_size
+    df_page = df.iloc[start_idx:end_idx]
+
+    data_json = df_page.to_json(orient="records")
+    import json
+    data_list = json.loads(data_json)
+
+    body = {
+        "success": True,
+        "message": "Data sent successfully",
+        "data": data_list,
+        "pagination": {
+            "page": page,
+            "page_size": page_size,
+            "total_rows": total_rows,
+            "total_pages": total_pages
+        }
+    }
+    return body, 200
 
 
 def preprocess_data(db: Session, file_id: uuid_pkg.UUID, transformations: list) -> tuple:

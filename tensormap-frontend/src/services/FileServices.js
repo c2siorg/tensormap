@@ -74,15 +74,18 @@ export const getCovMatrix = async (file_id) =>
     });
 
 /**
- * Fetches the raw data content of a file as a JSON string.
+ * Fetches the raw data content of a file as a JSON string or paginated object.
  *
  * @param {string} file_id - ID of the uploaded file.
- * @returns {Promise<string>} JSON string of the file data.
+ * @param {number} page - Page number.
+ * @param {number} pageSize - Number of rows per page.
+ * @returns {Promise<object>} Response data containing data array and pagination metadata.
  */
-export const getFileData = async (file_id) => {
+export const getFileData = async (file_id, page = 1, pageSize = 50) => {
   try {
-    const response = await axios.get(urls.BACKEND_GET_FILE_DATA + file_id);
-    return response.data.data;
+    const params = { page, page_size: pageSize };
+    const response = await axios.get(urls.BACKEND_GET_FILE_DATA + file_id, { params });
+    return response.data;
   } catch (error) {
     logger.error(error);
     throw error;

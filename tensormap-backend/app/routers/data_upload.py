@@ -1,6 +1,6 @@
 import uuid as uuid_pkg
 
-from fastapi import APIRouter, Depends, Form, Query, UploadFile
+from fastapi import APIRouter, Depends, Form, Query, UploadFile, File
 from fastapi.responses import JSONResponse
 from sqlmodel import Session
 
@@ -34,7 +34,7 @@ class _UploadFileWrapper:
 
 @router.post("/data/upload/file")
 async def upload_file(
-    data: UploadFile,
+    data: UploadFile = File(...),
     project_id: uuid_pkg.UUID | None = Form(None),
     db: Session = Depends(get_db),
 ):

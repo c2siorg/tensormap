@@ -73,7 +73,7 @@ def test_numeric_min_max_present(tmp_path):
     assert rows["b"]["max"] == pytest.approx(6.0)
 
 
-def test_categorical_mean_is_none(tmp_path):
+def test_categorical_mean_min_max_are_none(tmp_path):
     """Non-numeric columns must return None for mean/min/max."""
     body, _ = _run(tmp_path, CATEGORICAL_CSV)
     rows = {r["column"]: r for r in body["data"]["columns"]}

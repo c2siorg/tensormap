@@ -126,6 +126,47 @@ def get_data_metrics(db: Session, file_id: uuid_pkg.UUID) -> tuple:
     return _resp(200, True, "Dataset metrics generated successfully", metrics)
 
 
+def get_column_stats_service(db: Session, file_id: uuid_pkg.UUID) -> tuple:
+    """Compute per-column descriptive statistics for a CSV dataset."""
+    file = db.exec(select(DataFile).where(DataFile.id == file_id)).first()
+    if not file:
+        return _resp(400, False, "File doesn't exist in DB")
+
+    file_path = _get_file_path(file)
+    try:
+        df = pd.read_csv(file_path)
+    except FileNotFoundError:
+        return _resp(500, False, f"File not found: {file_path}")
+    except pd.errors.ParserError as e:
+        logger.exception("CSV parsing error: %s", str(e))
+        return _resp(500, False, f"Error reading CSV: {e}")
+    except Exception as e:
+        logger.exception("Error reading file: %s", str(e))
+        return _resp(500, False, f"Error reading CSV: {e}")
+
+    total_rows = len(df)
+    total_cols = len(df.columns)
+
+    numeric_cols = df.select_dtypes(include="number").columns
+    columns = []
+    for col in df.columns:
+        is_numeric = col in numeric_cols
+        null_count = int(df[col].isnull().sum())
+        entry: dict = {
+            "column": col,
+            "dtype": str(df[col].dtype),
+            "count": int(df[col].count()),
+            "null_count": null_count,
+            "mean": float(df[col].mean()) if is_numeric else None,
+            "min": float(df[col].min()) if is_numeric else None,
+            "max": float(df[col].max()) if is_numeric else None,
+        }
+        columns.append(entry)
+
+    data = {"total_rows": total_rows, "total_cols": total_cols, "columns": columns}
+    return _resp(200, True, "Column statistics generated successfully", data)
+
+
 def get_file_data(db: Session, file_id: uuid_pkg.UUID) -> tuple:
     """Read and return the full contents of a CSV file as JSON."""
     file = db.exec(select(DataFile).where(DataFile.id == file_id)).first()

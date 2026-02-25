@@ -277,7 +277,7 @@ export default function Training() {
         break;
     }
     setValidationErrors((prev) => ({ ...prev, [field]: error }));
-  }, []);
+  }, []); // Empty deps since validation functions are stable within component
 
   // Check if form has any validation errors
   const hasValidationErrors = () => {
@@ -303,13 +303,8 @@ export default function Training() {
 
   const handleFileSelect = useCallback(
     (value) => {
-      // Try both string and number comparisons since the data might be mixed types
-      const selected = fileDetails.find(
-        (item) =>
-          item.file_id === value ||
-          item.file_id === parseInt(value) ||
-          item.file_id.toString() === value,
-      );
+      const normalizedValue = String(value);
+      const selected = fileDetails.find((item) => String(item.file_id) === normalizedValue);
       if (selected && selected.fields && selected.fields.length > 0) {
         const fields = selected.fields.map((item, index) => ({
           label: item,

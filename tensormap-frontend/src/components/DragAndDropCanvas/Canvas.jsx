@@ -23,6 +23,7 @@ import NodePropertiesPanel from "./NodePropertiesPanel";
 import { canSaveModel, generateModelJSON } from "./Helpers";
 import { getAllModels, getModelGraph, saveModel } from "../../services/ModelServices";
 import { models as allModels } from "../../shared/atoms";
+import ContextMenu from "./ContextMenu";
 
 const nodeTypes = {
   custominput: InputNode,
@@ -46,6 +47,7 @@ function Canvas() {
     message: "",
     detail: "",
   });
+  const [contextMenu, setContextMenu] = useState({ nodeId: null, x: 0, y: 0 });
   const defaultViewport = { x: 10, y: 15, zoom: 0.5 };
 
   // Auto-load the project's first saved model on mount
@@ -103,9 +105,34 @@ function Canvas() {
     setSelectedNodeId(node.id);
   }, []);
 
+  const closeContextMenu = useCallback(() => {
+    setContextMenu({ nodeId: null, x: 0, y: 0 });
+  }, []);
+
   const onPaneClick = useCallback(() => {
     setSelectedNodeId(null);
+    closeContextMenu();
+  }, [closeContextMenu]);
+
+  const onNodeContextMenu = useCallback((event, node) => {
+    event.preventDefault();
+    setContextMenu({ nodeId: node.id, x: event.clientX, y: event.clientY });
   }, []);
+
+  const duplicateNode = useCallback(() => {
+    setNodes((nds) => {
+      const source = nds.find((n) => n.id === contextMenu.nodeId);
+      if (!source) return nds;
+      const duplicate = {
+        id: crypto.randomUUID(),
+        type: source.type,
+        position: { x: source.position.x + 50, y: source.position.y + 50 },
+        data: { label: source.data.label, params: { ...source.data.params } },
+      };
+      return nds.concat(duplicate);
+    });
+    closeContextMenu();
+  }, [contextMenu.nodeId, setNodes, closeContextMenu]);
 
   const onNodeUpdate = useCallback(
     (nodeId, newParams) => {
@@ -234,6 +261,7 @@ function Canvas() {
               onDragOver={onDragOver}
               onNodeClick={onNodeClick}
               onPaneClick={onPaneClick}
+              onNodeContextMenu={onNodeContextMenu}
               nodeTypes={nodeTypes}
               defaultViewport={defaultViewport}
             >
@@ -247,6 +275,14 @@ function Canvas() {
               />
             </ReactFlow>
           </div>
+          {contextMenu.nodeId && (
+            <ContextMenu
+              x={contextMenu.x}
+              y={contextMenu.y}
+              onDuplicate={duplicateNode}
+              onClose={closeContextMenu}
+            />
+          )}
           <div className="w-64 shrink-0">
             <NodePropertiesPanel
               selectedNode={selectedNode || null}

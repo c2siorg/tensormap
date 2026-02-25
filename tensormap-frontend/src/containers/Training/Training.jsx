@@ -9,6 +9,8 @@ import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
+  SelectGroup,
+  SelectLabel,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -25,6 +27,15 @@ import {
 } from "../../services/ModelServices";
 import { getAllFiles } from "../../services/FileServices";
 import { models as modelListAtom } from "../../shared/atoms";
+
+const lossOptions = [
+  { type: "classification", key: "loss_1", label: "Sparse Categorical Crossentropy", value: "sparse_categorical_crossentropy" },
+  { type: "classification", key: "loss_2", label: "Categorical Crossentropy", value: "categorical_crossentropy" },
+  { type: "classification", key: "loss_3", label: "Binary Crossentropy", value: "binary_crossentropy" },
+  { type: "regression", key: "loss_4", label: "Mean Squared Error", value: "mean_squared_error" },
+  { type: "regression", key: "loss_5", label: "Mean Absolute Error", value: "mean_absolute_error" },
+  { type: "regression", key: "loss_6", label: "Huber", value: "huber" },
+];
 
 const optimizerOptions = [
   { key: "opt_1", label: "Adam", value: "adam" },
@@ -66,6 +77,7 @@ export default function Training() {
     epochs: "",
     batch_size: "",
     training_split: "",
+    loss: "",
   });
 
   useEffect(() => {
@@ -179,6 +191,7 @@ export default function Training() {
       optimizer: trainingConfig.optimizer,
       metric: trainingConfig.metric,
       epochs: Number(trainingConfig.epochs),
+      loss: trainingConfig.loss,
       project_id: projectId || null,
     };
 
@@ -201,6 +214,7 @@ export default function Training() {
     trainingConfig.optimizer &&
     trainingConfig.metric &&
     trainingConfig.epochs &&
+    trainingConfig.loss &&
     trainingConfig.training_split;
 
   const handleDownload = () => {
@@ -305,9 +319,18 @@ export default function Training() {
               <div className="space-y-1">
                 <Label>Problem Type</Label>
                 <Select
-                  onValueChange={(v) =>
-                    setTrainingConfig((prev) => ({ ...prev, problem_type_id: v }))
-                  }
+                  onValueChange={(v) => {
+                    // Auto-select default loss based on problem type (1 & 3 = Classification, 2 = Regression)
+                    let defaultLoss = "";
+                    if (v === "1" || v === "3") defaultLoss = "sparse_categorical_crossentropy";
+                    else if (v === "2") defaultLoss = "mean_squared_error";
+                    
+                    setTrainingConfig((prev) => ({ 
+                      ...prev, 
+                      problem_type_id: v,
+                      loss: defaultLoss 
+                    }));
+                  }}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Select problem type" />
@@ -336,6 +359,36 @@ export default function Training() {
                         {f.label}
                       </SelectItem>
                     ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1">
+                <Label>Loss Function</Label>
+                <Select
+                  value={trainingConfig.loss}
+                  onValueChange={(v) => setTrainingConfig((prev) => ({ ...prev, loss: v }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select loss function" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectLabel className="font-bold text-slate-500">Classification</SelectLabel>
+                      {lossOptions.filter(o => o.type === "classification").map((o) => (
+                        <SelectItem key={o.key} value={o.value}>
+                          {o.label}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                    <SelectGroup>
+                      <SelectLabel className="font-bold text-slate-500">Regression</SelectLabel>
+                      {lossOptions.filter(o => o.type === "regression").map((o) => (
+                        <SelectItem key={o.key} value={o.value}>
+                          {o.label}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
                   </SelectContent>
                 </Select>
               </div>

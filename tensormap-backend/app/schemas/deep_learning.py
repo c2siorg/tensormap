@@ -1,10 +1,19 @@
 """Request schemas for model validation, code generation, and training endpoints."""
 
 import uuid as uuid_pkg
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+# Define our strict allowed loss functions
+LossFunction = Literal[
+    "sparse_categorical_crossentropy",
+    "categorical_crossentropy",
+    "binary_crossentropy",
+    "mean_squared_error",
+    "mean_absolute_error",
+    "huber"
+]
 
 # --- "code" sub-models ---
 class DatasetConfig(BaseModel):
@@ -22,6 +31,7 @@ class DLModelConfig(BaseModel):
     optimizer: str = Field(min_length=1)
     metric: str = Field(min_length=1)
     epochs: int = Field(gt=0)
+    loss: LossFunction
 
 
 class CodeConfig(BaseModel):
@@ -97,4 +107,5 @@ class TrainingConfigRequest(BaseModel):
     optimizer: str = Field(min_length=1)
     metric: str = Field(min_length=1)
     epochs: int = Field(gt=0)
+    loss: LossFunction
     project_id: uuid_pkg.UUID | None = None

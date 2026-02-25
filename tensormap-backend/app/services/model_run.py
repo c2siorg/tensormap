@@ -165,10 +165,22 @@ def model_run(model_name: str, db: Session, loop: asyncio.AbstractEventLoop | No
         json_string = f.read()
     model = tf.keras.models.model_from_json(json_string, custom_objects=None)
     model.summary()
-    if model_configs.loss == "sparse_categorical_crossentropy":
-        loss = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
-    else:
-        loss = tf.keras.losses.MeanSquaredError()
+    
+    # Map the string from the database to the actual Keras Loss object
+    loss_mapping = {
+        "sparse_categorical_crossentropy": tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
+        "categorical_crossentropy": tf.keras.losses.CategoricalCrossentropy(from_logits=True),
+        "binary_crossentropy": tf.keras.losses.BinaryCrossentropy(from_logits=True),
+        "mean_squared_error": tf.keras.losses.MeanSquaredError(),
+        "mean_absolute_error": tf.keras.losses.MeanAbsoluteError(),
+        "huber": tf.keras.losses.Huber()
+    }
+
+    if model_configs.loss not in loss_mapping:
+        raise ValueError(f"Invalid or unsupported loss function: {model_configs.loss}")
+        
+    loss = loss_mapping[model_configs.loss]
+
     model.compile(
         optimizer=model_configs.optimizer,
         loss=loss,

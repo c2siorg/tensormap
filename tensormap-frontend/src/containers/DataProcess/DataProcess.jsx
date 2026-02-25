@@ -1,6 +1,7 @@
 import { useRecoilState } from "recoil";
 import { useParams } from "react-router-dom";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import ColumnStatsPanel from "../../components/Process/ColumnStatsPanel";
 import DisplayDataset from "../../components/Process/DisplayDataset";
 import SelectFileModal from "../../components/Process/SelectFileModal";
 import PreprocessData from "../../components/Process/PreprocessData";
@@ -31,24 +32,31 @@ function DataProcess() {
       {selectedFile === null ? (
         <SelectFileModal />
       ) : (
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <>
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+            <Card>
+              <CardHeader>
+                <CardTitle>Dataset Preview</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <DisplayDataset fileId={selectedFile} />
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle>Preprocessing</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <PreprocessData fileId={selectedFile} updateFileList={refreshFiles} />
+              </CardContent>
+            </Card>
+          </div>
           <Card>
-            <CardHeader>
-              <CardTitle>Dataset Preview</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <DisplayDataset fileId={selectedFile} />
+            <CardContent className="pt-4">
+              <ColumnStatsPanel fileId={selectedFile} />
             </CardContent>
           </Card>
-          <Card>
-            <CardHeader>
-              <CardTitle>Preprocessing</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <PreprocessData fileId={selectedFile} updateFileList={refreshFiles} />
-            </CardContent>
-          </Card>
-        </div>
+        </>
       )}
     </div>
   );

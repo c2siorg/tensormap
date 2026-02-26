@@ -20,6 +20,7 @@ import FlattenNode from "./CustomNodes/FlattenNode/FlattenNode";
 import ConvNode from "./CustomNodes/ConvNode/ConvNode";
 import Sidebar from "./Sidebar";
 import NodePropertiesPanel from "./NodePropertiesPanel";
+import Toast from "./Toast";
 import { canSaveModel, generateModelJSON } from "./Helpers";
 import { getAllModels, getModelGraph, saveModel } from "../../services/ModelServices";
 import { models as allModels } from "../../shared/atoms";
@@ -40,6 +41,8 @@ function Canvas() {
   const [reactFlowInstance, setReactFlowInstance] = useState(null);
   const [modelName, setModelName] = useState("");
   const [selectedNodeId, setSelectedNodeId] = useState(null);
+  const [toastMessage, setToastMessage] = useState(null);
+  const connectionErrorRef = useRef(null);
   const [feedbackDialog, setFeedbackDialog] = useState({
     open: false,
     success: false,
@@ -87,7 +90,142 @@ function Canvas() {
     };
   }, [projectId, setNodes, setEdges]);
 
-  const onConnect = useCallback((params) => setEdges((eds) => addEdge(params, eds)), [setEdges]);
+  const onConnect = useCallback((params) => {
+    // Mark connection as successful so mouseup doesn't show a false error
+    connectionDragRef.current = null;
+    setEdges((eds) => addEdge(params, eds));
+  }, [setEdges]);
+
+  const isValidConnection = useCallback(
+    (connection) => {
+      // Must connect output to input
+      const sourceIsOut = connection.sourceHandle && connection.sourceHandle.endsWith("_out");
+      const targetIsIn = connection.targetHandle && connection.targetHandle.endsWith("_in");
+
+      if (!sourceIsOut || !targetIsIn) {
+        connectionErrorRef.current = "Cannot connect handles of the same type";
+        return false;
+      }
+
+      // Prevent self-loops
+      if (connection.source === connection.target) {
+        connectionErrorRef.current = "Cannot connect a node to itself";
+        return false;
+      }
+
+      // Prevent multiple incoming edges
+      const hasIncoming = edges.some((e) => e.target === connection.target);
+      if (hasIncoming) {
+        connectionErrorRef.current = "Target node already has an incoming connection";
+        return false;
+      }
+
+      // Prevent duplicate connections
+      const isDuplicate = edges.some(
+        (e) => e.source === connection.source && e.target === connection.target
+      );
+      if (isDuplicate) {
+        connectionErrorRef.current = "Connection already exists";
+        return false;
+      }
+
+      // Prevent cycles (e.g. A→B already exists, reject B→A)
+      // BFS from target: if we can reach source through existing edges, adding
+      // source→target would form a cycle.
+      const visited = new Set();
+      const queue = [connection.target];
+      while (queue.length > 0) {
+        const curr = queue.shift();
+        if (curr === connection.source) {
+          connectionErrorRef.current = "This connection would create a cycle";
+          return false;
+        }
+        if (visited.has(curr)) continue;
+        visited.add(curr);
+        edges.filter((e) => e.source === curr).forEach((e) => queue.push(e.target));
+      }
+
+      connectionErrorRef.current = null;
+      return true;
+    },
+    [edges]
+  );
+
+  // Store the source node/handle when dragging starts so we can validate on mouseup
+  const connectionDragRef = useRef(null);
+
+  const onConnectStart = useCallback((_event, { nodeId, handleId, handleType }) => {
+    connectionErrorRef.current = null;
+    connectionDragRef.current = { nodeId, handleId, handleType };
+  }, []);
+
+  // onConnectEnd is required to prevent ReactFlow warnings
+  const onConnectEnd = useCallback(() => { }, []);
+
+  // On mouseup, determine what element the user dropped onto and validate.
+  // This approach works even when ReactFlow silently swallows the connection
+  // attempt (e.g. dropping on an already-connected handle).
+  useEffect(() => {
+    const handleMouseUp = (event) => {
+      const drag = connectionDragRef.current;
+      if (!drag) return; // Not in a connection drag, or valid connection already consumed
+      connectionDragRef.current = null;
+
+      // isValidConnection already set an error (e.g. self-loop, wrong handle type)
+      if (connectionErrorRef.current) {
+        setToastMessage(connectionErrorRef.current);
+        connectionErrorRef.current = null;
+        return;
+      }
+
+      // Walk up from the drop target to find the ReactFlow handle.
+      // ReactFlow v11 puts data-handleid and data-nodeid directly on handle divs.
+      let el = event.target;
+      let targetHandleId = null;
+      let targetNodeId = null;
+      while (el && el !== document.body) {
+        const hid = el.getAttribute && el.getAttribute('data-handleid');
+        if (hid !== null && hid !== undefined) {
+          targetHandleId = hid;
+          targetNodeId = el.getAttribute('data-nodeid');
+          break;
+        }
+        el = el.parentElement;
+      }
+
+      if (!targetHandleId || !targetNodeId) return;
+      if (drag.handleType !== 'source') return;
+
+      // Self-loop (belt-and-suspenders — also caught by isValidConnection)
+      if (targetNodeId === drag.nodeId) {
+        setToastMessage('Cannot connect a node to itself');
+        return;
+      }
+
+      // Only valid drop direction: _out → _in
+      if (!drag.handleId?.endsWith('_out') || !targetHandleId.endsWith('_in')) return;
+
+      // Duplicate edge
+      const isDuplicate = edges.some(
+        (e) => e.source === drag.nodeId && e.target === targetNodeId
+      );
+      if (isDuplicate) {
+        setToastMessage('Connection already exists between these nodes');
+        return;
+      }
+
+      // Target already has an incoming edge
+      const hasIncoming = edges.some((e) => e.target === targetNodeId);
+      if (hasIncoming) {
+        setToastMessage('Target node already has an incoming connection');
+      }
+    };
+
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [edges]);
 
   const onDragOver = useCallback((event) => {
     event.preventDefault();
@@ -219,6 +357,7 @@ function Canvas() {
         message={feedbackDialog.message}
         detail={feedbackDialog.detail}
       />
+      <Toast message={toastMessage} onClose={() => setToastMessage(null)} />
       <div className="flex gap-4">
         <ReactFlowProvider>
           <Sidebar />
@@ -229,6 +368,9 @@ function Canvas() {
               onNodesChange={onNodesChange}
               onEdgesChange={onEdgesChange}
               onConnect={onConnect}
+              isValidConnection={isValidConnection}
+              onConnectStart={onConnectStart}
+              onConnectEnd={onConnectEnd}
               onInit={setReactFlowInstance}
               onDrop={onDrop}
               onDragOver={onDragOver}

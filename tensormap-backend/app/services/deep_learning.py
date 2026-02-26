@@ -116,6 +116,7 @@ def model_validate_service(db: Session, incoming: dict, project_id: uuid_pkg.UUI
         metric=code[DL_MODEL][MODEL_METRIC],
         epochs=code[DL_MODEL][MODEL_EPOCHS],
         loss=loss,
+        graph_json=incoming["model"],
     )
 
     configs = []
@@ -179,6 +180,7 @@ def model_save_service(db: Session, incoming: dict, model_name: str, project_id:
     model = ModelBasic(
         model_name=model_name,
         project_id=project_id,
+        graph_json=incoming,
     )
 
     configs = []
@@ -298,7 +300,12 @@ def run_code_service(db: Session, model_name: str, project_id: uuid_pkg.UUID | N
 
 
 def get_model_graph_service(db: Session, model_name: str, project_id: uuid_pkg.UUID | None = None) -> tuple:
-    """Retrieve the full ReactFlow graph for a saved model by unflattening its ModelConfigs."""
+    """Retrieve the full ReactFlow graph for a saved model.
+
+    If the model was saved after #140 (graph_json column exists), the raw
+    ReactFlow JSON is returned directly. Older models fall back to reconstructing
+    the graph from the flattened ModelConfigs rows.
+    """
     stmt = select(ModelBasic).where(ModelBasic.model_name == model_name)
     if project_id is not None:
         stmt = stmt.where(ModelBasic.project_id == project_id)
@@ -306,6 +313,16 @@ def get_model_graph_service(db: Session, model_name: str, project_id: uuid_pkg.U
     if not model:
         return _resp(404, False, "Model not found")
 
+    # Fast path: graph was stored directly in the JSON column
+    if model.graph_json is not None:
+        graph = model.graph_json
+        # Ensure every node has a position (auto-layout fallback for old data)
+        for i, node in enumerate(graph.get("nodes", [])):
+            if "position" not in node:
+                node["position"] = {"x": 100, "y": i * 200}
+        return _resp(200, True, "Model graph retrieved successfully", {"model_name": model_name, "graph": graph})
+
+    # Legacy path: reconstruct graph from flattened ModelConfigs
     configs = db.exec(select(ModelConfigs).where(ModelConfigs.model_id == model.id)).all()
     if not configs:
         return _resp(404, False, "No graph configuration found for this model")
@@ -388,7 +405,7 @@ def get_available_model_list(
     total = db.exec(select(func.count()).select_from(base_filter.subquery())).one()
 
     models = db.exec(base_filter.offset(offset).limit(limit)).all()
-    data = [{"id": m.id, "model_name": m.model_name} for m in models]
+    data = [{"id": m.id, "model_name": m.model_name, "graph_json": m.graph_json} for m in models]
     body = {"success": True, "message": "Model list generated successfully.", "data": data}
     body["pagination"] = {"total": total, "offset": offset, "limit": limit}
     return body, 200

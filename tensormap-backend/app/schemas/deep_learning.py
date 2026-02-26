@@ -45,6 +45,7 @@ class GraphNode(BaseModel):
     id: str
     type: str
     data: NodeData
+    position: dict[str, Any] | None = None
 
 
 class GraphEdge(BaseModel):

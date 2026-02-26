@@ -50,12 +50,37 @@ def _sanitize_model_name(name: str) -> str:
     return name
 
 
+def _build_model_summary(keras_model) -> dict:
+    """Extract a structured architecture summary from a built Keras model."""
+    layers = []
+    for layer in keras_model.layers:
+        try:
+            output_shape = str(layer.output_shape)
+        except AttributeError:
+            output_shape = "unknown"
+        layers.append({
+            "name": layer.name,
+            "type": layer.__class__.__name__,
+            "output_shape": output_shape,
+            "param_count": int(layer.count_params()),
+        })
+
+    total = int(keras_model.count_params())
+    trainable = int(sum(w.numpy().size for w in keras_model.trainable_weights))
+    return {
+        "layers": layers,
+        "total_params": total,
+        "trainable_params": trainable,
+        "non_trainable_params": total - trainable,
+    }
+
+
 def model_validate_service(db: Session, incoming: dict, project_id: uuid_pkg.UUID | None = None) -> tuple:
     """Validate a model graph with Keras, persist the configuration, and save the JSON file."""
     model_generated = model_generation(model_params=incoming["model"])
 
     try:
-        tf.keras.models.model_from_json(json.dumps(model_generated))
+        keras_model = tf.keras.models.model_from_json(json.dumps(model_generated))
     except Exception as e:
         logger.error("Model validation error: %s", str(e))
         for error in errors.err_msgs:
@@ -124,7 +149,7 @@ def model_validate_service(db: Session, incoming: dict, project_id: uuid_pkg.UUI
         return _resp(400, False, "Model validated but failed to save")
 
     logger.info("Model '%s' validated and saved successfully", code[DL_MODEL][MODEL_NAME])
-    return _resp(200, True, "Model Validation and saving successful")
+    return _resp(200, True, "Model Validation and saving successful", {"summary": _build_model_summary(keras_model)})
 
 
 def model_save_service(db: Session, incoming: dict, model_name: str, project_id: uuid_pkg.UUID | None = None) -> tuple:
@@ -132,7 +157,7 @@ def model_save_service(db: Session, incoming: dict, model_name: str, project_id:
     model_generated = model_generation(model_params=incoming)
 
     try:
-        tf.keras.models.model_from_json(json.dumps(model_generated))
+        keras_model = tf.keras.models.model_from_json(json.dumps(model_generated))
     except Exception as e:
         logger.error("Model validation error: %s", str(e))
         for error in errors.err_msgs:
@@ -187,7 +212,7 @@ def model_save_service(db: Session, incoming: dict, model_name: str, project_id:
         return _resp(400, False, "Model validated but failed to save")
 
     logger.info("Model '%s' validated and saved successfully", model_name)
-    return _resp(200, True, "Model validated and saved successfully")
+    return _resp(200, True, "Model validated and saved successfully", {"summary": _build_model_summary(keras_model)})
 
 
 def update_training_config_service(

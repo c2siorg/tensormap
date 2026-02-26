@@ -17,7 +17,15 @@ export const canSaveModel = (modelName, modelData) => {
         return false;
       }
     } else if (node.type === "custominput") {
-      if (!node.data.params["dim-1"] || node.data.params["dim-1"] === "") {
+      // Validate all three dimensions
+      if (
+        !node.data.params["dim-1"] ||
+        node.data.params["dim-1"] === "" ||
+        !node.data.params["dim-2"] ||
+        node.data.params["dim-2"] === "" ||
+        !node.data.params["dim-3"] ||
+        node.data.params["dim-3"] === ""
+      ) {
         return false;
       }
     } else if (node.type === "customconv") {

@@ -29,6 +29,9 @@ import { models as modelListAtom } from "../../shared/atoms";
 const optimizerOptions = [
   { key: "opt_1", label: "Adam", value: "adam" },
   { key: "opt_2", label: "SGD", value: "sgd" },
+  { key: "opt_3", label: "RMSprop", value: "rmsprop" },
+  { key: "opt_4", label: "Adagrad", value: "adagrad" },
+  { key: "opt_5", label: "AdamW", value: "adamw" },
 ];
 
 const metricOptions = [
@@ -61,7 +64,7 @@ export default function Training() {
     file_id: "",
     target_field: "",
     problem_type_id: "",
-    optimizer: "",
+    optimizer: "adam",
     metric: "",
     epochs: "",
     batch_size: "",
@@ -561,6 +564,7 @@ export default function Training() {
               <div className="space-y-1">
                 <Label>Optimizer</Label>
                 <Select
+                  value={trainingConfig.optimizer}
                   onValueChange={(v) => {
                     setTrainingConfig((prev) => ({ ...prev, optimizer: v }));
                     updateValidationErrors("optimizer", v);

@@ -159,6 +159,8 @@ def _run(model_name: str, db: Session) -> None:
         file_location = _helper_generate_file_location(db, file_id=model_configs.file_id)
         features = pd.read_csv(file_location)
         features.dropna(inplace=True)
+        # Shuffle data to prevent issues with ordered datasets
+        features = features.sample(frac=1, random_state=42).reset_index(drop=True)
 
         X = features.drop(model_configs.target_field, axis=1)
         y = features[model_configs.target_field]

@@ -9,6 +9,7 @@ from sqlmodel import Session
 from app.database import get_db
 from app.schemas.deep_learning import ModelNameRequest, ModelSaveRequest, ModelValidateRequest, TrainingConfigRequest
 from app.services.deep_learning import (
+    delete_model_service,
     get_available_model_list,
     get_code_service,
     get_model_graph_service,
@@ -86,6 +87,17 @@ def get_model_graph(
 ):
     """Retrieve the full ReactFlow graph for a saved model."""
     body, status_code = get_model_graph_service(db, model_name=model_name, project_id=project_id)
+    return JSONResponse(status_code=status_code, content=body)
+
+
+@router.delete("/model/{model_id}")
+async def delete_model(
+    model_id: int,
+    db: Session = Depends(get_db),
+):
+    """Delete a saved model and its associated configuration records."""
+    logger.info("Deleting model id=%s", model_id)
+    body, status_code = delete_model_service(db, model_id=model_id)
     return JSONResponse(status_code=status_code, content=body)
 
 

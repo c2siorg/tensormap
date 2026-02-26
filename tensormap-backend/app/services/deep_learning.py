@@ -387,7 +387,31 @@ def get_available_model_list(
     total = db.exec(select(func.count()).select_from(base_filter.subquery())).one()
 
     models = db.exec(base_filter.offset(offset).limit(limit)).all()
-    data = [m.model_name for m in models]
+    data = [{"id": m.id, "model_name": m.model_name} for m in models]
     body = {"success": True, "message": "Model list generated successfully.", "data": data}
     body["pagination"] = {"total": total, "offset": offset, "limit": limit}
     return body, 200
+
+
+def delete_model_service(db: Session, model_id: int) -> tuple:
+    """Delete a model and its associated ModelConfigs (cascade), and remove the JSON file."""
+    model = db.get(ModelBasic, model_id)
+    if not model:
+        return _resp(404, False, "Model not found")
+
+    model_name = model.model_name
+    try:
+        db.delete(model)
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("Failed to delete model id=%s", model_id)
+        return _resp(500, False, "Failed to delete model")
+
+    # Best-effort removal of the JSON file — do not fail if already gone
+    model_path = os.path.join(MODEL_GENERATION_LOCATION, model_name + MODEL_GENERATION_TYPE)
+    with contextlib.suppress(OSError):
+        os.remove(model_path)
+
+    logger.info("Model '%s' (id=%s) deleted successfully", model_name, model_id)
+    return _resp(200, True, f"Model '{model_name}' deleted successfully")

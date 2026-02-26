@@ -100,13 +100,13 @@ function Canvas() {
 
       // 2. Fallback to loading from DB
       try {
-        const modelNames = await getAllModels(projectId);
-        if (cancelled || !modelNames || modelNames.length === 0) {
+        const modelObjects = await getAllModels(projectId);
+        if (cancelled || !modelObjects || modelObjects.length === 0) {
           if (!cancelled) isLoaded.current = true;
           return;
         }
 
-        const result = await getModelGraph(modelNames[0], projectId);
+        const result = await getModelGraph(modelObjects[0].model_name, projectId);
         if (cancelled || !result.success) {
           if (!cancelled) isLoaded.current = true;
           return;
@@ -132,6 +132,16 @@ function Canvas() {
           setEdges(loadedEdges);
           setModelName(model_name);
           isLoaded.current = true;
+
+          // Populate the global model list from the fetched models
+          setModelList(
+            modelObjects.map((m, i) => ({
+              label: m.model_name + strings.MODEL_EXTENSION,
+              value: m.model_name,
+              id: m.id,
+              key: i,
+            })),
+          );
         }
       } catch (err) {
         logger.error("Failed to auto-load model:", err);
@@ -142,7 +152,7 @@ function Canvas() {
     return () => {
       cancelled = true;
     };
-  }, [projectId, setNodes, setEdges, draftKey]);
+  }, [projectId, setNodes, setEdges, setModelList, draftKey]);
 
   // Handle debounced saving of draft
   useEffect(() => {
@@ -273,14 +283,19 @@ function Canvas() {
           } catch (e) {
             logger.error("Failed to clear draft on save:", e);
           }
-          setModelList((prevList) => [
-            ...prevList,
-            {
-              label: modelName + strings.MODEL_EXTENSION,
-              value: modelName,
-              key: prevList.length + 1,
-            },
-          ]);
+          // Re-fetch the model list so the new entry has its DB id
+          getAllModels(projectId)
+            .then((modelObjects) => {
+              setModelList(
+                modelObjects.map((m, i) => ({
+                  label: m.model_name + strings.MODEL_EXTENSION,
+                  value: m.model_name,
+                  id: m.id,
+                  key: i,
+                })),
+              );
+            })
+            .catch(() => {});
         }
         setFeedbackDialog({
           open: true,

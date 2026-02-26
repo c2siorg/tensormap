@@ -17,6 +17,7 @@ export const canSaveModel = (modelName, modelData) => {
         return false;
       }
     } else if (node.type === "custominput") {
+      // Only dim-1 is required; dim-2 and dim-3 are optional (e.g. 1D / 2D inputs)
       if (!node.data.params["dim-1"] || node.data.params["dim-1"] === "") {
         return false;
       }

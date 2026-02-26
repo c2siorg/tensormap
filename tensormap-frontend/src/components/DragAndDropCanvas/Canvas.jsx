@@ -8,8 +8,10 @@ import ReactFlow, {
   Controls,
   Background,
   BackgroundVariant,
+  Panel,
 } from "reactflow";
 import { useRecoilState } from "recoil";
+import { Undo2, Redo2 } from "lucide-react";
 import * as strings from "../../constants/Strings";
 import logger from "../../shared/logger";
 import FeedbackDialog from "../shared/FeedbackDialog";
@@ -23,6 +25,8 @@ import NodePropertiesPanel from "./NodePropertiesPanel";
 import { canSaveModel, generateModelJSON } from "./Helpers";
 import { getAllModels, getModelGraph, saveModel } from "../../services/ModelServices";
 import { models as allModels } from "../../shared/atoms";
+import { Button } from "@/components/ui/button";
+import useUndoRedo from "../../hooks/useUndoRedo";
 
 const nodeTypes = {
   custominput: InputNode,
@@ -48,7 +52,81 @@ function Canvas() {
   });
   const defaultViewport = { x: 10, y: 15, zoom: 0.5 };
 
-  // Auto-load the project's first saved model on mount
+  const nodesRef = useRef(nodes);
+  const edgesRef = useRef(edges);
+
+  useEffect(() => {
+    nodesRef.current = nodes;
+  }, [nodes]);
+
+  useEffect(() => {
+    edgesRef.current = edges;
+  }, [edges]);
+
+  const { takeSnapshot, undo, redo, canUndo, canRedo } = useUndoRedo(setNodes, setEdges, nodesRef, edgesRef);
+  const [undoRedoState, setUndoRedoState] = useState({ canUndo: false, canRedo: false });
+
+  const updateUndoRedoState = useCallback(() => {
+    setUndoRedoState({ canUndo: canUndo(), canRedo: canRedo() });
+  }, [canUndo, canRedo]);
+
+  const isUndoRedoInProgress = useRef(false);
+
+  const takeSnapshotAndUpdate = useCallback(
+    (currentNodes, currentEdges) => {
+      if (isUndoRedoInProgress.current) return;
+      takeSnapshot(currentNodes, currentEdges);
+      updateUndoRedoState();
+    },
+    [takeSnapshot, updateUndoRedoState],
+  );
+
+  const undoRef = useRef(undo);
+  const redoRef = useRef(redo);
+  const updateUndoRedoStateRef = useRef(updateUndoRedoState);
+
+  useEffect(() => {
+    undoRef.current = undo;
+    redoRef.current = redo;
+    updateUndoRedoStateRef.current = updateUndoRedoState;
+  }, [undo, redo, updateUndoRedoState]);
+
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      if (isUndoRedoInProgress.current) return;
+
+      const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
+      const modKey = isMac ? event.metaKey : event.ctrlKey;
+
+      if (modKey && event.key === "z" && !event.shiftKey) {
+        event.preventDefault();
+        event.stopPropagation();
+        isUndoRedoInProgress.current = true;
+        undoRef.current();
+        updateUndoRedoStateRef.current();
+        setTimeout(() => {
+          isUndoRedoInProgress.current = false;
+        }, 100);
+      } else if (
+        (modKey && event.key === "y") ||
+        (modKey && event.shiftKey && event.key === "z") ||
+        (modKey && event.shiftKey && event.key === "Z")
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        isUndoRedoInProgress.current = true;
+        redoRef.current();
+        updateUndoRedoStateRef.current();
+        setTimeout(() => {
+          isUndoRedoInProgress.current = false;
+        }, 100);
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown, true);
+    return () => document.removeEventListener("keydown", handleKeyDown, true);
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     async function loadModel() {
@@ -87,7 +165,41 @@ function Canvas() {
     };
   }, [projectId, setNodes, setEdges]);
 
-  const onConnect = useCallback((params) => setEdges((eds) => addEdge(params, eds)), [setEdges]);
+  const onConnect = useCallback(
+    (params) => {
+      takeSnapshotAndUpdate(nodesRef.current, edgesRef.current);
+      setEdges((eds) => addEdge(params, eds));
+    },
+    [setEdges, takeSnapshotAndUpdate],
+  );
+
+  const handleNodesChange = useCallback(
+    (changes) => {
+      const hasRemoval = changes.some((change) => change.type === "remove");
+      if (hasRemoval) {
+        takeSnapshotAndUpdate(nodesRef.current, edgesRef.current);
+      }
+      onNodesChange(changes);
+    },
+    [onNodesChange, takeSnapshotAndUpdate],
+  );
+
+  const handleEdgesChange = useCallback(
+    (changes) => {
+      const hasRemoval = changes.some((change) => change.type === "remove");
+      if (hasRemoval) {
+        takeSnapshotAndUpdate(nodesRef.current, edgesRef.current);
+      }
+      onEdgesChange(changes);
+    },
+    [onEdgesChange, takeSnapshotAndUpdate],
+  );
+
+  const onNodeDragStart = useCallback(() => {
+    takeSnapshotAndUpdate(nodesRef.current, edgesRef.current);
+  }, [takeSnapshotAndUpdate]);
+
+  const onNodeDragStop = useCallback(() => {}, []);
 
   const onDragOver = useCallback((event) => {
     event.preventDefault();
@@ -109,6 +221,7 @@ function Canvas() {
 
   const onNodeUpdate = useCallback(
     (nodeId, newParams) => {
+      takeSnapshotAndUpdate(nodesRef.current, edgesRef.current);
       setNodes((nds) =>
         nds.map((node) => {
           if (node.id === nodeId) {
@@ -118,7 +231,7 @@ function Canvas() {
         }),
       );
     },
-    [setNodes],
+    [setNodes, takeSnapshotAndUpdate],
   );
 
   const closeFeedback = () => {
@@ -205,10 +318,31 @@ function Canvas() {
         data: { label: `${type} node`, params: defaultParams[type] || {} },
       };
 
+      takeSnapshotAndUpdate(nodesRef.current, edgesRef.current);
       setNodes((nds) => nds.concat(newNode));
     },
-    [reactFlowInstance, setNodes],
+    [reactFlowInstance, setNodes, takeSnapshotAndUpdate],
   );
+
+  const handleUndo = useCallback(() => {
+    if (isUndoRedoInProgress.current) return;
+    isUndoRedoInProgress.current = true;
+    undo();
+    updateUndoRedoState();
+    setTimeout(() => {
+      isUndoRedoInProgress.current = false;
+    }, 100);
+  }, [undo, updateUndoRedoState]);
+
+  const handleRedo = useCallback(() => {
+    if (isUndoRedoInProgress.current) return;
+    isUndoRedoInProgress.current = true;
+    redo();
+    updateUndoRedoState();
+    setTimeout(() => {
+      isUndoRedoInProgress.current = false;
+    }, 100);
+  }, [redo, updateUndoRedoState]);
 
   return (
     <>
@@ -226,17 +360,41 @@ function Canvas() {
             <ReactFlow
               nodes={nodes}
               edges={edges}
-              onNodesChange={onNodesChange}
-              onEdgesChange={onEdgesChange}
+              onNodesChange={handleNodesChange}
+              onEdgesChange={handleEdgesChange}
               onConnect={onConnect}
               onInit={setReactFlowInstance}
               onDrop={onDrop}
               onDragOver={onDragOver}
               onNodeClick={onNodeClick}
               onPaneClick={onPaneClick}
+              onNodeDragStart={onNodeDragStart}
+              onNodeDragStop={onNodeDragStop}
               nodeTypes={nodeTypes}
               defaultViewport={defaultViewport}
             >
+              <Panel position="top-left" className="flex gap-1">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={handleUndo}
+                  disabled={!undoRedoState.canUndo}
+                  title="Undo (Ctrl+Z)"
+                  className="h-8 w-8"
+                >
+                  <Undo2 className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={handleRedo}
+                  disabled={!undoRedoState.canRedo}
+                  title="Redo (Ctrl+Y)"
+                  className="h-8 w-8"
+                >
+                  <Redo2 className="h-4 w-4" />
+                </Button>
+              </Panel>
               <Controls />
               <Background
                 id="1"

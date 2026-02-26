@@ -33,6 +33,10 @@ def model_generation(model_params: dict) -> dict:
     visited = set()
     queue = []
 
+    input_nodes = [n for n in model_params["nodes"] if n["type"] == "custominput"]
+    if not input_nodes:
+        raise ValueError("No Input layer found. Please add an Input node to start the network.")
+    
     for node in model_params["nodes"]:
         if node["type"] == "custominput":
             dims = [int(node["data"]["params"].get(f"dim-{i + 1}", 0) or 0) for i in range(3)]
@@ -53,6 +57,7 @@ def model_generation(model_params: dict) -> dict:
 
             visited.add(target_id)
             queue.append(target_id)
+            
 
             # Collect input tensors for this node
             source_tensors = [keras_tensors[src] for src in all_sources]
@@ -63,6 +68,10 @@ def model_generation(model_params: dict) -> dict:
 
             node = nodes_by_id[target_id]
             keras_tensors[target_id] = _build_layer(node, input_tensor)
+            
+        if len(visited) < len(model_params["nodes"]):
+            unconnected_count = len(model_params["nodes"]) - len(visited)
+            raise ValueError(f"Disconnected graph: {unconnected_count} node(s) are not connected to the Input layer. Please ensure all layers are linked.")
 
     # Identify input and output tensors
     inputs = [keras_tensors[n["id"]] for n in model_params["nodes"] if n["type"] == "custominput"]
@@ -79,26 +88,44 @@ def _build_layer(node: dict, input_tensor):
     node_type = node["type"]
     name = node["id"]
 
-    if node_type == "customdense":
-        return tf.keras.layers.Dense(
-            units=int(params["units"]),
-            activation=params["activation"],
-            name=name,
-        )(input_tensor)
+    try:
+        if node_type == "customdense":
+            try:
+                units = int(params["units"])
+            except (ValueError, TypeError):
+                raise ValueError(f"Invalid 'units' parameter for node '{name}': expected an integer, got '{params['units']}'")
+            return tf.keras.layers.Dense(
+                units=int(params["units"]),
+                activation=params["activation"],
+                name=name,
+            )(input_tensor)
 
-    elif node_type == "customflatten":
-        return tf.keras.layers.Flatten(name=name)(input_tensor)
+        elif node_type == "customflatten":
+            return tf.keras.layers.Flatten(name=name)(input_tensor)
 
-    elif node_type == "customconv":
-        activation = params["activation"]
-        return tf.keras.layers.Conv2D(
-            filters=int(params["filter"]),
-            kernel_size=(int(params["kernelX"]), int(params["kernelY"])),
-            strides=(int(params["strideX"]), int(params["strideY"])),
-            padding=params["padding"],
-            activation="linear" if activation == "none" else activation,
-            name=name,
-        )(input_tensor)
+        elif node_type == "customconv":
+            try:
+                filters=int(params["filter"])
+                kernel_size=(int(params["kernelX"]), int(params["kernelY"]))
+                strides=(int(params["strideX"]), int(params["strideY"]))
+            except (ValueError, TypeError):
+                 raise ValueError(f"Invalid parameter in Convolutional node '{name}': filters, kernels, and strides must be numeric values.")
+            activation = params["activation"]
+            return tf.keras.layers.Conv2D(
+                filters=int(params["filter"]),
+                kernel_size=(int(params["kernelX"]), int(params["kernelY"])),
+                strides=(int(params["strideX"]), int(params["strideY"])),
+                padding=params["padding"],
+                activation="linear" if activation == "none" else activation,
+                name=name,
+            )(input_tensor)
 
-    else:
-        raise ValueError(f"Unknown node type: {node_type}")
+        else:
+            supported_types = ["custominput", "customdense", "customflatten", "customconv"]
+            raise ValueError(f"Unknown node type '{node_type}'. Supported types are: {', '.join(supported_types)}")
+    
+    except ValueError as e:
+        error_msg = str(e).lower()
+        if "ndim" in error_msg or "shape" in error_msg:
+             raise ValueError(f"Shape mismatch at node '{name}'. If you are connecting a Convolutional layer to a Dense layer, ensure you add a Flatten layer in between. Technical details: {str(e)}")
+        raise e

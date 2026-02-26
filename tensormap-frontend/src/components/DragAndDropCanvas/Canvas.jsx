@@ -1,5 +1,15 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useParams } from "react-router-dom";
+import { Trash2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import ReactFlow, {
   ReactFlowProvider,
   addEdge,
@@ -10,7 +20,6 @@ import ReactFlow, {
   BackgroundVariant,
   Panel,
 } from "reactflow";
-import { Button } from "@/components/ui/button";
 import { useRecoilState } from "recoil";
 import * as strings from "../../constants/Strings";
 import logger from "../../shared/logger";
@@ -52,6 +61,7 @@ function Canvas() {
     detail: "",
   });
   const [contextMenu, setContextMenu] = useState({ nodeId: null, x: 0, y: 0 });
+  const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const defaultViewport = { x: 10, y: 15, zoom: 0.5 };
 
   const draftKey = `tensormap_draft_${projectId || "default"}`;
@@ -235,6 +245,14 @@ function Canvas() {
     setFeedbackDialog((prev) => ({ ...prev, open: false }));
   };
 
+  const handleClearAll = useCallback(() => {
+    setNodes([]);
+    setEdges([]);
+    setModelName("");
+    setSelectedNodeId(null);
+    setClearConfirmOpen(false);
+  }, [setNodes, setEdges]);
+
   const modelSaveHandler = () => {
     const data = {
       model: {
@@ -337,41 +355,73 @@ function Canvas() {
         message={feedbackDialog.message}
         detail={feedbackDialog.detail}
       />
+      <Dialog open={clearConfirmOpen} onOpenChange={setClearConfirmOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Clear canvas</DialogTitle>
+            <DialogDescription>
+              This will remove all {nodes.length} node{nodes.length !== 1 ? "s" : ""} and their
+              connections. This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setClearConfirmOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleClearAll}>
+              Clear All
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <div className="flex gap-4">
         <ReactFlowProvider>
           <Sidebar />
-          <div className="min-w-0 h-[65vh] flex-1 rounded-md border" ref={reactFlowWrapper}>
-            <ReactFlow
-              nodes={nodes}
-              edges={edges}
-              onNodesChange={onNodesChange}
-              onEdgesChange={onEdgesChange}
-              onConnect={onConnect}
-              onInit={setReactFlowInstance}
-              onDrop={onDrop}
-              onDragOver={onDragOver}
-              onNodeClick={onNodeClick}
-              onPaneClick={onPaneClick}
-              onNodeContextMenu={onNodeContextMenu}
-              nodeTypes={nodeTypes}
-              defaultViewport={defaultViewport}
-            >
-              <Controls />
-              {hasDraft && (
-                <Panel position="top-right">
-                  <Button variant="destructive" onClick={handleDiscardDraft}>
-                    Discard Draft
-                  </Button>
-                </Panel>
-              )}
-              <Background
-                id="1"
-                gap={10}
-                color="#e5e5e5"
-                style={{ backgroundColor: "#fafafa" }}
-                variant={BackgroundVariant.Dots}
-              />
-            </ReactFlow>
+          <div className="flex flex-col flex-1 gap-2">
+            <div className="flex justify-end">
+              <Button
+                variant="destructive"
+                size="sm"
+                disabled={nodes.length === 0}
+                onClick={() => setClearConfirmOpen(true)}
+              >
+                <Trash2 className="mr-2 h-4 w-4" />
+                Clear All
+              </Button>
+            </div>
+            <div className="min-w-0 h-[62vh] flex-1 rounded-md border" ref={reactFlowWrapper}>
+              <ReactFlow
+                nodes={nodes}
+                edges={edges}
+                onNodesChange={onNodesChange}
+                onEdgesChange={onEdgesChange}
+                onConnect={onConnect}
+                onInit={setReactFlowInstance}
+                onDrop={onDrop}
+                onDragOver={onDragOver}
+                onNodeClick={onNodeClick}
+                onPaneClick={onPaneClick}
+                onNodeContextMenu={onNodeContextMenu}
+                nodeTypes={nodeTypes}
+                defaultViewport={defaultViewport}
+              >
+                <Controls />
+                {hasDraft && (
+                  <Panel position="top-right">
+                    <Button variant="destructive" onClick={handleDiscardDraft}>
+                      Discard Draft
+                    </Button>
+                  </Panel>
+                )}
+                <Background
+                  id="1"
+                  gap={10}
+                  color="#e5e5e5"
+                  style={{ backgroundColor: "#fafafa" }}
+                  variant={BackgroundVariant.Dots}
+                />
+              </ReactFlow>
+            </div>
           </div>
           {contextMenu.nodeId && (
             <ContextMenu

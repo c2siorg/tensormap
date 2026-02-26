@@ -180,19 +180,19 @@ def _build_model_configs():
                 "id": "n0",
                 "type": "custominput",
                 "data": {"params": {"dim-1": "4"}},
-                "position": {"x": 100, "y": 200},
+                "position": {"x": 100.0, "y": 200.0},
             },
             {
                 "id": "n1",
                 "type": "customdense",
                 "data": {"params": {"units": "16", "activation": "relu"}},
-                "position": {"x": 100, "y": 400},
+                "position": {"x": 100.0, "y": 400.0},
             },
             {
                 "id": "n2",
                 "type": "customdense",
                 "data": {"params": {"units": "3", "activation": "softmax"}},
-                "position": {"x": 100, "y": 600},
+                "position": {"x": 100.0, "y": 600.0},
             },
         ],
         "edges": [

@@ -19,10 +19,10 @@ import pytest
 
 from app.services.data_process import get_correlation_matrix
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_db(file_obj):
     """Return a mock Session whose .exec().first() returns *file_obj*."""
@@ -44,6 +44,7 @@ _FAKE_PATH = "/tmp/fake_dataset.csv"
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
 
 class TestGetCorrelationMatrix:
     """Unit tests for get_correlation_matrix()."""
@@ -87,9 +88,7 @@ class TestGetCorrelationMatrix:
     @patch("app.services.data_process.pd.read_csv")
     def test_values_clamped_in_range(self, mock_read_csv, _mock_path):
         """All non-null matrix values must be in [-1, 1]."""
-        mock_read_csv.return_value = pd.DataFrame(
-            {"a": [1, 2, 3, 4], "b": [2, 4, 6, 8], "c": [8, 6, 4, 2]}
-        )
+        mock_read_csv.return_value = pd.DataFrame({"a": [1, 2, 3, 4], "b": [2, 4, 6, 8], "c": [8, 6, 4, 2]})
         db = _make_db(_fake_file())
 
         body, _ = get_correlation_matrix(db, file_id=FILE_ID)
@@ -133,9 +132,7 @@ class TestGetCorrelationMatrix:
     @patch("app.services.data_process.pd.read_csv")
     def test_nan_serialised_as_none(self, mock_read_csv, _mock_path):
         """NaN correlation values (e.g. constant column) are serialised as None."""
-        mock_read_csv.return_value = pd.DataFrame(
-            {"constant": [5, 5, 5], "varying": [1, 2, 3]}
-        )
+        mock_read_csv.return_value = pd.DataFrame({"constant": [5, 5, 5], "varying": [1, 2, 3]})
         db = _make_db(_fake_file())
 
         body, _ = get_correlation_matrix(db, file_id=FILE_ID)
@@ -178,9 +175,7 @@ class TestGetCorrelationMatrix:
     @patch("app.services.data_process.pd.read_csv")
     def test_matrix_is_symmetric(self, mock_read_csv, _mock_path):
         """Correlation matrix must be symmetric: matrix[i][j] == matrix[j][i]."""
-        mock_read_csv.return_value = pd.DataFrame(
-            {"a": [1, 2, 3], "b": [4, 5, 6], "c": [7, 5, 3]}
-        )
+        mock_read_csv.return_value = pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6], "c": [7, 5, 3]})
         db = _make_db(_fake_file())
 
         body, _ = get_correlation_matrix(db, file_id=FILE_ID)
@@ -193,4 +188,3 @@ class TestGetCorrelationMatrix:
                 if vi is None and vj is None:
                     continue
                 assert vi == pytest.approx(vj)
-

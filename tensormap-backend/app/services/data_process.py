@@ -204,10 +204,7 @@ def get_correlation_matrix(db: Session, file_id: uuid_pkg.UUID) -> tuple:
     corr = numeric_df.corr()
     # Convert the DataFrame to a plain list-of-lists; NaN becomes None (JSON null)
     columns = corr.columns.tolist()
-    matrix = [
-        [None if pd.isna(v) else round(float(v), 6) for v in row]
-        for row in corr.to_numpy()
-    ]
+    matrix = [[None if pd.isna(v) else round(float(v), 6) for v in row] for row in corr.to_numpy()]
     return _resp(200, True, "Correlation matrix computed successfully", {"columns": columns, "matrix": matrix})
 
 

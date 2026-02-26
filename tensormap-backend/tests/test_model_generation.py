@@ -15,9 +15,6 @@ import tensorflow as tf
 
 from app.services.model_generation import _build_layer, model_generation
 
-
-
-
 # ---------------------------------------------------------------------------
 # Node / edge builder helpers
 # ---------------------------------------------------------------------------
@@ -266,4 +263,3 @@ class TestModelGeneration:
         result = model_generation(params)
         model = tf.keras.models.model_from_json(json.dumps(result))
         assert model.input_shape == (None, 28, 28, 1)
-

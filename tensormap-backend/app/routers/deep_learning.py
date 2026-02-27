@@ -9,6 +9,7 @@ from sqlmodel import Session
 from app.database import get_db
 from app.schemas.deep_learning import ModelNameRequest, ModelSaveRequest, ModelValidateRequest, TrainingConfigRequest
 from app.services.deep_learning import (
+    delete_model_service,
     get_available_model_list,
     get_code_service,
     get_model_graph_service,
@@ -22,6 +23,18 @@ from app.shared.logging_config import get_logger
 logger = get_logger(__name__)
 
 router = APIRouter(tags=["deep-learning"])
+
+
+@router.delete("/model/{model_id}")
+async def delete_model(
+    model_id: int,
+    project_id: uuid_pkg.UUID | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Delete a saved model and its configurations."""
+    logger.debug("Deleting model with id=%d", model_id)
+    body, status_code = delete_model_service(db, model_id=model_id, project_id=project_id)
+    return JSONResponse(status_code=status_code, content=body)
 
 
 @router.post("/model/validate")

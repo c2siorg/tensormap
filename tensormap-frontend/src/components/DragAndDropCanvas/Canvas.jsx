@@ -138,14 +138,17 @@ function Canvas() {
     saveModel(data)
       .then((resp) => {
         if (resp.success) {
-          setModelList((prevList) => [
-            ...prevList,
-            {
-              label: modelName + strings.MODEL_EXTENSION,
-              value: modelName,
-              key: prevList.length + 1,
-            },
-          ]);
+          getAllModels(projectId)
+            .then((response) => {
+              const models = response.map((file, index) => ({
+                label: file.name + strings.MODEL_EXTENSION,
+                value: file.name,
+                id: file.id,
+                key: index,
+              }));
+              setModelList(models);
+            })
+            .catch((error) => logger.error("Error refreshing models:", error));
         }
         setFeedbackDialog({
           open: true,

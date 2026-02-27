@@ -4,6 +4,27 @@ import * as strings from "../constants/Strings";
 import logger from "../shared/logger";
 
 /**
+ * Deletes a model by its ID.
+ *
+ * @param {string|number} modelId
+ * @param {string} [projectId]
+ * @returns {Promise<{ success: boolean, message: string }>}
+ */
+export const deleteModel = async (modelId, projectId) => {
+  const params = projectId ? { project_id: projectId } : {};
+  return axios
+    .delete(`${urls.BACKEND_GET_MODEL_GRAPH}/${encodeURIComponent(modelId)}`, { params })
+    .then((resp) => resp.data)
+    .catch((err) => {
+      logger.error(err);
+      if (err.response && err.response.data) {
+        return err.response.data;
+      }
+      return { success: false, message: "Unknown error occurred" };
+    });
+};
+
+/**
  * Sends a model graph and training config to the backend for validation.
  *
  * On network error, returns a fallback `{ success: false }` object

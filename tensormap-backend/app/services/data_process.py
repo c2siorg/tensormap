@@ -1,6 +1,7 @@
 import uuid as uuid_pkg
 from typing import Any
 
+import numpy as np
 import pandas as pd
 from sqlalchemy import func
 from sqlmodel import Session, select
@@ -125,8 +126,53 @@ def get_data_metrics(db: Session, file_id: uuid_pkg.UUID) -> tuple:
     return _resp(200, True, "Dataset metrics generated successfully", metrics)
 
 
-def get_file_data(db: Session, file_id: uuid_pkg.UUID, page: int = 1, page_size: int = 50) -> tuple:
-    """Read and return the paginated contents of a CSV file as JSON."""
+def get_column_stats_service(db: Session, file_id: uuid_pkg.UUID) -> tuple:
+    """Compute per-column descriptive statistics for a CSV dataset."""
+    file = db.exec(select(DataFile).where(DataFile.id == file_id)).first()
+    if not file:
+        return _resp(400, False, "File doesn't exist in DB")
+
+    file_path = _get_file_path(file)
+    try:
+        df = pd.read_csv(file_path)
+    except FileNotFoundError:
+        return _resp(500, False, f"File not found: {file_path}")
+    except pd.errors.ParserError as e:
+        logger.exception("CSV parsing error: %s", str(e))
+        return _resp(500, False, f"Error reading CSV: {e}")
+    except Exception as e:
+        logger.exception("Error reading file: %s", str(e))
+        return _resp(500, False, f"Error reading CSV: {e}")
+
+    total_rows = len(df)
+    total_cols = len(df.columns)
+
+    def _safe_float(v) -> float | None:
+        """Return float(v) if v is a finite number, else None."""
+        return float(v) if pd.notna(v) else None
+
+    numeric_cols = df.select_dtypes(include="number").columns
+    columns = []
+    for col in df.columns:
+        is_numeric = col in numeric_cols
+        null_count = int(df[col].isnull().sum())
+        entry: dict = {
+            "column": col,
+            "dtype": str(df[col].dtype),
+            "count": int(df[col].count()),
+            "null_count": null_count,
+            "mean": _safe_float(df[col].mean()) if is_numeric else None,
+            "min": _safe_float(df[col].min()) if is_numeric else None,
+            "max": _safe_float(df[col].max()) if is_numeric else None,
+        }
+        columns.append(entry)
+
+    data = {"total_rows": total_rows, "total_cols": total_cols, "columns": columns}
+    return _resp(200, True, "Column statistics generated successfully", data)
+
+
+def get_file_data(db: Session, file_id: uuid_pkg.UUID) -> tuple:
+    """Read and return the full contents of a CSV file as JSON."""
     file = db.exec(select(DataFile).where(DataFile.id == file_id)).first()
     if not file:
         return _resp(400, False, "Unable to open file")
@@ -168,6 +214,9 @@ def get_file_data(db: Session, file_id: uuid_pkg.UUID, page: int = 1, page_size:
     return body, 200
 
 
+_VALID_TRANSFORMATIONS = {"One Hot Encoding", "Categorical to Numerical", "Drop Column"}
+
+
 def preprocess_data(db: Session, file_id: uuid_pkg.UUID, transformations: list) -> tuple:
     """Apply column transformations to a CSV, overwriting the existing file."""
     file = db.exec(select(DataFile).where(DataFile.id == file_id)).first()
@@ -178,6 +227,25 @@ def preprocess_data(db: Session, file_id: uuid_pkg.UUID, transformations: list) 
 
     try:
         df = pd.read_csv(file_path)
+
+        # Validate all transformations before applying any, so the request either
+        # fully succeeds or fully fails — no partial mutations.
+        for t in transformations:
+            if t.transformation not in _VALID_TRANSFORMATIONS:
+                return _resp(
+                    422,
+                    False,
+                    f"Unknown transformation '{t.transformation}'. "
+                    f"Valid options: {sorted(_VALID_TRANSFORMATIONS)}",
+                )
+            if t.feature not in df.columns:
+                return _resp(
+                    422,
+                    False,
+                    f"Column '{t.feature}' not found. "
+                    f"Available columns: {list(df.columns)}",
+                )
+
         for t in transformations:
             if t.transformation == "One Hot Encoding":
                 df = pd.get_dummies(df, columns=[t.feature])
@@ -185,6 +253,32 @@ def preprocess_data(db: Session, file_id: uuid_pkg.UUID, transformations: list) 
                 df[t.feature] = pd.Categorical(df[t.feature]).codes
             if t.transformation == "Drop Column":
                 df = df.drop(columns=[t.feature])
+            if t.transformation == "Min-Max Normalization":
+                col_min = df[t.feature].min()
+                col_max = df[t.feature].max()
+                df[t.feature] = 0.0 if np.isclose(col_min, col_max) else (df[t.feature] - col_min) / (col_max - col_min)
+            if t.transformation == "Z-score Standardization":
+                std = df[t.feature].std()
+                df[t.feature] = 0.0 if std == 0 else (df[t.feature] - df[t.feature].mean()) / std
+            if t.transformation == "Log Transform":
+                s = df[t.feature]
+                if (s < -1).any():
+                    logger.warning(
+                        "Log Transform skipped for column '%s': %d value(s) below -1",
+                        t.feature,
+                        int((s < -1).sum()),
+                    )
+                else:
+                    df[t.feature] = np.log1p(s)
+            if t.transformation == "Fill Missing Values":
+                strategy = (t.params or {}).get("strategy", "mean")
+                if strategy == "median":
+                    df[t.feature] = df[t.feature].fillna(df[t.feature].median())
+                elif strategy == "mode":
+                    mode_vals = df[t.feature].mode()
+                    df[t.feature] = df[t.feature].fillna(mode_vals[0] if not mode_vals.empty else df[t.feature].mean())
+                else:
+                    df[t.feature] = df[t.feature].fillna(df[t.feature].mean())
 
         df.to_csv(file_path, index=False)
         return _resp(200, True, "Dataset preprocessed successfully")

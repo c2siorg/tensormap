@@ -1,34 +1,33 @@
-[project]
+[tool.poetry]
 name = "tensormap-backend"
 version = "0.1.0"
 description = "TensorMap Python Server"
-requires-python = ">=3.12"
-dependencies = [
-    "fastapi>=0.115",
-    "uvicorn[standard]>=0.34",
-    "sqlmodel>=0.0.22",
-    "alembic>=1.14",
-    "psycopg2-binary>=2.9",
-    "pydantic-settings>=2.0",
-    "python-socketio>=5.10",
-    "numpy>=1.24",
-    "pandas>=2.1",
-    "tensorflow>=2.16",
-    "pyyaml>=6.0",
-    "flatten-json>=0.1.13",
-    "Jinja2>=3.1",
-    "python-multipart>=0.0.9",
-    "Werkzeug>=3.0",
-]
+authors = ["C2SI Contributors"]
+readme = "README.md"
+packages = [{include = "app"}]
 
-[project.optional-dependencies]
-dev = [
-    "ruff>=0.8",
-    "pre-commit>=4.0",
-    "pytest>=8.0",
-    "httpx>=0.27",
-    "pytest-mock>=3.14",
-]
+[tool.poetry.dependencies]
+python = ">=3.12"
+fastapi = ">=0.115"
+uvicorn = {extras = ["standard"], version = ">=0.34"}
+sqlmodel = ">=0.0.22"
+alembic = ">=1.14"
+psycopg2-binary = ">=2.9"
+pydantic-settings = ">=2.0"
+python-socketio = ">=5.10"
+numpy = ">=1.24"
+pandas = ">=2.1"
+tensorflow = ">=2.16"
+pyyaml = ">=6.0"
+flatten-json = ">=0.1.13"
+Jinja2 = ">=3.1"
+python-multipart = ">=0.0.9"
+Werkzeug = ">=3.0"
+
+[tool.poetry.group.dev.dependencies]
+ruff = ">=0.8"
+pre-commit = ">=4.0"
+pytest = "*"
 
 [tool.ruff]
 line-length = 120
@@ -50,5 +49,5 @@ quote-style = "double"
 packages = ["app"]
 
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

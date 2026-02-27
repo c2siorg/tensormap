@@ -106,7 +106,11 @@ function Canvas() {
           return;
         }
 
+<<<<<<< HEAD
         const result = await getModelGraph(modelObjects[0].model_name, projectId);
+=======
+        const result = await getModelGraph(modelNames[0].model_name, projectId);
+>>>>>>> 08b14ce (Fix #132: Add Training History table)
         if (cancelled || !result.success) {
           if (!cancelled) isLoaded.current = true;
           return;

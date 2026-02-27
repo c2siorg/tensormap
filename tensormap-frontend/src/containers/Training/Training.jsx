@@ -71,6 +71,7 @@ export default function Training() {
   });
   const socketRef = useRef(null);
   const timeoutRef = useRef(null);
+  const [trainingHistory, setTrainingHistory] = useState([]);
 
   // Training config state
   const [fileList, setFileList] = useState([]);
@@ -99,6 +100,24 @@ export default function Training() {
     batch_size: "",
     training_split: "",
   });
+
+  const fetchModels = useCallback(() => {
+    getAllModels(projectId)
+      .then((response) => {
+        const models = response.map((modelObj, index) => ({
+          label: modelObj.model_name + strings.MODEL_EXTENSION,
+          value: modelObj.model_name,
+          key: index,
+        }));
+        setModelList(models);
+        setTrainingHistory(response);
+      })
+      .catch((error) => {
+        logger.error("Error loading models:", error);
+        setModelList([]);
+        setTrainingHistory([]);
+      });
+  }, [projectId, setModelList]);
 
   useEffect(() => {
     const socket = io(urls.WS_DL_RESULTS, {
@@ -143,6 +162,7 @@ export default function Training() {
       }
     });
 
+<<<<<<< HEAD
     getAllModels(projectId)
       .then((response) => {
         const models = response.map((item, index) => ({
@@ -157,6 +177,9 @@ export default function Training() {
         logger.error("Error loading models:", error);
         setModelList([]);
       });
+=======
+    fetchModels();
+>>>>>>> 08b14ce (Fix #132: Add Training History table)
 
     getAllFiles(projectId)
       .then((response) => {
@@ -177,7 +200,7 @@ export default function Training() {
       socket.off(strings.DL_RESULT_LISTENER, dlResultListener);
       socket.disconnect();
     };
-  }, [projectId, setModelList]);
+  }, [projectId, setModelList, fetchModels]);
 
   // Validation functions
   const validateEpochs = (value) => {
@@ -374,6 +397,7 @@ export default function Training() {
       .then((resp) => {
         if (resp.success) {
           setConfigSaved(true);
+          fetchModels();
         } else {
           logger.error("Failed to save training config:", resp.message);
         }
@@ -805,6 +829,52 @@ export default function Training() {
           ))}
         </div>
       )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Training History</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {trainingHistory.length === 0 ? (
+            <div className="text-center text-muted-foreground py-8">
+              No training history available.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm text-left border-collapse">
+                <thead className="bg-muted text-muted-foreground">
+                  <tr>
+                    <th className="px-4 py-3 font-medium border-b">Model Name</th>
+                    <th className="px-4 py-3 font-medium border-b">Date</th>
+                    <th className="px-4 py-3 font-medium border-b">Epochs</th>
+                    <th className="px-4 py-3 font-medium border-b">Optimizer</th>
+                    <th className="px-4 py-3 font-medium border-b">Metric</th>
+                    <th className="px-4 py-3 font-medium border-b">Loss</th>
+                    <th className="px-4 py-3 font-medium border-b">Training Split</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {trainingHistory.map((model, index) => (
+                    <tr key={index} className="hover:bg-muted/50">
+                      <td className="px-4 py-3 font-medium">{model.model_name}</td>
+                      <td className="px-4 py-3 text-muted-foreground">
+                        {model.created_on ? new Date(model.created_on).toLocaleString() : "-"}
+                      </td>
+                      <td className="px-4 py-3">{model.epochs || "-"}</td>
+                      <td className="px-4 py-3 capitalize">{model.optimizer || "-"}</td>
+                      <td className="px-4 py-3 capitalize">{model.metric || "-"}</td>
+                      <td className="px-4 py-3 capitalize">{model.loss || "-"}</td>
+                      <td className="px-4 py-3">
+                        {model.training_split ? `${model.training_split}%` : "-"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

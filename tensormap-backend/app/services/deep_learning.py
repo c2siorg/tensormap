@@ -380,15 +380,31 @@ def _numeric_dicts_to_lists(obj):
 def get_available_model_list(
     db: Session, project_id: uuid_pkg.UUID | None = None, offset: int = 0, limit: int = 50
 ) -> tuple:
-    """Return a paginated list of saved model names."""
+    """Return a paginated list of saved models with metadata."""
     base_filter = select(ModelBasic)
     if project_id is not None:
         base_filter = base_filter.where(ModelBasic.project_id == project_id)
 
+    base_filter = base_filter.order_by(ModelBasic.created_on.desc())
+
     total = db.exec(select(func.count()).select_from(base_filter.subquery())).one()
 
     models = db.exec(base_filter.offset(offset).limit(limit)).all()
-    data = [{"id": m.id, "model_name": m.model_name} for m in models]
+
+    data = [
+        {
+            "id": m.id,
+            "model_name": m.model_name,
+            "created_on": m.created_on.isoformat() if m.created_on else None,
+            "epochs": m.epochs,
+            "optimizer": m.optimizer,
+            "metric": m.metric,
+            "loss": m.loss,
+            "training_split": m.training_split,
+        }
+        for m in models
+    ]
+    
     body = {"success": True, "message": "Model list generated successfully.", "data": data}
     body["pagination"] = {"total": total, "offset": offset, "limit": limit}
     return body, 200

@@ -1,15 +1,19 @@
+import atexit
 import os
+import shutil
 import tempfile
 
 _upload_dir = tempfile.mkdtemp(prefix="tensormap_test_")
-os.environ.setdefault("DATABASE_URL", "sqlite:///./test_tensormap.db")
+atexit.register(shutil.rmtree, _upload_dir, True)
+os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
 os.environ.setdefault("SECRET_KEY", "test-secret-key")
 os.environ.setdefault("UPLOAD_FOLDER", _upload_dir)
 
 from unittest.mock import patch  # noqa: E402
 
-import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
+import pytest  # noqa: E402
+from sqlalchemy.pool import StaticPool  # noqa: E402
 from sqlmodel import SQLModel, Session, create_engine  # noqa: E402
 
 import app.database as db_module  # noqa: E402
@@ -18,8 +22,9 @@ from app.database import get_db  # noqa: E402
 from app.main import app  # noqa: E402
 
 _TEST_ENGINE = create_engine(
-    "sqlite:///./test_tensormap.db",
+    "sqlite:///:memory:",
     connect_args={"check_same_thread": False},
+    poolclass=StaticPool,
 )
 
 db_module.engine = _TEST_ENGINE
@@ -36,8 +41,7 @@ def client_fixture():
 
     app.dependency_overrides[get_db] = override_get_db
 
-    with patch("alembic.command.upgrade"):
-        with TestClient(app) as c:
-            yield c
+    with patch("alembic.command.upgrade"), TestClient(app) as c:
+        yield c
 
     app.dependency_overrides.pop(get_db, None)

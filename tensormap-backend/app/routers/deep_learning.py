@@ -42,7 +42,13 @@ async def validate_model(request: ModelValidateRequest, db: Session = Depends(ge
         logger.error(f"Unexpected error during model validation: {str(e)}")
         return JSONResponse(
             status_code=500,
-            content={"success": False, "message": "An unexpected error occurred while building the Keras model. Please check your layer configurations."}
+            content={
+                "success": False, 
+                "message": (
+                    "An unexpected error occurred while building the Keras model. "
+                    "Please check your layer configurations."
+                )
+            }
         )
 
 @router.post("/model/save")

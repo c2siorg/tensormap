@@ -107,7 +107,7 @@ Migrations are also auto-applied on app startup via the lifespan handler.
 For the backend, `pytest` is used for testing. To run:
 
 ```bash
-http://localhost:4300/docs
+uv run pytest -v
 ```
 
 ## Linting

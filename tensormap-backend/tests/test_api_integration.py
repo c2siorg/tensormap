@@ -1,6 +1,6 @@
 import io
 import uuid
-from unittest.mock import mock_open, patch
+from unittest.mock import MagicMock, mock_open, patch
 
 from fastapi.testclient import TestClient
 
@@ -143,7 +143,8 @@ def test_validate_model_valid(client: TestClient):
             "problem_type_id": 1,
         },
     }
-    with patch("app.services.deep_learning.open", mock_open()):
+    with patch("app.services.deep_learning.model_generation", return_value={}), patch("app.services.deep_learning.tf") as mock_tf, patch("app.services.deep_learning.open", mock_open()):
+        mock_tf.keras.models.model_from_json.return_value = MagicMock()
         resp = client.post("/api/v1/model/validate", json=payload)
 
     assert resp.status_code == 200

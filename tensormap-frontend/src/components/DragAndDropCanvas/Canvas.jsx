@@ -20,11 +20,21 @@ import ReactFlow, {
   BackgroundVariant,
   Panel,
 } from "reactflow";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useRecoilState } from "recoil";
 import * as strings from "../../constants/Strings";
 import logger from "../../shared/logger";
 import FeedbackDialog from "../shared/FeedbackDialog";
 import "reactflow/dist/style.css";
+import { Trash2 } from "lucide-react";
 import InputNode from "./CustomNodes/InputNode/InputNode";
 import DenseNode from "./CustomNodes/DenseNode/DenseNode";
 import FlattenNode from "./CustomNodes/FlattenNode/FlattenNode";
@@ -63,7 +73,7 @@ function Canvas() {
   const [reactFlowInstance, setReactFlowInstance] = useState(null);
   const [modelName, setModelName] = useState("");
   const [selectedNodeId, setSelectedNodeId] = useState(null);
-  const [modelSummary, setModelSummary] = useState(null);
+  const [clearAllOpen, setClearAllOpen] = useState(false);
   const [feedbackDialog, setFeedbackDialog] = useState({
     open: false,
     success: false,
@@ -537,6 +547,15 @@ function Canvas() {
     [reactFlowInstance, setNodes, takeSnapshotAndUpdate],
   );
 
+  const nodeCount = nodes.length;
+  const handleClearAll = useCallback(() => {
+    setNodes([]);
+    setEdges([]);
+    setSelectedNodeId(null);
+    closeContextMenu();
+    setClearAllOpen(false);
+  }, [setNodes, setEdges, closeContextMenu]);
+
   return (
     <>
       <FeedbackDialog
@@ -546,17 +565,17 @@ function Canvas() {
         message={feedbackDialog.message}
         detail={feedbackDialog.detail}
       />
-      <Dialog open={clearConfirmOpen} onOpenChange={setClearConfirmOpen}>
+      <Dialog open={clearAllOpen} onOpenChange={setClearAllOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Clear canvas</DialogTitle>
+            <DialogTitle>Clear canvas?</DialogTitle>
             <DialogDescription>
               This will remove all {nodes.length} node{nodes.length !== 1 ? "s" : ""} and their
               connections. You can undo this with {isMac ? "⌘Z" : "Ctrl+Z"}.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setClearConfirmOpen(false)}>
+            <Button variant="outline" onClick={() => setClearAllOpen(false)}>
               Cancel
             </Button>
             <Button variant="destructive" onClick={handleClearAll}>
@@ -622,21 +641,19 @@ function Canvas() {
                 </Panel>
                 <Controls />
                 {hasDraft && (
-                  <Panel position="top-right">
-                    <Button variant="destructive" onClick={handleDiscardDraft}>
-                      Discard Draft
-                    </Button>
-                  </Panel>
+                  <Button variant="destructive" onClick={handleDiscardDraft}>
+                    Discard Draft
+                  </Button>
                 )}
-                <Background
-                  id="1"
-                  gap={10}
-                  color="#e5e5e5"
-                  style={{ backgroundColor: "#fafafa" }}
-                  variant={BackgroundVariant.Dots}
-                />
-              </ReactFlow>
-            </div>
+              </Panel>
+              <Background
+                id="1"
+                gap={10}
+                color="#e5e5e5"
+                style={{ backgroundColor: "#fafafa" }}
+                variant={BackgroundVariant.Dots}
+              />
+            </ReactFlow>
           </div>
           {contextMenu.nodeId && (
             <ContextMenu

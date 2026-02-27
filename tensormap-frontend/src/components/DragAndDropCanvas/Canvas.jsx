@@ -34,7 +34,7 @@ import NodePropertiesPanel from "./NodePropertiesPanel";
 import { canSaveModel, generateModelJSON } from "./Helpers";
 import ModelSummaryPanel from "./ModelSummaryPanel";
 import { getAllModels, getModelGraph, saveModel } from "../../services/ModelServices";
-import { models as allModels } from "../../shared/atoms";
+import { trainingHistory as trainingHistoryAtom } from "../../shared/atoms";
 import ContextMenu from "./ContextMenu";
 import useUndoRedo from "../../hooks/useUndoRedo";
 
@@ -55,7 +55,7 @@ const nodeTypes = {
 function Canvas() {
   const { projectId } = useParams();
   const reactFlowWrapper = useRef(null);
-  const [, setModelList] = useRecoilState(allModels);
+  const [, setTrainingHistory] = useRecoilState(trainingHistoryAtom);
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [reactFlowInstance, setReactFlowInstance] = useState(null);
@@ -199,6 +199,7 @@ function Canvas() {
         }
 
         const result = await getModelGraph(modelObjects[0].model_name, projectId);
+
         if (cancelled || !result.success) {
           if (!cancelled) isLoaded.current = true;
           return;
@@ -225,15 +226,7 @@ function Canvas() {
           setModelName(model_name);
           isLoaded.current = true;
 
-          // Populate the global model list from the fetched models
-          setModelList(
-            modelObjects.map((m, i) => ({
-              label: m.model_name + strings.MODEL_EXTENSION,
-              value: m.model_name,
-              id: m.id,
-              key: i,
-            })),
-          );
+          setTrainingHistory(modelObjects);
         }
       } catch (err) {
         logger.error("Failed to auto-load model:", err);
@@ -244,7 +237,7 @@ function Canvas() {
     return () => {
       cancelled = true;
     };
-  }, [projectId, setNodes, setEdges, setModelList, draftKey]);
+  }, [projectId, setNodes, setEdges, setTrainingHistory, draftKey]);
 
   // Handle debounced saving of draft
   useEffect(() => {
@@ -458,7 +451,7 @@ function Canvas() {
           // Re-fetch the model list so the new entry has its DB id
           getAllModels(projectId)
             .then((modelObjects) => {
-              setModelList(
+              setTrainingHistory(
                 modelObjects.map((m, i) => ({
                   label: m.model_name + strings.MODEL_EXTENSION,
                   value: m.model_name,

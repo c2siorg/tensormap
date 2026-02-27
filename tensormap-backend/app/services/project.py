@@ -1,5 +1,5 @@
 import uuid as uuid_pkg
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import func
@@ -27,24 +27,23 @@ def create_project_service(db: Session, data: ProjectCreateRequest) -> tuple:
         db.add(project)
         db.commit()
         db.refresh(project)
-    except SQLAlchemyError:
+        logger.info("Project created: id=%s, name=%s", project.id, project.name)
+        return _resp(
+            201,
+            True,
+            "Project created successfully",
+            {
+                "id": str(project.id),
+                "name": project.name,
+                "description": project.description,
+                "created_on": project.created_on.replace(tzinfo=UTC).isoformat() if project.created_on else None,
+                "updated_on": project.updated_on.replace(tzinfo=UTC).isoformat() if project.updated_on else None,
+            },
+        )
+    except Exception:
         db.rollback()
         logger.exception("Error creating project")
         return _resp(500, False, "An error occurred while creating the project")
-
-    logger.info("Project created: id=%s, name=%s", project.id, project.name)
-    return _resp(
-        201,
-        True,
-        "Project created successfully",
-        {
-            "id": str(project.id),
-            "name": project.name,
-            "description": project.description,
-            "created_on": project.created_on.isoformat() if project.created_on else None,
-            "updated_on": project.updated_on.isoformat() if project.updated_on else None,
-        },
-    )
 
 
 def get_all_projects_service(db: Session, offset: int = 0, limit: int = 50) -> tuple:
@@ -70,49 +69,47 @@ def get_all_projects_service(db: Session, offset: int = 0, limit: int = 50) -> t
             .limit(limit)
         )
         rows = db.exec(stmt).all()
-    except SQLAlchemyError:
+        data = [
+            {
+                "id": str(row.id),
+                "name": row.name,
+                "description": row.description,
+                "created_on": row.created_on.replace(tzinfo=UTC).isoformat() if row.created_on else None,
+                "updated_on": row.updated_on.replace(tzinfo=UTC).isoformat() if row.updated_on else None,
+                "file_count": row.file_count,
+                "model_count": row.model_count,
+            }
+            for row in rows
+        ]
+        body = {"success": True, "message": "Projects retrieved successfully", "data": data}
+        body["pagination"] = {"total": total, "offset": offset, "limit": limit}
+        return body, 200
+    except Exception:
         logger.exception("Error fetching projects")
         return _resp(500, False, "An error occurred while fetching projects")
-
-    data = [
-        {
-            "id": str(row.id),
-            "name": row.name,
-            "description": row.description,
-            "created_on": row.created_on.isoformat() if row.created_on else None,
-            "updated_on": row.updated_on.isoformat() if row.updated_on else None,
-            "file_count": row.file_count,
-            "model_count": row.model_count,
-        }
-        for row in rows
-    ]
-    body = {"success": True, "message": "Projects retrieved successfully", "data": data}
-    body["pagination"] = {"total": total, "offset": offset, "limit": limit}
-    return body, 200
 
 
 def get_project_by_id_service(db: Session, project_id: uuid_pkg.UUID) -> tuple:
     """Fetch a single project by its UUID."""
     try:
         project = db.get(Project, project_id)
-    except SQLAlchemyError:
+        if not project:
+            return _resp(404, False, "Project not found")
+        return _resp(
+            200,
+            True,
+            "Project retrieved successfully",
+            {
+                "id": str(project.id),
+                "name": project.name,
+                "description": project.description,
+                "created_on": project.created_on.replace(tzinfo=UTC).isoformat() if project.created_on else None,
+                "updated_on": project.updated_on.replace(tzinfo=UTC).isoformat() if project.updated_on else None,
+            },
+        )
+    except Exception:
         logger.exception("Error fetching project")
         return _resp(500, False, "An error occurred while fetching the project")
-
-    if not project:
-        return _resp(404, False, "Project not found")
-    return _resp(
-        200,
-        True,
-        "Project retrieved successfully",
-        {
-            "id": str(project.id),
-            "name": project.name,
-            "description": project.description,
-            "created_on": project.created_on.isoformat() if project.created_on else None,
-            "updated_on": project.updated_on.isoformat() if project.updated_on else None,
-        },
-    )
 
 
 def update_project_service(db: Session, project_id: uuid_pkg.UUID, data: ProjectUpdateRequest) -> tuple:
@@ -130,24 +127,23 @@ def update_project_service(db: Session, project_id: uuid_pkg.UUID, data: Project
         db.add(project)
         db.commit()
         db.refresh(project)
-    except SQLAlchemyError:
+        logger.info("Project updated: id=%s", project_id)
+        return _resp(
+            200,
+            True,
+            "Project updated successfully",
+            {
+                "id": str(project.id),
+                "name": project.name,
+                "description": project.description,
+                "created_on": project.created_on.replace(tzinfo=UTC).isoformat() if project.created_on else None,
+                "updated_on": project.updated_on.replace(tzinfo=UTC).isoformat() if project.updated_on else None,
+            },
+        )
+    except Exception:
         db.rollback()
         logger.exception("Error updating project")
         return _resp(500, False, "An error occurred while updating the project")
-
-    logger.info("Project updated: id=%s", project_id)
-    return _resp(
-        200,
-        True,
-        "Project updated successfully",
-        {
-            "id": str(project.id),
-            "name": project.name,
-            "description": project.description,
-            "created_on": project.created_on.isoformat() if project.created_on else None,
-            "updated_on": project.updated_on.isoformat() if project.updated_on else None,
-        },
-    )
 
 
 def delete_project_service(db: Session, project_id: uuid_pkg.UUID) -> tuple:

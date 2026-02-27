@@ -8,7 +8,9 @@ import ReactFlow, {
   Controls,
   Background,
   BackgroundVariant,
+  Panel,
 } from "reactflow";
+import { Button } from "@/components/ui/button";
 import { useRecoilState } from "recoil";
 import * as strings from "../../constants/Strings";
 import logger from "../../shared/logger";
@@ -23,6 +25,7 @@ import NodePropertiesPanel from "./NodePropertiesPanel";
 import { canSaveModel, generateModelJSON } from "./Helpers";
 import { getAllModels, getModelGraph, saveModel } from "../../services/ModelServices";
 import { models as allModels } from "../../shared/atoms";
+import ContextMenu from "./ContextMenu";
 
 const nodeTypes = {
   custominput: InputNode,
@@ -46,18 +49,56 @@ function Canvas() {
     message: "",
     detail: "",
   });
+  const [contextMenu, setContextMenu] = useState({ nodeId: null, x: 0, y: 0 });
   const defaultViewport = { x: 10, y: 15, zoom: 0.5 };
 
-  // Auto-load the project's first saved model on mount
+  const draftKey = `tensormap_draft_${projectId || "default"}`;
+  const isLoaded = useRef(false);
+  const [hasDraft, setHasDraft] = useState(() => {
+    try {
+      return !!localStorage.getItem(draftKey);
+    } catch (e) {
+      return false;
+    }
+  });
+
+  // Auto-load the project's first saved model or draft on mount
   useEffect(() => {
     let cancelled = false;
     async function loadModel() {
+      // 1. Try loading from draft first
+      try {
+        const draftStr = localStorage.getItem(draftKey);
+        if (draftStr) {
+          const draft = JSON.parse(draftStr);
+          if (draft.nodes?.length > 0 || draft.edges?.length > 0 || draft.modelName) {
+            if (!cancelled) {
+              setNodes(draft.nodes || []);
+              setEdges(draft.edges || []);
+              setModelName(draft.modelName || "");
+              setHasDraft(true);
+              isLoaded.current = true;
+            }
+            return;
+          }
+        }
+      } catch (e) {
+        logger.error("Failed to load draft:", e);
+      }
+
+      // 2. Fallback to loading from DB
       try {
         const modelNames = await getAllModels(projectId);
-        if (cancelled || !modelNames || modelNames.length === 0) return;
+        if (cancelled || !modelNames || modelNames.length === 0) {
+          if (!cancelled) isLoaded.current = true;
+          return;
+        }
 
         const result = await getModelGraph(modelNames[0], projectId);
-        if (cancelled || !result.success) return;
+        if (cancelled || !result.success) {
+          if (!cancelled) isLoaded.current = true;
+          return;
+        }
 
         const { graph, model_name } = result.data;
 
@@ -74,18 +115,60 @@ function Canvas() {
           target: edge.target,
         }));
 
-        setNodes(loadedNodes);
-        setEdges(loadedEdges);
-        setModelName(model_name);
+        if (!cancelled) {
+          setNodes(loadedNodes);
+          setEdges(loadedEdges);
+          setModelName(model_name);
+          isLoaded.current = true;
+        }
       } catch (err) {
         logger.error("Failed to auto-load model:", err);
+        if (!cancelled) isLoaded.current = true;
       }
     }
     loadModel();
     return () => {
       cancelled = true;
     };
-  }, [projectId, setNodes, setEdges]);
+  }, [projectId, setNodes, setEdges, draftKey]);
+
+  // Handle debounced saving of draft
+  useEffect(() => {
+    if (!isLoaded.current) return;
+
+    const timer = setTimeout(() => {
+      if (nodes.length === 0 && edges.length === 0 && !modelName) {
+        try {
+          localStorage.removeItem(draftKey);
+        } catch (e) {
+          logger.error("Failed to remove draft:", e);
+        }
+        setHasDraft(false);
+        return;
+      }
+
+      try {
+        localStorage.setItem(draftKey, JSON.stringify({ nodes, edges, modelName }));
+        setHasDraft(true);
+      } catch (e) {
+        logger.error("Failed to save draft:", e);
+      }
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [nodes, edges, modelName, draftKey]);
+
+  const handleDiscardDraft = useCallback(() => {
+    try {
+      localStorage.removeItem(draftKey);
+    } catch (e) {
+      logger.error("Failed to remove draft:", e);
+    }
+    setHasDraft(false);
+    setNodes([]);
+    setEdges([]);
+    setModelName("");
+  }, [draftKey, setNodes, setEdges]);
 
   const onConnect = useCallback((params) => setEdges((eds) => addEdge(params, eds)), [setEdges]);
 
@@ -103,9 +186,34 @@ function Canvas() {
     setSelectedNodeId(node.id);
   }, []);
 
+  const closeContextMenu = useCallback(() => {
+    setContextMenu({ nodeId: null, x: 0, y: 0 });
+  }, []);
+
   const onPaneClick = useCallback(() => {
     setSelectedNodeId(null);
+    closeContextMenu();
+  }, [closeContextMenu]);
+
+  const onNodeContextMenu = useCallback((event, node) => {
+    event.preventDefault();
+    setContextMenu({ nodeId: node.id, x: event.clientX, y: event.clientY });
   }, []);
+
+  const duplicateNode = useCallback(() => {
+    setNodes((nds) => {
+      const source = nds.find((n) => n.id === contextMenu.nodeId);
+      if (!source) return nds;
+      const duplicate = {
+        id: crypto.randomUUID(),
+        type: source.type,
+        position: { x: source.position.x + 50, y: source.position.y + 50 },
+        data: { label: source.data.label, params: { ...source.data.params } },
+      };
+      return nds.concat(duplicate);
+    });
+    closeContextMenu();
+  }, [contextMenu.nodeId, setNodes, closeContextMenu]);
 
   const onNodeUpdate = useCallback(
     (nodeId, newParams) => {
@@ -237,10 +345,18 @@ function Canvas() {
               onDragOver={onDragOver}
               onNodeClick={onNodeClick}
               onPaneClick={onPaneClick}
+              onNodeContextMenu={onNodeContextMenu}
               nodeTypes={nodeTypes}
               defaultViewport={defaultViewport}
             >
               <Controls />
+              {hasDraft && (
+                <Panel position="top-right">
+                  <Button variant="destructive" onClick={handleDiscardDraft}>
+                    Discard Draft
+                  </Button>
+                </Panel>
+              )}
               <Background
                 id="1"
                 gap={10}
@@ -250,6 +366,14 @@ function Canvas() {
               />
             </ReactFlow>
           </div>
+          {contextMenu.nodeId && (
+            <ContextMenu
+              x={contextMenu.x}
+              y={contextMenu.y}
+              onDuplicate={duplicateNode}
+              onClose={closeContextMenu}
+            />
+          )}
           <div className="w-64 shrink-0">
             <NodePropertiesPanel
               selectedNode={selectedNode || null}

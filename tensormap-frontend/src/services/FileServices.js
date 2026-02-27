@@ -117,6 +117,26 @@ export const transformData = async (file_id, transformations) => {
 };
 
 /**
+ * Fetches per-column descriptive statistics for a file.
+ *
+ * @param {string} file_id - ID of the uploaded file.
+ * @returns {Promise<Array>} Array of stat objects, one per column.
+ */
+export const getColumnStats = async (file_id) =>
+  axios
+    .get(urls.BACKEND_GET_COLUMN_STATS + file_id)
+    .then((resp) => {
+      if (resp.data.success === true) {
+        return resp.data.data;
+      }
+      return [];
+    })
+    .catch((err) => {
+      logger.error(err);
+      throw err;
+    });
+
+/**
  * Deletes an uploaded file by ID.
  *
  * @param {string} fileId

@@ -3,6 +3,7 @@ import json
 import os
 import re
 import uuid as uuid_pkg
+from datetime import UTC
 from typing import Any
 
 import tensorflow as tf
@@ -380,16 +381,47 @@ def _numeric_dicts_to_lists(obj):
 def get_available_model_list(
     db: Session, project_id: uuid_pkg.UUID | None = None, offset: int = 0, limit: int = 50
 ) -> tuple:
-    """Return a paginated list of saved model names."""
-    base_filter = select(ModelBasic)
+    """Return a paginated list of saved models with basic info (backward compatible)."""
+    base_filter = select(ModelBasic).order_by(ModelBasic.created_on.desc())
     if project_id is not None:
         base_filter = base_filter.where(ModelBasic.project_id == project_id)
 
     total = db.exec(select(func.count()).select_from(base_filter.subquery())).one()
-
     models = db.exec(base_filter.offset(offset).limit(limit)).all()
+
     data = [{"id": m.id, "model_name": m.model_name} for m in models]
+
     body = {"success": True, "message": "Model list generated successfully.", "data": data}
+    body["pagination"] = {"total": total, "offset": offset, "limit": limit}
+    return body, 200
+
+
+def get_training_history_service(
+    db: Session, project_id: uuid_pkg.UUID | None = None, offset: int = 0, limit: int = 50
+) -> tuple:
+    """Return a paginated list of models with enriched metadata for training history view."""
+    base_filter = select(ModelBasic).order_by(ModelBasic.created_on.desc())
+    if project_id is not None:
+        base_filter = base_filter.where(ModelBasic.project_id == project_id)
+
+    total = db.exec(select(func.count()).select_from(base_filter.subquery())).one()
+    models = db.exec(base_filter.offset(offset).limit(limit)).all()
+
+    data = [
+        {
+            "id": m.id,
+            "model_name": m.model_name,
+            "created_on": m.created_on.replace(tzinfo=UTC).isoformat() if m.created_on else None,
+            "epochs": m.epochs,
+            "optimizer": m.optimizer,
+            "metric": m.metric,
+            "loss": m.loss,
+            "training_split": m.training_split,
+        }
+        for m in models
+    ]
+
+    body = {"success": True, "message": "Training history generated successfully.", "data": data}
     body["pagination"] = {"total": total, "offset": offset, "limit": limit}
     return body, 200
 

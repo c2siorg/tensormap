@@ -173,4 +173,3 @@ export const deleteFile = async (fileId) => {
       throw error;
     });
 };
-

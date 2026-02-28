@@ -11,9 +11,7 @@ from app.shared.logging_config import get_logger
 
 logger = get_logger(__name__)
 
-_UUID_RE = re.compile(
-    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.IGNORECASE
-)
+_UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.IGNORECASE)
 _INT_SEGMENT_RE = re.compile(r"(?<=/)\d+(?=/|$)")
 
 

@@ -16,3 +16,5 @@ export const PROCESS_FAIL_MODEL_BUTTON = "Try again";
 export const UPLOAD_SUCCESS_MODEL_MESSAGE = "File uploaded successfully";
 export const DL_RESULT_LISTENER = "result :::";
 export const MODEL_EXTENSION = ".py";
+
+// Test: verify /lint comment trigger works on PRs

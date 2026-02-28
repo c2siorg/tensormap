@@ -23,6 +23,7 @@ import ConvNode from "./CustomNodes/ConvNode/ConvNode";
 import Sidebar from "./Sidebar";
 import NodePropertiesPanel from "./NodePropertiesPanel";
 import { canSaveModel, generateModelJSON } from "./Helpers";
+import ModelSummaryPanel from "./ModelSummaryPanel";
 import { getAllModels, getModelGraph, saveModel } from "../../services/ModelServices";
 import { models as allModels } from "../../shared/atoms";
 import ContextMenu from "./ContextMenu";
@@ -43,6 +44,7 @@ function Canvas() {
   const [reactFlowInstance, setReactFlowInstance] = useState(null);
   const [modelName, setModelName] = useState("");
   const [selectedNodeId, setSelectedNodeId] = useState(null);
+  const [modelSummary, setModelSummary] = useState(null);
   const [feedbackDialog, setFeedbackDialog] = useState({
     open: false,
     success: false,
@@ -246,6 +248,7 @@ function Canvas() {
     saveModel(data)
       .then((resp) => {
         if (resp.success) {
+          setModelSummary(resp.data?.summary || null);
           try {
             localStorage.removeItem(draftKey);
             setHasDraft(false);
@@ -272,6 +275,7 @@ function Canvas() {
       })
       .catch((error) => {
         logger.error(error);
+        setModelSummary(null);
         setFeedbackDialog({
           open: true,
           success: false,
@@ -389,6 +393,7 @@ function Canvas() {
           </div>
         </ReactFlowProvider>
       </div>
+      <ModelSummaryPanel summary={modelSummary} onClose={() => setModelSummary(null)} />
     </>
   );
 }

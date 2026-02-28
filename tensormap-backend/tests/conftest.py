@@ -11,10 +11,10 @@ os.environ.setdefault("UPLOAD_FOLDER", _upload_dir)
 
 from unittest.mock import patch  # noqa: E402
 
-from fastapi.testclient import TestClient  # noqa: E402
 import pytest  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
 from sqlalchemy.pool import StaticPool  # noqa: E402
-from sqlmodel import SQLModel, Session, create_engine  # noqa: E402
+from sqlmodel import Session, SQLModel, create_engine  # noqa: E402
 
 import app.database as db_module  # noqa: E402
 import app.models  # noqa: E402, F401

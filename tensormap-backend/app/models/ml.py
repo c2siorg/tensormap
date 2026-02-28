@@ -2,7 +2,7 @@ import uuid as uuid_pkg
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import Column, DateTime, ForeignKey, func
+from sqlalchemy import JSON, Column, DateTime, ForeignKey, func
 from sqlalchemy.dialects.postgresql import UUID as PgUUID
 from sqlmodel import Field, Relationship, SQLModel
 
@@ -31,6 +31,7 @@ class ModelBasic(SQLModel, table=True):
     epochs: int | None = Field(default=None, nullable=True)
     batch_size: int | None = Field(default=None, nullable=True)
     loss: str | None = Field(default=None, max_length=50, nullable=True)
+    graph_json: dict | None = Field(default=None, sa_column=Column(JSON, nullable=True))
     created_on: datetime | None = Field(default=None, sa_column=Column(DateTime, server_default=func.now()))
     updated_on: datetime | None = Field(
         default=None, sa_column=Column(DateTime, server_default=func.now(), onupdate=func.now())

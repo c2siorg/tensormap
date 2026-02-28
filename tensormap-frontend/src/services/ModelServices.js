@@ -28,7 +28,7 @@ export const validateModel = async (data) =>
  * Fetches the list of validated model objects, optionally scoped to a project.
  *
  * @param {string} [projectId]
- * @returns {Promise<Array<{ id: number, model_name: string }>>} Array of model objects.
+ * @returns {Promise<Array<{ id: number, model_name: string, graph_json: object|null }>>} Array of model objects.
  */
 export const getAllModels = async (projectId) => {
   const params = projectId ? { project_id: projectId } : {};

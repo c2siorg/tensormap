@@ -1,9 +1,19 @@
+import PropTypes from "prop-types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
-function Sidebar() {
-  const onDragStart = (event, nodeType) => {
-    event.dataTransfer.setData("application/reactflow", nodeType);
+function Sidebar({ registry }) {
+  const onDragStart = (event, layerKey) => {
+    // Passing the JSON key (e.g., 'dense', 'conv2d') instead of a hardcoded type
+    event.dataTransfer.setData("application/reactflow", layerKey);
     event.dataTransfer.effectAllowed = "move";
+  };
+
+  const getBorderColor = (category) => {
+    switch (category) {
+      case "core": return "border-l-blue-600";
+      case "convolutional": return "border-l-green-600";
+      default: return "border-l-slate-600";
+    }
   };
 
   return (
@@ -12,37 +22,23 @@ function Sidebar() {
         <CardTitle className="text-sm">Layers</CardTitle>
       </CardHeader>
       <CardContent className="space-y-2">
-        <div
-          className="cursor-grab rounded-md border border-l-4 border-l-node-input bg-white px-3 py-2 text-xs font-medium"
-          onDragStart={(e) => onDragStart(e, "custominput")}
-          draggable
-        >
-          Input
-        </div>
-        <div
-          className="cursor-grab rounded-md border border-l-4 border-l-node-dense bg-white px-3 py-2 text-xs font-medium"
-          onDragStart={(e) => onDragStart(e, "customdense")}
-          draggable
-        >
-          Dense
-        </div>
-        <div
-          className="cursor-grab rounded-md border border-l-4 border-l-node-flatten bg-white px-3 py-2 text-xs font-medium"
-          onDragStart={(e) => onDragStart(e, "customflatten")}
-          draggable
-        >
-          Flatten
-        </div>
-        <div
-          className="cursor-grab rounded-md border border-l-4 border-l-node-conv bg-white px-3 py-2 text-xs font-medium"
-          onDragStart={(e) => onDragStart(e, "customconv")}
-          draggable
-        >
-          Conv2D
-        </div>
+        {Object.entries(registry || {}).map(([layerKey, config]) => (
+          <div
+            key={layerKey}
+            className={`cursor-grab rounded-md border border-l-4 ${getBorderColor(config.category)} bg-white px-3 py-2 text-xs font-medium`}
+            onDragStart={(e) => onDragStart(e, layerKey)}
+            draggable
+          >
+            {config.display_name}
+          </div>
+        ))}
       </CardContent>
     </Card>
   );
 }
+
+Sidebar.propTypes = {
+  registry: PropTypes.object.isRequired,
+};
 
 export default Sidebar;

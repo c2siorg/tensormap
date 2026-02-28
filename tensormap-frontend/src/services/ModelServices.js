@@ -2,6 +2,7 @@ import axios from "../shared/Axios";
 import * as urls from "../constants/Urls";
 import * as strings from "../constants/Strings";
 import logger from "../shared/logger";
+import { BACKEND_GET_LAYERS } from "../constants/Urls";
 
 /**
  * Sends a model graph and training config to the backend for validation.
@@ -151,4 +152,16 @@ export const runModel = async (modelName, projectId) => {
     .catch((err) => {
       throw err;
     });
+};
+
+export const getLayerRegistry = async () => {
+  try {
+    // Explicitly point to the backend port 4300
+    const response = await fetch(`http://127.0.0.1:4300/api/v1/layers`);
+    const json = await response.json();
+    return json.data.layers;
+  } catch (error) {
+    console.error("Failed to fetch layer registry:", error);
+    return {};
+  }
 };

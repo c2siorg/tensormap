@@ -360,7 +360,39 @@ def get_available_model_list(
     total = db.exec(select(func.count()).select_from(base_filter.subquery())).one()
 
     models = db.exec(base_filter.offset(offset).limit(limit)).all()
-    data = [m.model_name for m in models]
+    data = [{"id": str(m.id), "name": m.model_name} for m in models]
     body = {"success": True, "message": "Model list generated successfully.", "data": data}
     body["pagination"] = {"total": total, "offset": offset, "limit": limit}
     return body, 200
+
+def delete_model_service(db: Session, model_id: int, project_id: uuid_pkg.UUID | None = None) -> tuple:
+    """Delete a model and its associated configurations."""
+    stmt = select(ModelBasic).where(ModelBasic.id == model_id)
+    if project_id is not None:
+        stmt = stmt.where(ModelBasic.project_id == project_id)
+    model = db.exec(stmt).first()
+    
+    if not model:
+        return _resp(404, False, "Model not found")
+
+    model_name = model.model_name
+
+    try:
+        db.delete(model)
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        logger.exception("Error deleting model")
+        return _resp(500, False, f"Failed to delete model from database: {str(e)}")
+
+    # Try to clean up generated model file if it exists
+    model_path = os.path.join(MODEL_GENERATION_LOCATION, model_name + MODEL_GENERATION_TYPE)
+    if os.path.exists(model_path):
+        try:
+            os.remove(model_path)
+            logger.info("Deleted model file %s", model_path)
+        except OSError:
+            logger.warning("Failed to delete generated model file %s", model_path)
+
+    logger.info("Model '%s' (ID: %d) deleted successfully", model_name, model_id)
+    return _resp(200, True, "Model deleted successfully")

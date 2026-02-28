@@ -22,9 +22,19 @@ import {
   runModel,
   getAllModels,
   updateTrainingConfig,
+  deleteModel,
 } from "../../services/ModelServices";
 import { getAllFiles } from "../../services/FileServices";
 import { models as modelListAtom } from "../../shared/atoms";
+import { Trash2 } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 const optimizerOptions = [
   { key: "opt_1", label: "Adam", value: "adam" },
@@ -52,6 +62,8 @@ export default function Training() {
   const [resultValues, setResultValues] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [connectionError, setConnectionError] = useState(null);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const socketRef = useRef(null);
   const timeoutRef = useRef(null);
 
@@ -129,8 +141,9 @@ export default function Training() {
     getAllModels(projectId)
       .then((response) => {
         const models = response.map((file, index) => ({
-          label: file + strings.MODEL_EXTENSION,
-          value: file,
+          label: file.name + strings.MODEL_EXTENSION,
+          value: file.name,
+          id: file.id,
           key: index,
         }));
         setModelList(models);
@@ -403,7 +416,7 @@ export default function Training() {
       setResultValues(["Training timed out. The model may still be running on the server."]);
     }, 300000);
     runModel(selectedModel, projectId)
-      .then(() => {})
+      .then(() => { })
       .catch((error) => {
         clearTimeout(timeoutRef.current);
         logger.error(error.response?.data);
@@ -415,6 +428,30 @@ export default function Training() {
   const handleClear = () => {
     setResultValues([]);
     setIsLoading(false);
+  };
+
+  const handleDeleteModel = () => {
+    const modelToDelete = modelList.find((m) => m.value === selectedModel);
+    if (!modelToDelete) return;
+
+    setIsDeleting(true);
+    deleteModel(modelToDelete.id, projectId)
+      .then((resp) => {
+        setIsDeleting(false);
+        setIsDeleteDialogOpen(false);
+        if (resp.success) {
+          setModelList((prev) => prev.filter((m) => m.id !== modelToDelete.id));
+          setSelectedModel(null);
+          setConfigSaved(false);
+        } else {
+          logger.error("Error deleting model:", resp.message);
+        }
+      })
+      .catch((error) => {
+        setIsDeleting(false);
+        setIsDeleteDialogOpen(false);
+        logger.error("Error deleting model:", error);
+      });
   };
 
   return (
@@ -445,6 +482,15 @@ export default function Training() {
               )}
             </div>
             <Button
+              variant="destructive"
+              size="icon"
+              disabled={!selectedModel}
+              onClick={() => setIsDeleteDialogOpen(true)}
+              title="Delete Model"
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+            <Button
               onClick={handleDownload}
               disabled={!selectedModel || !configSaved}
               variant="outline"
@@ -467,6 +513,25 @@ export default function Training() {
           </div>
         </CardContent>
       </Card>
+
+      <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Model</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete the model &quot;{selectedModel}&quot;? This action cannot be undone and will permanently remove the model and its configurations.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)} disabled={isDeleting}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleDeleteModel} disabled={isDeleting}>
+              {isDeleting ? "Deleting..." : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {selectedModel && (
         <Card>

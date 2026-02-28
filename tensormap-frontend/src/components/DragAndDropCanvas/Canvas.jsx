@@ -11,11 +11,20 @@ import ReactFlow, {
   Panel,
 } from "reactflow";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useRecoilState } from "recoil";
 import * as strings from "../../constants/Strings";
 import logger from "../../shared/logger";
 import FeedbackDialog from "../shared/FeedbackDialog";
 import "reactflow/dist/style.css";
+import { Trash2 } from "lucide-react";
 import InputNode from "./CustomNodes/InputNode/InputNode";
 import DenseNode from "./CustomNodes/DenseNode/DenseNode";
 import FlattenNode from "./CustomNodes/FlattenNode/FlattenNode";
@@ -43,6 +52,7 @@ function Canvas() {
   const [reactFlowInstance, setReactFlowInstance] = useState(null);
   const [modelName, setModelName] = useState("");
   const [selectedNodeId, setSelectedNodeId] = useState(null);
+  const [clearAllOpen, setClearAllOpen] = useState(false);
   const [feedbackDialog, setFeedbackDialog] = useState({
     open: false,
     success: false,
@@ -324,6 +334,15 @@ function Canvas() {
     [reactFlowInstance, setNodes],
   );
 
+  const nodeCount = nodes.length;
+  const handleClearAll = useCallback(() => {
+    setNodes([]);
+    setEdges([]);
+    setSelectedNodeId(null);
+    closeContextMenu();
+    setClearAllOpen(false);
+  }, [setNodes, setEdges, closeContextMenu]);
+
   return (
     <>
       <FeedbackDialog
@@ -333,6 +352,24 @@ function Canvas() {
         message={feedbackDialog.message}
         detail={feedbackDialog.detail}
       />
+      <Dialog open={clearAllOpen} onOpenChange={setClearAllOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Clear canvas?</DialogTitle>
+            <DialogDescription>
+              This will remove {nodeCount} node{nodeCount === 1 ? "" : "s"} and all edges.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setClearAllOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleClearAll}>
+              Clear All
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <div className="flex gap-4">
         <ReactFlowProvider>
           <Sidebar />
@@ -353,13 +390,21 @@ function Canvas() {
               defaultViewport={defaultViewport}
             >
               <Controls />
-              {hasDraft && (
-                <Panel position="top-right">
+              <Panel position="top-right" className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setClearAllOpen(true)}
+                  disabled={nodeCount === 0}
+                >
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Clear All
+                </Button>
+                {hasDraft && (
                   <Button variant="destructive" onClick={handleDiscardDraft}>
                     Discard Draft
                   </Button>
-                </Panel>
-              )}
+                )}
+              </Panel>
               <Background
                 id="1"
                 gap={10}

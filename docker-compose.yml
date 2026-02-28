@@ -1,18 +1,13 @@
 services:
   db:
     image: postgres:16
-    restart: unless-stopped
-    env_file:
-      - .env
+    restart: always
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
-      - "5432:5432"
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U c2si -d c2si_db"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
+      - "5433:5432"  # <-- Change this left number to 5433!
 
   backend:
     build: ./tensormap-backend

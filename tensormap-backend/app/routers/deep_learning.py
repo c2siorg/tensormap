@@ -1,5 +1,6 @@
 import asyncio
 import io
+import json
 import uuid as uuid_pkg
 
 from fastapi import APIRouter, Depends, Query
@@ -7,6 +8,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from sqlmodel import Session
 
 from app.database import get_db
+from app.shared.constants import LAYER_REGISTRY_LOCATION
 from app.schemas.deep_learning import ModelNameRequest, ModelSaveRequest, ModelValidateRequest, TrainingConfigRequest
 from app.services.deep_learning import (
     get_available_model_list,
@@ -99,3 +101,18 @@ def get_model_list(
     """Return a paginated list of saved model names, optionally filtered by project."""
     body, status_code = get_available_model_list(db, project_id=project_id, offset=offset, limit=limit)
     return JSONResponse(status_code=status_code, content=body)
+
+@router.get("/layers")
+async def get_layer_registry():
+    """Return the data-driven layer registry for dynamic UI generation."""
+    logger.info("Fetching unified layer registry")
+    try:
+        with open(LAYER_REGISTRY_LOCATION, "r") as f:
+            registry = json.load(f)
+        return JSONResponse(status_code=200, content={"success": True, "data": registry})
+    except FileNotFoundError:
+        logger.error("Layer registry not found at %s", LAYER_REGISTRY_LOCATION)
+        return JSONResponse(
+            status_code=500, 
+            content={"success": False, "message": "Unified layer registry missing from server."}
+        )

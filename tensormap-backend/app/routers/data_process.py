@@ -13,6 +13,8 @@ from app.services.data_process import (
     add_target_service,
     delete_one_target_by_id_service,
     get_all_targets_service,
+    get_column_stats_service,
+    get_correlation_matrix,
     get_data_metrics,
     get_file_data,
     get_one_target_by_id_service,
@@ -63,6 +65,20 @@ def delete_target(file_id: uuid_pkg.UUID, db: Session = Depends(get_db)):
 def get_metrics(file_id: uuid_pkg.UUID, db: Session = Depends(get_db)):
     """Return descriptive statistics and correlation matrix for a CSV file."""
     body, status_code = get_data_metrics(db, file_id=file_id)
+    return JSONResponse(status_code=status_code, content=body)
+
+
+@router.get("/data/process/stats/{file_id}")
+async def get_column_stats(file_id: uuid_pkg.UUID, db: Session = Depends(get_db)):
+    """Return per-column descriptive statistics for a CSV file."""
+    body, status_code = get_column_stats_service(db, file_id=file_id)
+    return JSONResponse(status_code=status_code, content=body)
+
+
+@router.get("/data/process/correlation/{file_id}")
+async def get_correlation(file_id: uuid_pkg.UUID, db: Session = Depends(get_db)):
+    """Return the pairwise correlation matrix for all numeric columns in a CSV file."""
+    body, status_code = get_correlation_matrix(db, file_id=file_id)
     return JSONResponse(status_code=status_code, content=body)
 
 

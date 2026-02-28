@@ -28,9 +28,28 @@ router = APIRouter(tags=["deep-learning"])
 async def validate_model(request: ModelValidateRequest, db: Session = Depends(get_db)):
     """Validate a ReactFlow graph as a Keras model and persist the configuration."""
     logger.debug("Validating model for project_id=%s", request.project_id)
-    body, status_code = model_validate_service(db, incoming=request.model_dump(), project_id=request.project_id)
-    return JSONResponse(status_code=status_code, content=body)
-
+    
+    try:
+        body, status_code = model_validate_service(db, incoming=request.model_dump(), project_id=request.project_id)
+        return JSONResponse(status_code=status_code, content=body)
+        
+    except ValueError as e:
+        return JSONResponse(
+            status_code=400,
+            content={"success": False, "message": str(e)}
+        )
+    except Exception as e:
+        logger.error(f"Unexpected error during model validation: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False, 
+                "message": (
+                    "An unexpected error occurred while building the Keras model. "
+                    "Please check your layer configurations."
+                )
+            }
+        )
 
 @router.post("/model/save")
 async def save_model(request: ModelSaveRequest, db: Session = Depends(get_db)):

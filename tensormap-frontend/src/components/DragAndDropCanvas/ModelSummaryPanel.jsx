@@ -21,11 +21,7 @@ export default function ModelSummaryPanel({ summary, onClose }) {
             onClick={() => setCollapsed((c) => !c)}
             aria-label={collapsed ? "Expand summary" : "Collapse summary"}
           >
-            {collapsed ? (
-              <ChevronDown className="h-4 w-4" />
-            ) : (
-              <ChevronUp className="h-4 w-4" />
-            )}
+            {collapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
           </Button>
           <Button
             variant="ghost"
@@ -70,9 +66,7 @@ export default function ModelSummaryPanel({ summary, onClose }) {
           <div className="mt-3 flex flex-wrap gap-4 border-t pt-3 text-xs text-muted-foreground">
             <span>
               Total params:{" "}
-              <strong className="text-foreground">
-                {summary.total_params.toLocaleString()}
-              </strong>
+              <strong className="text-foreground">{summary.total_params.toLocaleString()}</strong>
             </span>
             <span>
               Trainable:{" "}
@@ -101,7 +95,7 @@ ModelSummaryPanel.propTypes = {
         type: PropTypes.string.isRequired,
         output_shape: PropTypes.string.isRequired,
         param_count: PropTypes.number.isRequired,
-      })
+      }),
     ).isRequired,
     total_params: PropTypes.number.isRequired,
     trainable_params: PropTypes.number.isRequired,

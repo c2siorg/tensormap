@@ -58,12 +58,14 @@ def _build_model_summary(keras_model) -> dict:
             output_shape = str(layer.output_shape)
         except AttributeError:
             output_shape = "unknown"
-        layers.append({
-            "name": layer.name,
-            "type": layer.__class__.__name__,
-            "output_shape": output_shape,
-            "param_count": int(layer.count_params()),
-        })
+        layers.append(
+            {
+                "name": layer.name,
+                "type": layer.__class__.__name__,
+                "output_shape": output_shape,
+                "param_count": int(layer.count_params()),
+            }
+        )
 
     total = int(keras_model.count_params())
     trainable = int(sum(w.numpy().size for w in keras_model.trainable_weights))

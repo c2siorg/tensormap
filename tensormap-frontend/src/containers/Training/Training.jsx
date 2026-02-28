@@ -366,6 +366,7 @@ export default function Training() {
       optimizer: trainingConfig.optimizer,
       metric: trainingConfig.metric,
       epochs: Number(trainingConfig.epochs),
+      batch_size: trainingConfig.batch_size ? Number(trainingConfig.batch_size) : 32,
       project_id: projectId || null,
     };
 

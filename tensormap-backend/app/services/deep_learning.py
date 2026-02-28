@@ -241,6 +241,7 @@ def update_training_config_service(
     model.optimizer = config["optimizer"]
     model.metric = config["metric"]
     model.epochs = config["epochs"]
+    model.batch_size = config.get("batch_size", 32)
     model.loss = loss
 
     try:

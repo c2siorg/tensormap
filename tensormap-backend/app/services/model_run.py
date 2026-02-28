@@ -171,6 +171,8 @@ def _run(model_name: str, db: Session) -> None:
         x_testing = X[split_index:]
         y_testing = y[split_index:]
 
+        batch_size = model_configs.batch_size if model_configs.batch_size is not None else 32
+
     with open(_helper_generate_json_model_file_location(model_name=model_name)) as f:
         json_string = f.read()
     model = tf.keras.models.model_from_json(json_string, custom_objects=None)
@@ -199,6 +201,7 @@ def _run(model_name: str, db: Session) -> None:
             x_training,
             y_training,
             epochs=model_configs.epochs,
+            batch_size=batch_size,
             callbacks=[CustomProgressBar()],
             verbose=0,
         )

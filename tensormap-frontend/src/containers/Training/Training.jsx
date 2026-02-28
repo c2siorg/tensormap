@@ -428,7 +428,9 @@ export default function Training() {
             <div className="space-y-1">
               <Select onValueChange={handleModelSelect} disabled={modelList.length === 0}>
                 <SelectTrigger className={`w-64 ${validationErrors.model ? "border-red-500" : ""}`}>
-                  <SelectValue placeholder={modelList.length === 0 ? "No models created" : "Select a model"} />
+                  <SelectValue
+                    placeholder={modelList.length === 0 ? "No models created" : "Select a model"}
+                  />
                 </SelectTrigger>
                 <SelectContent>
                   {modelList.map((model) => (

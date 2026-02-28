@@ -49,7 +49,10 @@ function TransformationCreator({ features, onAdd }) {
         </Select>
       </div>
       <div className="w-[40%]">
-        <Select value={selectedTransformation} onValueChange={(value) => setSelectedTransformation(value)}>
+        <Select
+          value={selectedTransformation}
+          onValueChange={(value) => setSelectedTransformation(value)}
+        >
           <SelectTrigger>
             <SelectValue placeholder="Transformation" />
           </SelectTrigger>

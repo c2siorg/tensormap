@@ -59,9 +59,7 @@ const ColumnStatsPanel = ({ fileId }) => {
         <span>
           Column Statistics
           {summary && (
-            <span className="ml-2 font-normal text-xs text-muted-foreground">
-              ({summary})
-            </span>
+            <span className="ml-2 font-normal text-xs text-muted-foreground">({summary})</span>
           )}
         </span>
         <span>{open ? "▲" : "▼"}</span>
@@ -102,7 +100,9 @@ const ColumnStatsPanel = ({ fileId }) => {
                       <td className="border px-3 py-2 font-medium">{row.column}</td>
                       <td className="border px-3 py-2 text-muted-foreground">{row.dtype}</td>
                       <td className="border px-3 py-2 text-muted-foreground">{fmt(row.count)}</td>
-                      <td className="border px-3 py-2 text-muted-foreground">{fmt(row.null_count)}</td>
+                      <td className="border px-3 py-2 text-muted-foreground">
+                        {fmt(row.null_count)}
+                      </td>
                       <td className="border px-3 py-2 text-muted-foreground">{fmt(row.mean)}</td>
                       <td className="border px-3 py-2 text-muted-foreground">{fmt(row.min)}</td>
                       <td className="border px-3 py-2 text-muted-foreground">{fmt(row.max)}</td>

@@ -1,0 +1,35 @@
+{
+  "layers": {
+    "input": {
+      "display_name": "Input",
+      "category": "core",
+      "keras_mapping": "tf.keras.layers.InputLayer",
+      "params": {}
+    },
+    "dense": {
+      "display_name": "Dense",
+      "category": "core",
+      "keras_mapping": "tf.keras.layers.Dense",
+      "params": {
+        "units": { "type": "number", "default": 32, "min": 1, "required": true },
+        "activation": { "type": "select", "options": ["relu", "sigmoid", "softmax", "linear"], "default": "relu", "required": false }
+      }
+    },
+    "flatten": {
+      "display_name": "Flatten",
+      "category": "core",
+      "keras_mapping": "tf.keras.layers.Flatten",
+      "params": {}
+    },
+    "conv2d": {
+      "display_name": "Conv2D",
+      "category": "convolutional",
+      "keras_mapping": "tf.keras.layers.Conv2D",
+      "params": {
+        "filters": { "type": "number", "default": 32, "min": 1, "required": true },
+        "kernel_size": { "type": "string", "default": "3,3", "required": true },
+        "activation": { "type": "select", "options": ["relu", "sigmoid", "softmax", "linear"], "default": "relu", "required": false }
+      }
+    }
+  }
+}

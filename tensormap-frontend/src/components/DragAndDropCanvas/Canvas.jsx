@@ -16,10 +16,8 @@ import * as strings from "../../constants/Strings";
 import logger from "../../shared/logger";
 import FeedbackDialog from "../shared/FeedbackDialog";
 import "reactflow/dist/style.css";
-import InputNode from "./CustomNodes/InputNode/InputNode";
-import DenseNode from "./CustomNodes/DenseNode/DenseNode";
-import FlattenNode from "./CustomNodes/FlattenNode/FlattenNode";
-import ConvNode from "./CustomNodes/ConvNode/ConvNode";
+import GenericLayerNode from "./CustomNodes/GenericLayerNode";
+import { getLayerRegistry } from "../../services/ModelServices";
 import Sidebar from "./Sidebar";
 import NodePropertiesPanel from "./NodePropertiesPanel";
 import { canSaveModel, generateModelJSON } from "./Helpers";
@@ -29,10 +27,7 @@ import { models as allModels } from "../../shared/atoms";
 import ContextMenu from "./ContextMenu";
 
 const nodeTypes = {
-  custominput: InputNode,
-  customdense: DenseNode,
-  customflatten: FlattenNode,
-  customconv: ConvNode,
+  genericLayer: GenericLayerNode,
 };
 
 function Canvas() {
@@ -52,6 +47,13 @@ function Canvas() {
     detail: "",
   });
   const [contextMenu, setContextMenu] = useState({ nodeId: null, x: 0, y: 0 });
+  const [layerRegistry, setLayerRegistry] = useState({});
+
+  // Fetch the registry on mount
+  useEffect(() => {
+    getLayerRegistry().then(setLayerRegistry);
+  }, []);
+
   const defaultViewport = { x: 10, y: 15, zoom: 0.5 };
 
   const draftKey = `tensormap_draft_${projectId || "default"}`;
@@ -289,43 +291,40 @@ function Canvas() {
     (event) => {
       event.preventDefault();
 
-      const reactFlowBounds = reactFlowWrapper.current.getBoundingClientRect();
-      const type = event.dataTransfer.getData("application/reactflow");
+      // const reactFlowBounds = reactFlowWrapper.current.getBoundingClientRect();
+      const layerKey = event.dataTransfer.getData("application/reactflow");
 
-      if (typeof type === "undefined" || !type) {
+      if (typeof layerKey === "undefined" || !layerKey || !layerRegistry[layerKey]) {
         return;
       }
 
-      const position = reactFlowInstance.project({
-        x: event.clientX - reactFlowBounds.left,
-        y: event.clientY - reactFlowBounds.top,
+      const position = reactFlowInstance.screenToFlowPosition({
+        x: event.clientX,
+        y: event.clientY,
       });
 
-      const defaultParams = {
-        custominput: { "dim-1": "", "dim-2": "", "dim-3": "" },
-        customdense: { units: "", activation: "" },
-        customflatten: {},
-        customconv: {
-          filter: "",
-          padding: "valid",
-          activation: "none",
-          strideX: "",
-          strideY: "",
-          kernelX: "",
-          kernelY: "",
-        },
-      };
+      const layerConfig = layerRegistry[layerKey];
+
+      // Dynamically generate default params from the JSON contract
+      const defaultParams = {};
+      Object.entries(layerConfig.params || {}).forEach(([key, paramConfig]) => {
+        defaultParams[key] = paramConfig.default !== undefined ? paramConfig.default : "";
+      });
 
       const newNode = {
         id: crypto.randomUUID(),
-        type,
+        type: "genericLayer",
         position,
-        data: { label: `${type} node`, params: defaultParams[type] || {} },
+        data: {
+          label: layerConfig.display_name,
+          params: defaultParams,
+          registry: layerConfig
+        },
       };
 
       setNodes((nds) => nds.concat(newNode));
     },
-    [reactFlowInstance, setNodes],
+    [reactFlowInstance, setNodes, layerRegistry],
   );
 
   return (
@@ -339,7 +338,7 @@ function Canvas() {
       />
       <div className="flex gap-4">
         <ReactFlowProvider>
-          <Sidebar />
+          <Sidebar registry={layerRegistry} />
           <div className="min-w-0 h-[65vh] flex-1 rounded-md border" ref={reactFlowWrapper}>
             <ReactFlow
               nodes={nodes}

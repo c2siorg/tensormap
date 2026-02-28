@@ -11,24 +11,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-const denseActivations = [
-  { value: "relu", label: "ReLU" },
-  { value: "linear", label: "Linear" },
-  { value: "sigmoid", label: "Sigmoid" },
-  { value: "softmax", label: "Softmax" },
-  { value: "tanh", label: "Tanh" },
-];
-
-const convActivations = [
-  { value: "none", label: "None" },
-  { value: "relu", label: "ReLU" },
-];
-
-const convPaddings = [
-  { value: "valid", label: "Valid" },
-  { value: "same", label: "Same" },
-];
-
 function NodePropertiesPanel({
   selectedNode,
   modelName,
@@ -37,6 +19,7 @@ function NodePropertiesPanel({
   canSave,
   onNodeUpdate,
 }) {
+  // If no node is selected, show the default Save Model panel
   if (!selectedNode) {
     return (
       <Card className="h-fit">
@@ -53,205 +36,83 @@ function NodePropertiesPanel({
             />
           </div>
           <Button className="w-full" onClick={onSave} disabled={!canSave}>
-            Validate &amp; Save
+            Validate & Save
           </Button>
         </CardContent>
       </Card>
     );
   }
 
-  const { type, data, id } = selectedNode;
-  const params = data.params;
+  // Extract the dynamically generated data from our new GenericLayerNode
+  const { id, data } = selectedNode;
+  const params = data.params || {};
+  const registry = data.registry || {};
 
-  const updateParam = (name, value) => {
-    onNodeUpdate(id, { ...params, [name]: value });
+  // Safely update parameters, casting to number if required by the API
+  const updateParam = (name, value, expectedType) => {
+    let parsedValue = value;
+    if (expectedType === "int" || expectedType === "float") {
+      parsedValue = value === "" ? "" : Number(value);
+    }
+    onNodeUpdate(id, { ...params, [name]: parsedValue });
   };
 
-  if (type === "custominput") {
-    return (
-      <Card className="h-fit">
-        <CardHeader>
-          <CardTitle className="text-sm">Input Layer</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="space-y-1">
-            <Label>Dim 1</Label>
-            <Input
-              type="number"
-              min="0"
-              placeholder="Dimension 1"
-              value={params["dim-1"]}
-              onChange={(e) => updateParam("dim-1", Number(e.target.value))}
-            />
-          </div>
-          <div className="space-y-1">
-            <Label>Dim 2</Label>
-            <Input
-              type="number"
-              min="0"
-              placeholder="Dimension 2 (optional)"
-              value={params["dim-2"]}
-              onChange={(e) => updateParam("dim-2", Number(e.target.value))}
-            />
-          </div>
-          <div className="space-y-1">
-            <Label>Dim 3</Label>
-            <Input
-              type="number"
-              min="0"
-              placeholder="Dimension 3 (optional)"
-              value={params["dim-3"]}
-              onChange={(e) => updateParam("dim-3", Number(e.target.value))}
-            />
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
+  // Helper to make parameter keys look nice (e.g., 'dim-1' -> 'Dim 1')
+  const formatLabel = (str) => {
+    const spaced = str.replace(/-/g, " ").replace(/([A-Z])/g, " $1");
+    return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+  };
 
-  if (type === "customdense") {
-    return (
-      <Card className="h-fit">
-        <CardHeader>
-          <CardTitle className="text-sm">Dense Layer</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="space-y-1">
-            <Label>Units</Label>
-            <Input
-              type="number"
-              min="1"
-              placeholder="Number of units"
-              value={params.units}
-              onChange={(e) => updateParam("units", Number(e.target.value))}
-            />
-          </div>
-          <div className="space-y-1">
-            <Label>Activation</Label>
-            <Select value={params.activation} onValueChange={(v) => updateParam("activation", v)}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select activation" />
-              </SelectTrigger>
-              <SelectContent>
-                {denseActivations.map((a) => (
-                  <SelectItem key={a.value} value={a.value}>
-                    {a.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  if (type === "customflatten") {
-    return (
-      <Card className="h-fit">
-        <CardHeader>
-          <CardTitle className="text-sm">Flatten Layer</CardTitle>
-        </CardHeader>
-        <CardContent>
+  return (
+    <Card className="h-fit">
+      <CardHeader>
+        <CardTitle className="text-sm">{registry.display_name || "Layer"} Properties</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {/* If the layer has no parameters (like Flatten), show a fallback message */}
+        {!registry.params || Object.keys(registry.params).length === 0 ? (
           <p className="text-sm text-muted-foreground">No configurable parameters</p>
-        </CardContent>
-      </Card>
-    );
-  }
+        ) : (
+          /* Loop through the JSON API parameters to build the UI dynamically */
+          Object.entries(registry.params).map(([paramKey, paramConfig]) => {
+            const isSelect = Array.isArray(paramConfig.options);
+            const currentValue = params[paramKey] !== undefined ? params[paramKey] : "";
 
-  if (type === "customconv") {
-    return (
-      <Card className="h-fit">
-        <CardHeader>
-          <CardTitle className="text-sm">Conv2D Layer</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="space-y-1">
-            <Label>Filters</Label>
-            <Input
-              type="number"
-              min="1"
-              placeholder="Filter count"
-              value={params.filter}
-              onChange={(e) => updateParam("filter", Number(e.target.value))}
-            />
-          </div>
-          <div className="space-y-1">
-            <Label>Kernel X</Label>
-            <Input
-              type="number"
-              min="1"
-              placeholder="Kernel X"
-              value={params.kernelX}
-              onChange={(e) => updateParam("kernelX", Number(e.target.value))}
-            />
-          </div>
-          <div className="space-y-1">
-            <Label>Kernel Y</Label>
-            <Input
-              type="number"
-              min="1"
-              placeholder="Kernel Y"
-              value={params.kernelY}
-              onChange={(e) => updateParam("kernelY", Number(e.target.value))}
-            />
-          </div>
-          <div className="space-y-1">
-            <Label>Stride X</Label>
-            <Input
-              type="number"
-              min="1"
-              placeholder="Stride X"
-              value={params.strideX}
-              onChange={(e) => updateParam("strideX", Number(e.target.value))}
-            />
-          </div>
-          <div className="space-y-1">
-            <Label>Stride Y</Label>
-            <Input
-              type="number"
-              min="1"
-              placeholder="Stride Y"
-              value={params.strideY}
-              onChange={(e) => updateParam("strideY", Number(e.target.value))}
-            />
-          </div>
-          <div className="space-y-1">
-            <Label>Padding</Label>
-            <Select value={params.padding} onValueChange={(v) => updateParam("padding", v)}>
-              <SelectTrigger>
-                <SelectValue placeholder="Padding" />
-              </SelectTrigger>
-              <SelectContent>
-                {convPaddings.map((p) => (
-                  <SelectItem key={p.value} value={p.value}>
-                    {p.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1">
-            <Label>Activation</Label>
-            <Select value={params.activation} onValueChange={(v) => updateParam("activation", v)}>
-              <SelectTrigger>
-                <SelectValue placeholder="Activation" />
-              </SelectTrigger>
-              <SelectContent>
-                {convActivations.map((a) => (
-                  <SelectItem key={a.value} value={a.value}>
-                    {a.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  return null;
+            return (
+              <div key={paramKey} className="space-y-1">
+                <Label>{formatLabel(paramKey)}</Label>
+                
+                {isSelect ? (
+                  <Select
+                    value={String(currentValue)}
+                    onValueChange={(v) => updateParam(paramKey, v, paramConfig.type)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder={`Select ${formatLabel(paramKey)}`} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {paramConfig.options.map((opt) => (
+                        <SelectItem key={opt} value={opt}>
+                          {opt}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Input
+                    type={paramConfig.type === "int" || paramConfig.type === "float" ? "number" : "text"}
+                    placeholder={`Enter ${formatLabel(paramKey)}`}
+                    value={currentValue}
+                    onChange={(e) => updateParam(paramKey, e.target.value, paramConfig.type)}
+                  />
+                )}
+              </div>
+            );
+          })
+        )}
+      </CardContent>
+    </Card>
+  );
 }
 
 NodePropertiesPanel.propTypes = {

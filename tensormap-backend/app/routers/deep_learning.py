@@ -25,7 +25,7 @@ router = APIRouter(tags=["deep-learning"])
 
 
 @router.post("/model/validate")
-async def validate_model(request: ModelValidateRequest, db: Session = Depends(get_db)):
+def validate_model(request: ModelValidateRequest, db: Session = Depends(get_db)):
     """Validate a ReactFlow graph as a Keras model and persist the configuration."""
     logger.debug("Validating model for project_id=%s", request.project_id)
     body, status_code = model_validate_service(db, incoming=request.model_dump(), project_id=request.project_id)
@@ -33,7 +33,7 @@ async def validate_model(request: ModelValidateRequest, db: Session = Depends(ge
 
 
 @router.post("/model/save")
-async def save_model(request: ModelSaveRequest, db: Session = Depends(get_db)):
+def save_model(request: ModelSaveRequest, db: Session = Depends(get_db)):
     """Save a model architecture from the canvas (no training config)."""
     logger.debug("Saving model architecture: model_name=%s", request.model_name)
     body, status_code = model_save_service(
@@ -43,7 +43,7 @@ async def save_model(request: ModelSaveRequest, db: Session = Depends(get_db)):
 
 
 @router.patch("/model/training-config")
-async def update_training_config(request: TrainingConfigRequest, db: Session = Depends(get_db)):
+def update_training_config(request: TrainingConfigRequest, db: Session = Depends(get_db)):
     """Set training configuration on a previously saved model."""
     logger.debug("Updating training config for model_name=%s", request.model_name)
     body, status_code = update_training_config_service(
@@ -53,7 +53,7 @@ async def update_training_config(request: TrainingConfigRequest, db: Session = D
 
 
 @router.post("/model/code")
-async def get_code(request: ModelNameRequest, db: Session = Depends(get_db)):
+def get_code(request: ModelNameRequest, db: Session = Depends(get_db)):
     """Generate and download a Python training script for a saved model."""
     logger.debug("Generating code for model_name=%s", request.model_name)
     result, status_code = get_code_service(db, model_name=request.model_name, project_id=request.project_id)
@@ -79,7 +79,7 @@ async def run_model(request: ModelNameRequest, db: Session = Depends(get_db)):
 
 
 @router.get("/model/{model_name}/graph")
-async def get_model_graph(
+def get_model_graph(
     model_name: str,
     project_id: uuid_pkg.UUID | None = Query(None),
     db: Session = Depends(get_db),
@@ -90,7 +90,7 @@ async def get_model_graph(
 
 
 @router.get("/model/model-list")
-async def get_model_list(
+def get_model_list(
     project_id: uuid_pkg.UUID | None = Query(None),
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=100),

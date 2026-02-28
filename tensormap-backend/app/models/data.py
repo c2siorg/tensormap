@@ -2,7 +2,7 @@ import uuid as uuid_pkg
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import CheckConstraint, Column, DateTime, ForeignKey, func
+from sqlalchemy import JSON, CheckConstraint, Column, DateTime, ForeignKey, func
 from sqlalchemy.dialects.postgresql import UUID as PgUUID
 from sqlmodel import Field, Relationship, SQLModel
 
@@ -19,6 +19,8 @@ class DataFile(SQLModel, table=True):
     id: uuid_pkg.UUID = Field(sa_column=Column(PgUUID(as_uuid=True), primary_key=True, default=uuid_pkg.uuid4))
     file_name: str = Field(max_length=100, nullable=False)
     file_type: str = Field(max_length=10, nullable=False)
+    columns: list[str] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
+    row_count: int | None = Field(default=None, nullable=True)
     project_id: uuid_pkg.UUID | None = Field(
         sa_column=Column(PgUUID(as_uuid=True), ForeignKey("project.id", ondelete="CASCADE"), index=True, nullable=True)
     )

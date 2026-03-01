@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import func
+from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session, select
 
 from app.models.data import DataFile
@@ -39,7 +40,7 @@ def create_project_service(db: Session, data: ProjectCreateRequest) -> tuple:
                 "updated_on": project.updated_on.isoformat() if project.updated_on else None,
             },
         )
-    except Exception:
+    except SQLAlchemyError:
         db.rollback()
         logger.exception("Error creating project")
         return _resp(500, False, "An error occurred while creating the project")
@@ -83,7 +84,7 @@ def get_all_projects_service(db: Session, offset: int = 0, limit: int = 50) -> t
         body = {"success": True, "message": "Projects retrieved successfully", "data": data}
         body["pagination"] = {"total": total, "offset": offset, "limit": limit}
         return body, 200
-    except Exception:
+    except SQLAlchemyError:
         logger.exception("Error fetching projects")
         return _resp(500, False, "An error occurred while fetching projects")
 
@@ -106,7 +107,7 @@ def get_project_by_id_service(db: Session, project_id: uuid_pkg.UUID) -> tuple:
                 "updated_on": project.updated_on.isoformat() if project.updated_on else None,
             },
         )
-    except Exception:
+    except SQLAlchemyError:
         logger.exception("Error fetching project")
         return _resp(500, False, "An error occurred while fetching the project")
 
@@ -139,7 +140,7 @@ def update_project_service(db: Session, project_id: uuid_pkg.UUID, data: Project
                 "updated_on": project.updated_on.isoformat() if project.updated_on else None,
             },
         )
-    except Exception:
+    except SQLAlchemyError:
         db.rollback()
         logger.exception("Error updating project")
         return _resp(500, False, "An error occurred while updating the project")
@@ -156,7 +157,7 @@ def delete_project_service(db: Session, project_id: uuid_pkg.UUID) -> tuple:
         db.commit()
         logger.info("Project deleted: id=%s", project_id)
         return _resp(200, True, "Project deleted successfully")
-    except Exception:
+    except SQLAlchemyError:
         db.rollback()
         logger.exception("Error deleting project")
         return _resp(500, False, "An error occurred while deleting the project")

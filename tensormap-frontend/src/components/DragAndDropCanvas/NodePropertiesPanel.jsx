@@ -49,9 +49,9 @@ function NodePropertiesPanel({
   const registry = data.registry || {};
 
   // Safely update parameters, casting to number if required by the API
-  const updateParam = (name, value, expectedType) => {
+const updateParam = (name, value, expectedType) => {
     let parsedValue = value;
-    if (expectedType === "int" || expectedType === "float") {
+    if (expectedType === "number" || expectedType === "int" || expectedType === "float") {
       parsedValue = value === "" ? "" : Number(value);
     }
     onNodeUpdate(id, { ...params, [name]: parsedValue });

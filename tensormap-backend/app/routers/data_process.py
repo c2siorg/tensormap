@@ -93,9 +93,14 @@ async def get_file(
     """Return the contents of a CSV file as JSON records, with pagination."""
     body, status_code = get_file_data(db, file_id=file_id, page=page, page_size=page_size)
 =======
-def get_file(file_id: uuid_pkg.UUID, db: Session = Depends(get_db)):
+def get_file(
+    file_id: uuid_pkg.UUID,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=1000),
+    db: Session = Depends(get_db),
+):
     """Return the full contents of a CSV file as JSON records."""
-    body, status_code = get_file_data(db, file_id=file_id)
+    body, status_code = get_file_data(db, file_id=file_id, page=page, page_size=page_size)
 >>>>>>> 65abf26 (fix(backend): use sync route handlers to prevent event loop blocking)
     return JSONResponse(status_code=status_code, content=body)
 

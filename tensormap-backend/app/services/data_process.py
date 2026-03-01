@@ -134,36 +134,50 @@ def get_column_stats_service(db: Session, file_id: uuid_pkg.UUID) -> tuple:
 
     file_path = _get_file_path(file)
     try:
-        df = pd.read_csv(file_path)
+        import dask
+        import dask.dataframe as dd
+
+        df = dd.read_csv(file_path)
     except FileNotFoundError:
         return _resp(500, False, f"File not found: {file_path}")
-    except pd.errors.ParserError as e:
-        logger.exception("CSV parsing error: %s", str(e))
-        return _resp(500, False, f"Error reading CSV: {e}")
     except Exception as e:
         logger.exception("Error reading file: %s", str(e))
         return _resp(500, False, f"Error reading CSV: {e}")
 
-    total_rows = len(df)
     total_cols = len(df.columns)
+    numeric_cols = df.select_dtypes(include="number").columns
+
+    count_task = df.count()
+    null_task = df.isnull().sum()
+
+    if len(numeric_cols) > 0:
+        mean_task = df[numeric_cols].mean()
+        min_task = df[numeric_cols].min()
+        max_task = df[numeric_cols].max()
+        counts_val, nulls_val, means_val, mins_val, maxes_val = dask.compute(
+            count_task, null_task, mean_task, min_task, max_task
+        )
+    else:
+        counts_val, nulls_val = dask.compute(count_task, null_task)
+        means_val = mins_val = maxes_val = {}
+
+    total_rows = int(counts_val.max()) if total_cols > 0 else 0
 
     def _safe_float(v) -> float | None:
         """Return float(v) if v is a finite number, else None."""
         return float(v) if pd.notna(v) else None
 
-    numeric_cols = df.select_dtypes(include="number").columns
     columns = []
     for col in df.columns:
         is_numeric = col in numeric_cols
-        null_count = int(df[col].isnull().sum())
         entry: dict = {
             "column": col,
-            "dtype": str(df[col].dtype),
-            "count": int(df[col].count()),
-            "null_count": null_count,
-            "mean": _safe_float(df[col].mean()) if is_numeric else None,
-            "min": _safe_float(df[col].min()) if is_numeric else None,
-            "max": _safe_float(df[col].max()) if is_numeric else None,
+            "dtype": str(df.dtypes[col]),
+            "count": int(counts_val[col]),
+            "null_count": int(nulls_val[col]),
+            "mean": _safe_float(means_val[col]) if is_numeric and col in means_val else None,
+            "min": _safe_float(mins_val[col]) if is_numeric and col in mins_val else None,
+            "max": _safe_float(maxes_val[col]) if is_numeric and col in maxes_val else None,
         }
         columns.append(entry)
 

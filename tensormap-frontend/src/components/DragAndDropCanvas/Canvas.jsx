@@ -78,6 +78,7 @@ function Canvas() {
   useEffect(() => {
     let cancelled = false;
     async function loadModel() {
+      let modelNames = [];
       // 1. Try loading from draft first
       try {
         const draftStr = localStorage.getItem(draftKey);
@@ -100,8 +101,8 @@ function Canvas() {
 
       // 2. Fallback to loading from DB
       try {
-        const modelObjects = await getAllModels(projectId);
-        if (cancelled || !modelObjects || modelObjects.length === 0) {
+        modelNames = await getAllModels(projectId);
+        if (cancelled || !modelNames || modelNames.length === 0) {
           if (!cancelled) isLoaded.current = true;
           return;
         }
@@ -139,7 +140,7 @@ function Canvas() {
 
           // Populate the global model list from the fetched models
           setModelList(
-            modelObjects.map((m, i) => ({
+            modelNames.map((m, i) => ({
               label: m.model_name + strings.MODEL_EXTENSION,
               value: m.model_name,
               id: m.id,

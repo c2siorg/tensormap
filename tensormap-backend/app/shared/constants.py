@@ -25,6 +25,4 @@ BATCH_SIZE = "batch_size"
 COLOR_MODE = "color_mode"
 LABEL_MODE = "label_mode"
 
-TEMPLATE_ROOT = "./templates"
 LAYER_REGISTRY_LOCATION = TEMPLATE_ROOT + "/layer_registry.json"
-MODEL_GENERATION_LOCATION = TEMPLATE_ROOT + "/json-model/"

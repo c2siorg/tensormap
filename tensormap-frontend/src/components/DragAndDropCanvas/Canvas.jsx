@@ -28,6 +28,10 @@ import ContextMenu from "./ContextMenu";
 
 const nodeTypes = {
   genericLayer: GenericLayerNode,
+  custominput: GenericLayerNode,
+  customdense: GenericLayerNode,
+  customconv: GenericLayerNode,
+  customflatten: GenericLayerNode,
 };
 
 function Canvas() {

@@ -156,12 +156,10 @@ export const runModel = async (modelName, projectId) => {
 
 export const getLayerRegistry = async () => {
   try {
-    // Explicitly point to the backend port 4300
-    const response = await fetch(`http://127.0.0.1:4300/api/v1/layers`);
-    const json = await response.json();
-    return json.data.layers;
-  } catch (error) {
-    console.error("Failed to fetch layer registry:", error);
+    const resp = await axios.get(BACKEND_GET_LAYERS);
+    return resp.data?.data?.layers || {};
+  } catch (err) {
+    console.error("Failed to fetch layer registry:", err);
     return {};
   }
 };

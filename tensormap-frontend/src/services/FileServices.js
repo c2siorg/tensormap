@@ -74,6 +74,26 @@ export const getCovMatrix = async (file_id) =>
     });
 
 /**
+ * Fetches the pairwise correlation matrix for all numeric columns in a file.
+ *
+ * @param {string} file_id - ID of the uploaded file.
+ * @returns {Promise<{columns: string[], matrix: (number|null)[][]}>}
+ */
+export const getCorrelationMatrix = async (file_id) =>
+  axios
+    .get(urls.BACKEND_GET_CORRELATION + file_id)
+    .then((resp) => {
+      if (resp.data.success === true) {
+        return resp.data.data;
+      }
+      throw new Error(resp.data.message || "Failed to fetch correlation matrix");
+    })
+    .catch((err) => {
+      logger.error(err);
+      throw err;
+    });
+
+/**
  * Fetches the raw data content of a file as a JSON string.
  *
  * @param {string} file_id - ID of the uploaded file.
@@ -153,4 +173,3 @@ export const deleteFile = async (fileId) => {
       throw error;
     });
 };
-

@@ -162,24 +162,7 @@ export default function Training() {
       }
     });
 
-<<<<<<< HEAD
-    getAllModels(projectId)
-      .then((response) => {
-        const models = response.map((item, index) => ({
-          label: item.model_name + strings.MODEL_EXTENSION,
-          value: item.model_name,
-          id: item.id,
-          key: index,
-        }));
-        setModelList(models);
-      })
-      .catch((error) => {
-        logger.error("Error loading models:", error);
-        setModelList([]);
-      });
-=======
     fetchModels();
->>>>>>> 08b14ce (Fix #132: Add Training History table)
 
     getAllFiles(projectId)
       .then((response) => {

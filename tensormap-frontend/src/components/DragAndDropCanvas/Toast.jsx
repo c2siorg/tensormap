@@ -1,5 +1,5 @@
-import { useEffect } from 'react';
-import { X } from 'lucide-react';
+import { useEffect } from "react";
+import { X } from "lucide-react";
 
 export default function Toast({ message, onClose }) {
   useEffect(() => {

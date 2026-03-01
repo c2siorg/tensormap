@@ -195,11 +195,14 @@ function Canvas() {
     setModelName("");
   }, [draftKey, setNodes, setEdges]);
 
-  const onConnect = useCallback((params) => {
-    // Mark connection as successful so mouseup doesn't show a false error
-    connectionDragRef.current = null;
-    setEdges((eds) => addEdge(params, eds));
-  }, [setEdges]);
+  const onConnect = useCallback(
+    (params) => {
+      // Mark connection as successful so mouseup doesn't show a false error
+      connectionDragRef.current = null;
+      setEdges((eds) => addEdge(params, eds));
+    },
+    [setEdges],
+  );
 
   const isValidConnection = useCallback(
     (connection) => {
@@ -227,7 +230,7 @@ function Canvas() {
 
       // Prevent duplicate connections
       const isDuplicate = edges.some(
-        (e) => e.source === connection.source && e.target === connection.target
+        (e) => e.source === connection.source && e.target === connection.target,
       );
       if (isDuplicate) {
         connectionErrorRef.current = "Connection already exists";
@@ -253,7 +256,7 @@ function Canvas() {
       connectionErrorRef.current = null;
       return true;
     },
-    [edges]
+    [edges],
   );
 
   // Store the source node/handle when dragging starts so we can validate on mouseup
@@ -265,7 +268,7 @@ function Canvas() {
   }, []);
 
   // onConnectEnd is required to prevent ReactFlow warnings
-  const onConnectEnd = useCallback(() => { }, []);
+  const onConnectEnd = useCallback(() => {}, []);
 
   // On mouseup, determine what element the user dropped onto and validate.
   // This approach works even when ReactFlow silently swallows the connection
@@ -289,46 +292,44 @@ function Canvas() {
       let targetHandleId = null;
       let targetNodeId = null;
       while (el && el !== document.body) {
-        const hid = el.getAttribute && el.getAttribute('data-handleid');
+        const hid = el.getAttribute && el.getAttribute("data-handleid");
         if (hid !== null && hid !== undefined) {
           targetHandleId = hid;
-          targetNodeId = el.getAttribute('data-nodeid');
+          targetNodeId = el.getAttribute("data-nodeid");
           break;
         }
         el = el.parentElement;
       }
 
       if (!targetHandleId || !targetNodeId) return;
-      if (drag.handleType !== 'source') return;
+      if (drag.handleType !== "source") return;
 
       // Self-loop (belt-and-suspenders — also caught by isValidConnection)
       if (targetNodeId === drag.nodeId) {
-        setToastMessage('Cannot connect a node to itself');
+        setToastMessage("Cannot connect a node to itself");
         return;
       }
 
       // Only valid drop direction: _out → _in
-      if (!drag.handleId?.endsWith('_out') || !targetHandleId.endsWith('_in')) return;
+      if (!drag.handleId?.endsWith("_out") || !targetHandleId.endsWith("_in")) return;
 
       // Duplicate edge
-      const isDuplicate = edges.some(
-        (e) => e.source === drag.nodeId && e.target === targetNodeId
-      );
+      const isDuplicate = edges.some((e) => e.source === drag.nodeId && e.target === targetNodeId);
       if (isDuplicate) {
-        setToastMessage('Connection already exists between these nodes');
+        setToastMessage("Connection already exists between these nodes");
         return;
       }
 
       // Target already has an incoming edge
       const hasIncoming = edges.some((e) => e.target === targetNodeId);
       if (hasIncoming) {
-        setToastMessage('Target node already has an incoming connection');
+        setToastMessage("Target node already has an incoming connection");
       }
     };
 
-    window.addEventListener('mouseup', handleMouseUp);
+    window.addEventListener("mouseup", handleMouseUp);
     return () => {
-      window.removeEventListener('mouseup', handleMouseUp);
+      window.removeEventListener("mouseup", handleMouseUp);
     };
   }, [edges]);
 
@@ -433,7 +434,7 @@ function Canvas() {
                 })),
               );
             })
-            .catch(() => { });
+            .catch(() => {});
         }
         setFeedbackDialog({
           open: true,

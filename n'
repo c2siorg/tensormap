@@ -1,0 +1,48 @@
+fo
+t cherry-pick --abort
+x: ifrontend CSS — add Tailwind color mappings, fix dropdown visibility & empty states
+
+- Add missing shadcn/ui color mappings to tailwind.config.js
+- Add base layer styles (border-border, bg-background) to index.css
+- Fix canvas sizing from hardcoded vw/vh to responsive 100%/65vh
+- Clean up unused CSS variables in Variables.css
+- Disable empty selects with descriptive placeholders
+- Add bg-card and improve PropertiesBar overflow handling
+
+# Conflicts:
+#	tensormap-frontend/src/Variables.css
+#	tensormap-frontend/src/components/DragAndDropCanvas/Canvas.css
+#	tensormap-frontend/src/components/DragAndDropCanvas/Canvas.jsx
+#	tensormap-frontend/src/components/PropertiesBar/PropertiesBar.jsx
+#	tensormap-frontend/src/containers/DataProcess/DataProcess.jsx
+#	tensormap-frontend/src/containers/Training/Training.jsx
+#	tensormap-frontend/tailwind.config.js
+#
+# It looks like you may be committing a cherry-pick.
+# If this is not correct, please run
+#	git update-ref -d CHERRY_PICK_HEAD
+# and try again.
+
+
+# Please enter the commit message or your changes. Lines starting
+# with '#' will be ignored, and an empty message aborts the commit.
+#
+# Date:      Sun Feb 22 16:26:40 2026 +0530
+#
+# On branch fix/frontend-css-tailwind-colors-dropdowns-temp
+# You are currently cherry-picking commit 31994e7.
+#
+# Changes to be committed:
+#	new file:   tensormap-frontend/src/Variables.css
+#	new file:   tensormap-frontend/src/components/DragAndDropCanvas/Canvas.css
+#	modified:   tensormap-frontend/src/components/DragAndDropCanvas/Canvas.jsx
+#	new file:   tensormap-frontend/src/components/PropertiesBar/PropertiesBar.jsx
+#	modified:   tensormap-frontend/src/containers/Training/Training.jsx
+#	modified:   tensormap-frontend/src/index.css
+#	modified:   tensormap-frontend/tailwind.config.js
+#
+# Untracked files:
+#	pr.md
+#	sample_data.csv
+#	tensormap-backend/data/
+#

@@ -159,6 +159,8 @@ def _run(model_name: str, db: Session) -> None:
         file_location = _helper_generate_file_location(db, file_id=model_configs.file_id)
         features = pd.read_csv(file_location)
         features.dropna(inplace=True)
+        # Shuffle data to prevent issues with ordered datasets
+        features = features.sample(frac=1, random_state=42).reset_index(drop=True)
 
         X = features.drop(model_configs.target_field, axis=1)
         y = features[model_configs.target_field]
@@ -168,6 +170,8 @@ def _run(model_name: str, db: Session) -> None:
         y_training = y[:split_index]
         x_testing = X[split_index:]
         y_testing = y[split_index:]
+
+        batch_size = model_configs.batch_size if model_configs.batch_size is not None else 32
 
     with open(_helper_generate_json_model_file_location(model_name=model_name)) as f:
         json_string = f.read()
@@ -197,6 +201,7 @@ def _run(model_name: str, db: Session) -> None:
             x_training,
             y_training,
             epochs=model_configs.epochs,
+            batch_size=batch_size,
             callbacks=[CustomProgressBar()],
             verbose=0,
         )

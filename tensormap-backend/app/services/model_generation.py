@@ -80,9 +80,10 @@ def _build_layer(node: dict, input_tensor):
     name = node["id"]
 
     if node_type == "customdense":
+        activation = params["activation"]
         return tf.keras.layers.Dense(
             units=int(params["units"]),
-            activation=params["activation"],
+            activation="linear" if activation == "none" else activation,
             name=name,
         )(input_tensor)
 

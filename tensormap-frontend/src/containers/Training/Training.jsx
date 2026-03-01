@@ -1,11 +1,20 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams } from "react-router-dom";
+import { Trash2 } from "lucide-react";
 import io from "socket.io-client";
 import { useRecoilState } from "recoil";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import {
   Select,
   SelectContent,
@@ -16,12 +25,14 @@ import {
 import * as urls from "../../constants/Urls";
 import * as strings from "../../constants/Strings";
 import logger from "../../shared/logger";
+import FeedbackDialog from "../../components/shared/FeedbackDialog";
 import Result from "../../components/ResultPanel/Result/Result";
 import {
   download_code,
   runModel,
   getAllModels,
   updateTrainingConfig,
+  deleteModel,
 } from "../../services/ModelServices";
 import { getAllFiles } from "../../services/FileServices";
 import { models as modelListAtom } from "../../shared/atoms";
@@ -29,6 +40,9 @@ import { models as modelListAtom } from "../../shared/atoms";
 const optimizerOptions = [
   { key: "opt_1", label: "Adam", value: "adam" },
   { key: "opt_2", label: "SGD", value: "sgd" },
+  { key: "opt_3", label: "RMSprop", value: "rmsprop" },
+  { key: "opt_4", label: "Adagrad", value: "adagrad" },
+  { key: "opt_5", label: "AdamW", value: "adamw" },
 ];
 
 const metricOptions = [
@@ -49,6 +63,12 @@ export default function Training() {
   const [resultValues, setResultValues] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [connectionError, setConnectionError] = useState(null);
+  const [deleteConfirm, setDeleteConfirm] = useState({ open: false, model: null });
+  const [deleteFeedback, setDeleteFeedback] = useState({
+    open: false,
+    success: false,
+    message: "",
+  });
   const socketRef = useRef(null);
   const timeoutRef = useRef(null);
 
@@ -61,7 +81,7 @@ export default function Training() {
     file_id: "",
     target_field: "",
     problem_type_id: "",
-    optimizer: "",
+    optimizer: "adam",
     metric: "",
     epochs: "",
     batch_size: "",
@@ -125,9 +145,10 @@ export default function Training() {
 
     getAllModels(projectId)
       .then((response) => {
-        const models = response.map((file, index) => ({
-          label: file + strings.MODEL_EXTENSION,
-          value: file,
+        const models = response.map((item, index) => ({
+          label: item.model_name + strings.MODEL_EXTENSION,
+          value: item.model_name,
+          id: item.id,
           key: index,
         }));
         setModelList(models);
@@ -345,6 +366,7 @@ export default function Training() {
       optimizer: trainingConfig.optimizer,
       metric: trainingConfig.metric,
       epochs: Number(trainingConfig.epochs),
+      batch_size: trainingConfig.batch_size ? Number(trainingConfig.batch_size) : 32,
       project_id: projectId || null,
     };
 
@@ -414,8 +436,75 @@ export default function Training() {
     setIsLoading(false);
   };
 
+  const handleDeleteClick = (model, e) => {
+    e.stopPropagation();
+    setDeleteConfirm({ open: true, model });
+  };
+
+  const handleDeleteConfirm = () => {
+    const { model } = deleteConfirm;
+    setDeleteConfirm({ open: false, model: null });
+    deleteModel(model.id)
+      .then((resp) => {
+        if (resp.success) {
+          setModelList((prev) => prev.filter((m) => m.id !== model.id));
+          if (selectedModel === model.value) {
+            setSelectedModel(null);
+            setConfigSaved(false);
+          }
+        } else {
+          logger.error("Failed to delete model:", resp.message);
+          setDeleteFeedback({
+            open: true,
+            success: false,
+            message: resp.message || "Failed to delete model",
+          });
+        }
+      })
+      .catch((error) => {
+        logger.error("Error deleting model:", error);
+        setDeleteFeedback({
+          open: true,
+          success: false,
+          message: error.message || "An unexpected error occurred",
+        });
+      });
+  };
+
   return (
     <div className="space-y-6">
+      <FeedbackDialog
+        open={deleteFeedback.open}
+        onClose={() => setDeleteFeedback((prev) => ({ ...prev, open: false }))}
+        success={deleteFeedback.success}
+        message={deleteFeedback.message}
+      />
+      <Dialog
+        open={deleteConfirm.open}
+        onOpenChange={(open) => !open && setDeleteConfirm({ open: false, model: null })}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete model</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete <strong>{deleteConfirm.model?.label}</strong>? This
+              action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setDeleteConfirm({ open: false, model: null })}
+            >
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleDeleteConfirm}>
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Card>
         <CardHeader>
           <CardTitle>Model Training</CardTitle>
@@ -423,14 +512,30 @@ export default function Training() {
         <CardContent>
           <div className="flex flex-wrap items-center gap-4">
             <div className="space-y-1">
-              <Select onValueChange={handleModelSelect}>
+              <Select
+                onValueChange={handleModelSelect}
+                value={selectedModel ?? ""}
+                disabled={modelList.length === 0}
+              >
                 <SelectTrigger className={`w-64 ${validationErrors.model ? "border-red-500" : ""}`}>
-                  <SelectValue placeholder="Select a model" />
+                  <SelectValue
+                    placeholder={modelList.length === 0 ? "No models created" : "Select a model"}
+                  />
                 </SelectTrigger>
                 <SelectContent>
                   {modelList.map((model) => (
                     <SelectItem key={model.key} value={model.value}>
-                      {model.label}
+                      <span className="flex items-center justify-between gap-2 w-full">
+                        <span>{model.label}</span>
+                        <button
+                          type="button"
+                          className="ml-auto text-destructive hover:text-destructive/80"
+                          onClick={(e) => handleDeleteClick(model, e)}
+                          aria-label={`Delete ${model.label}`}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </span>
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -561,6 +666,7 @@ export default function Training() {
               <div className="space-y-1">
                 <Label>Optimizer</Label>
                 <Select
+                  value={trainingConfig.optimizer}
                   onValueChange={(v) => {
                     setTrainingConfig((prev) => ({ ...prev, optimizer: v }));
                     updateValidationErrors("optimizer", v);

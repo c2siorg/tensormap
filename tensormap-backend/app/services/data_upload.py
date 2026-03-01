@@ -131,7 +131,7 @@ def delete_one_file_by_id_service(db: Session, file_id: uuid_pkg.UUID) -> tuple:
 
         if os.path.isfile(file_path):
             os.remove(file_path)
-            
+
         db.delete(file)
         db.commit()
         return _resp(200, True, "File deleted successfully")

@@ -241,12 +241,7 @@ def get_file_data(db: Session, file_id: uuid_pkg.UUID, page: int = 1, page_size:
         "success": True,
         "message": "Data sent successfully",
         "data": data_list,
-        "pagination": {
-            "page": page,
-            "page_size": page_size,
-            "total_rows": total_rows,
-            "total_pages": total_pages
-        }
+        "pagination": {"page": page, "page_size": page_size, "total_rows": total_rows, "total_pages": total_pages},
     }
     return body, 200
 

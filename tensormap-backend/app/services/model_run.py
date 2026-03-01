@@ -1,7 +1,6 @@
 import asyncio
 import os
 
-import pandas as pd
 import tensorflow as tf
 from sqlmodel import Session, select
 
@@ -157,21 +156,42 @@ def _run(model_name: str, db: Session) -> None:
         )
     else:
         file_location = _helper_generate_file_location(db, file_id=model_configs.file_id)
-        features = pd.read_csv(file_location)
-        features.dropna(inplace=True)
-        # Shuffle data to prevent issues with ordered datasets
-        features = features.sample(frac=1, random_state=42).reset_index(drop=True)
-
-        X = features.drop(model_configs.target_field, axis=1)
-        y = features[model_configs.target_field]
-
-        split_index = int(len(X) * model_configs.training_split / 100)
-        x_training = X[:split_index]
-        y_training = y[:split_index]
-        x_testing = X[split_index:]
-        y_testing = y[split_index:]
 
         batch_size = model_configs.batch_size if model_configs.batch_size is not None else 32
+
+        # Read a tiny sample just to get total rows safely
+        import dask.dataframe as dd
+
+        total_rows = len(dd.read_csv(file_location))
+        split_index = int(total_rows * model_configs.training_split / 100)
+
+        # Load dataset efficiently via TensorFlow's C++ CSV reader
+        # This handles reading large files in chunks without exhausting memory
+        dataset = tf.data.experimental.make_csv_dataset(
+            file_location,
+            batch_size=batch_size,
+            label_name=model_configs.target_field,
+            num_epochs=1,
+            ignore_errors=True,
+            shuffle=True,
+            shuffle_seed=42,
+        )
+
+        # Pack the feature dict into a single feature array
+        def pack_features_vector(features, labels):
+            features = tf.stack(list(features.values()), axis=1)
+            return features, labels
+
+        dataset = dataset.map(pack_features_vector)
+
+        # Approximate splits using take/skip
+        train_batches = max(1, split_index // batch_size)
+
+        train_data = dataset.take(train_batches)
+        test_data = dataset.skip(train_batches)
+
+        x_training = train_data
+        x_testing = test_data
 
     with open(_helper_generate_json_model_file_location(model_name=model_name)) as f:
         json_string = f.read()
@@ -199,10 +219,8 @@ def _run(model_name: str, db: Session) -> None:
     else:
         model.fit(
             x_training,
-            y_training,
             epochs=model_configs.epochs,
-            batch_size=batch_size,
             callbacks=[CustomProgressBar()],
             verbose=0,
         )
-        model.evaluate(x_testing, y_testing, callbacks=[CustomProgressBar()], verbose=0)
+        model.evaluate(x_testing, callbacks=[CustomProgressBar()], verbose=0)

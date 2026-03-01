@@ -34,7 +34,7 @@ class TestModelRunEmitsErrorOnFailure:
         with (
             patch("app.services.model_run._model_result") as mock_emit,
             patch("app.services.model_run._helper_generate_file_location", return_value="/fake/path"),
-            patch("app.services.model_run.pd.read_csv", side_effect=FileNotFoundError("data file missing")),
+            patch("dask.dataframe.read_csv", side_effect=FileNotFoundError("data file missing")),
             pytest.raises(FileNotFoundError),
         ):
             model_run("my_model", db)
@@ -49,7 +49,7 @@ class TestModelRunEmitsErrorOnFailure:
         with (
             patch("app.services.model_run._model_result") as mock_emit,
             patch("app.services.model_run._helper_generate_file_location", return_value="/fake/path"),
-            patch("app.services.model_run.pd.read_csv", side_effect=ValueError("shape mismatch")),
+            patch("dask.dataframe.read_csv", side_effect=ValueError("shape mismatch")),
             pytest.raises(ValueError),
         ):
             model_run("my_model", db)
@@ -64,7 +64,7 @@ class TestModelRunEmitsErrorOnFailure:
         with (
             patch("app.services.model_run._model_result"),
             patch("app.services.model_run._helper_generate_file_location", return_value="/fake/path"),
-            patch("app.services.model_run.pd.read_csv", side_effect=RuntimeError("OOM")),
+            patch("dask.dataframe.read_csv", side_effect=RuntimeError("OOM")),
             pytest.raises(RuntimeError, match="OOM"),
         ):
             model_run("my_model", db)

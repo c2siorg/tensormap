@@ -44,6 +44,13 @@ const nodeTypes = {
   customconv: ConvNode,
 };
 
+const nodeDescriptions = {
+  custominput: "Defines the shape and format of the input data.",
+  customdense: "Applies a learned linear transformation to the input.",
+  customflatten: "Reduces spatial dimensions to a 1D vector.",
+  customconv: "Applies a convolution filter to extract spatial features.",
+};
+
 function Canvas() {
   const { projectId } = useParams();
   const reactFlowWrapper = useRef(null);
@@ -53,6 +60,8 @@ function Canvas() {
   const [reactFlowInstance, setReactFlowInstance] = useState(null);
   const [modelName, setModelName] = useState("");
   const [selectedNodeId, setSelectedNodeId] = useState(null);
+  const [tooltip, setTooltip] = useState({ show: false, text: "", x: 0, y: 0 });
+  const hoverTimeoutRef = useRef(null);
   const [modelSummary, setModelSummary] = useState(null);
   const [feedbackDialog, setFeedbackDialog] = useState({
     open: false,
@@ -255,6 +264,31 @@ function Canvas() {
     setFeedbackDialog((prev) => ({ ...prev, open: false }));
   };
 
+  const onNodeMouseEnter = useCallback((event, node) => {
+    if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+    const description = nodeDescriptions[node.type];
+    if (description) {
+      hoverTimeoutRef.current = setTimeout(() => {
+        setTooltip({
+          show: true,
+          text: description,
+          x: event.clientX,
+          y: event.clientY - 15, // Offset slightly above the mouse
+        });
+      }, 250);
+    }
+  }, []);
+
+  const onNodeMouseLeave = useCallback(() => {
+    if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+    setTooltip({ show: false, text: "", x: 0, y: 0 });
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+    };
+  }, []);
   const handleClearAll = useCallback(() => {
     setNodes([]);
     setEdges([]);
@@ -370,6 +404,16 @@ function Canvas() {
         message={feedbackDialog.message}
         detail={feedbackDialog.detail}
       />
+
+      {tooltip.show && (
+        <div
+          className="fixed z-50 pointer-events-none px-3 py-2 text-sm text-white bg-gray-800 rounded shadow-lg max-w-xs transition-opacity duration-200"
+          style={{ top: tooltip.y, left: tooltip.x, transform: "translate(-50%, -100%)" }}
+        >
+          {tooltip.text}
+        </div>
+      )}
+
       <Dialog open={clearConfirmOpen} onOpenChange={setClearConfirmOpen}>
         <DialogContent>
           <DialogHeader>
@@ -416,6 +460,8 @@ function Canvas() {
                 onDragOver={onDragOver}
                 onNodeClick={onNodeClick}
                 onPaneClick={onPaneClick}
+                onNodeMouseEnter={onNodeMouseEnter}
+                onNodeMouseLeave={onNodeMouseLeave}
                 onNodeContextMenu={onNodeContextMenu}
                 nodeTypes={nodeTypes}
                 defaultViewport={defaultViewport}

@@ -63,7 +63,7 @@ async def upload_file(
 
 
 @router.get("/data/upload/file")
-async def get_all_files(
+def get_all_files(
     project_id: uuid_pkg.UUID | None = Query(None),
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=100),
@@ -75,7 +75,7 @@ async def get_all_files(
 
 
 @router.delete("/data/upload/file/{file_id}")
-async def delete_file(file_id: uuid_pkg.UUID, db: Session = Depends(get_db)):
+def delete_file(file_id: uuid_pkg.UUID, db: Session = Depends(get_db)):
     """Delete an uploaded file by ID, removing both the DB record and the file on disk."""
     logger.debug("Deleting file with id: %s", file_id)
     body, status_code = delete_one_file_by_id_service(db, file_id=file_id)

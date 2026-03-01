@@ -107,6 +107,7 @@ export default function Training() {
         const models = response.map((modelObj, index) => ({
           label: modelObj.model_name + strings.MODEL_EXTENSION,
           value: modelObj.model_name,
+          id: modelObj.id,
           key: index,
         }));
         setModelList(models);

@@ -1,6 +1,6 @@
 import uuid as uuid_pkg
 
-from fastapi import APIRouter, Depends, Form, Query, UploadFile, File
+from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
 from fastapi.responses import JSONResponse
 from sqlmodel import Session
 

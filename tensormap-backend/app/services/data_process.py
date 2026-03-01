@@ -1,3 +1,4 @@
+import json
 import uuid as uuid_pkg
 from typing import Any
 
@@ -208,7 +209,7 @@ def get_correlation_matrix(db: Session, file_id: uuid_pkg.UUID) -> tuple:
     return _resp(200, True, "Correlation matrix computed successfully", {"columns": columns, "matrix": matrix})
 
 
-def get_file_data(db: Session, file_id: uuid_pkg.UUID) -> tuple:
+def get_file_data(db: Session, file_id: uuid_pkg.UUID, page: int = 1, page_size: int = 50) -> tuple:
     """Read and return the full contents of a CSV file as JSON."""
     file = db.exec(select(DataFile).where(DataFile.id == file_id)).first()
     if not file:
@@ -234,7 +235,6 @@ def get_file_data(db: Session, file_id: uuid_pkg.UUID) -> tuple:
     df_page = df.iloc[start_idx:end_idx]
 
     data_json = df_page.to_json(orient="records")
-    import json
     data_list = json.loads(data_json)
 
     body = {

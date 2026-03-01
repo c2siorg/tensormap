@@ -131,11 +131,10 @@ def delete_one_file_by_id_service(db: Session, file_id: uuid_pkg.UUID) -> tuple:
 
         if os.path.isfile(file_path):
             os.remove(file_path)
-            db.delete(file)
-            db.commit()
-            return _resp(200, True, "File deleted successfully")
-        else:
-            return _resp(400, False, "File not found")
+
+        db.delete(file)
+        db.commit()
+        return _resp(200, True, "File deleted successfully")
     except Exception:
         logger.exception("Error deleting file")
         return _resp(500, False, "An error occurred while deleting the file")

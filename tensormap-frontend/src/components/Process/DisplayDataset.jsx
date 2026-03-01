@@ -26,7 +26,7 @@ const DisplayDataset = ({ fileId }) => {
       const fileData = await getFileData(fileId, currentPage, 50);
 
       let parsedData;
-      if (typeof fileData.data === 'string') {
+      if (typeof fileData.data === "string") {
         parsedData = JSON.parse(fileData.data);
       } else {
         parsedData = fileData.data;
@@ -99,8 +99,8 @@ const DisplayDataset = ({ fileId }) => {
       <div className="flex items-center justify-between text-sm text-muted-foreground">
         <div>
           Showing {pagination ? (pagination.page - 1) * pagination.page_size + 1 : 0} to{" "}
-          {pagination ? Math.min(pagination.page * pagination.page_size, pagination.total_rows) : 0} of{" "}
-          {pagination ? pagination.total_rows : 0} Total rows
+          {pagination ? Math.min(pagination.page * pagination.page_size, pagination.total_rows) : 0}{" "}
+          of {pagination ? pagination.total_rows : 0} Total rows
         </div>
         <div className="flex items-center space-x-2">
           <div>

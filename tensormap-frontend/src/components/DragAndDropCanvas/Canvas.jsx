@@ -393,56 +393,6 @@ function Canvas() {
       <div className="flex gap-4">
         <ReactFlowProvider>
           <Sidebar />
-          <div className="h-[62vh] flex-1" ref={reactFlowWrapper}>
-            <ReactFlow
-              nodes={nodes}
-              edges={edges}
-              onNodesChange={onNodesChange}
-              onEdgesChange={onEdgesChange}
-              onConnect={onConnect}
-              onInit={setReactFlowInstance}
-              onDrop={onDrop}
-              onDragOver={onDragOver}
-              onNodeClick={onNodeClick}
-              onPaneClick={onPaneClick}
-              onNodeContextMenu={onNodeContextMenu}
-              nodeTypes={nodeTypes}
-              defaultViewport={defaultViewport}
-            >
-              <Controls />
-              <MiniMap
-                nodeColor={(node) => {
-                  switch (node.type) {
-                    case "custominput":
-                      return "rgb(105, 172, 61)"; // node-input
-                    case "customdense":
-                      return "rgb(43, 161, 255)"; // node-dense
-                    case "customflatten":
-                      return "rgb(247, 173, 20)"; // node-flatten
-                    case "customconv":
-                      return "rgb(255, 128, 43)"; // node-conv
-                    default:
-                      return "#eee";
-                  }
-                }}
-                pannable
-                zoomable
-              />
-              {hasDraft && (
-                <Panel position="top-right">
-                  <Button variant="destructive" onClick={handleDiscardDraft}>
-                    Discard Draft
-                  </Button>
-                </Panel>
-              )}
-              <Background
-                id="1"
-                gap={10}
-                color="#e5e5e5"
-                style={{ backgroundColor: "#fafafa" }}
-                variant={BackgroundVariant.Dots}
-              />
-            </ReactFlow>
           <div className="flex flex-col flex-1 gap-2">
             <div className="flex justify-end">
               <Button
@@ -472,6 +422,24 @@ function Canvas() {
                 defaultViewport={defaultViewport}
               >
                 <Controls />
+                <MiniMap
+                  nodeColor={(node) => {
+                    switch (node.type) {
+                      case "custominput":
+                        return "rgb(105, 172, 61)"; // node-input
+                      case "customdense":
+                        return "rgb(43, 161, 255)"; // node-dense
+                      case "customflatten":
+                        return "rgb(247, 173, 20)"; // node-flatten
+                      case "customconv":
+                        return "rgb(255, 128, 43)"; // node-conv
+                      default:
+                        return "#eee";
+                    }
+                  }}
+                  pannable
+                  zoomable
+                />
                 {hasDraft && (
                   <Panel position="top-right">
                     <Button variant="destructive" onClick={handleDiscardDraft}>

@@ -50,12 +50,39 @@ def _sanitize_model_name(name: str) -> str:
     return name
 
 
+def _build_model_summary(keras_model) -> dict:
+    """Extract a structured architecture summary from a built Keras model."""
+    layers = []
+    for layer in keras_model.layers:
+        try:
+            output_shape = str(layer.output_shape)
+        except AttributeError:
+            output_shape = "unknown"
+        layers.append(
+            {
+                "name": layer.name,
+                "type": layer.__class__.__name__,
+                "output_shape": output_shape,
+                "param_count": int(layer.count_params()),
+            }
+        )
+
+    total = int(keras_model.count_params())
+    trainable = int(sum(w.numpy().size for w in keras_model.trainable_weights))
+    return {
+        "layers": layers,
+        "total_params": total,
+        "trainable_params": trainable,
+        "non_trainable_params": total - trainable,
+    }
+
+
 def model_validate_service(db: Session, incoming: dict, project_id: uuid_pkg.UUID | None = None) -> tuple:
     """Validate a model graph with Keras, persist the configuration, and save the JSON file."""
     model_generated = model_generation(model_params=incoming["model"])
 
     try:
-        tf.keras.models.model_from_json(json.dumps(model_generated))
+        keras_model = tf.keras.models.model_from_json(json.dumps(model_generated))
     except Exception as e:
         logger.error("Model validation error: %s", str(e))
         for error in errors.err_msgs:
@@ -124,7 +151,7 @@ def model_validate_service(db: Session, incoming: dict, project_id: uuid_pkg.UUI
         return _resp(400, False, "Model validated but failed to save")
 
     logger.info("Model '%s' validated and saved successfully", code[DL_MODEL][MODEL_NAME])
-    return _resp(200, True, "Model Validation and saving successful")
+    return _resp(200, True, "Model Validation and saving successful", {"summary": _build_model_summary(keras_model)})
 
 
 def model_save_service(db: Session, incoming: dict, model_name: str, project_id: uuid_pkg.UUID | None = None) -> tuple:
@@ -132,7 +159,7 @@ def model_save_service(db: Session, incoming: dict, model_name: str, project_id:
     model_generated = model_generation(model_params=incoming)
 
     try:
-        tf.keras.models.model_from_json(json.dumps(model_generated))
+        keras_model = tf.keras.models.model_from_json(json.dumps(model_generated))
     except Exception as e:
         logger.error("Model validation error: %s", str(e))
         for error in errors.err_msgs:
@@ -187,7 +214,7 @@ def model_save_service(db: Session, incoming: dict, model_name: str, project_id:
         return _resp(400, False, "Model validated but failed to save")
 
     logger.info("Model '%s' validated and saved successfully", model_name)
-    return _resp(200, True, "Model validated and saved successfully")
+    return _resp(200, True, "Model validated and saved successfully", {"summary": _build_model_summary(keras_model)})
 
 
 def update_training_config_service(
@@ -214,6 +241,7 @@ def update_training_config_service(
     model.optimizer = config["optimizer"]
     model.metric = config["metric"]
     model.epochs = config["epochs"]
+    model.batch_size = config.get("batch_size", 32)
     model.loss = loss
 
     try:
@@ -360,7 +388,31 @@ def get_available_model_list(
     total = db.exec(select(func.count()).select_from(base_filter.subquery())).one()
 
     models = db.exec(base_filter.offset(offset).limit(limit)).all()
-    data = [m.model_name for m in models]
+    data = [{"id": m.id, "model_name": m.model_name} for m in models]
     body = {"success": True, "message": "Model list generated successfully.", "data": data}
     body["pagination"] = {"total": total, "offset": offset, "limit": limit}
     return body, 200
+
+
+def delete_model_service(db: Session, model_id: int) -> tuple:
+    """Delete a model and its associated ModelConfigs (cascade), and remove the JSON file."""
+    model = db.get(ModelBasic, model_id)
+    if not model:
+        return _resp(404, False, "Model not found")
+
+    model_name = model.model_name
+    try:
+        db.delete(model)
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("Failed to delete model id=%s", model_id)
+        return _resp(500, False, "Failed to delete model")
+
+    # Best-effort removal of the JSON file — do not fail if already gone
+    model_path = os.path.join(MODEL_GENERATION_LOCATION, model_name + MODEL_GENERATION_TYPE)
+    with contextlib.suppress(OSError):
+        os.remove(model_path)
+
+    logger.info("Model '%s' (id=%s) deleted successfully", model_name, model_id)
+    return _resp(200, True, f"Model '{model_name}' deleted successfully")

@@ -1,5 +1,15 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useParams } from "react-router-dom";
+import { Trash2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import ReactFlow, {
   ReactFlowProvider,
   addEdge,
@@ -8,6 +18,7 @@ import ReactFlow, {
   Controls,
   Background,
   BackgroundVariant,
+  Panel,
 } from "reactflow";
 import { useRecoilState } from "recoil";
 import * as strings from "../../constants/Strings";
@@ -22,8 +33,10 @@ import Sidebar from "./Sidebar";
 import NodePropertiesPanel from "./NodePropertiesPanel";
 import Toast from "./Toast";
 import { canSaveModel, generateModelJSON } from "./Helpers";
+import ModelSummaryPanel from "./ModelSummaryPanel";
 import { getAllModels, getModelGraph, saveModel } from "../../services/ModelServices";
 import { models as allModels } from "../../shared/atoms";
+import ContextMenu from "./ContextMenu";
 
 const nodeTypes = {
   custominput: InputNode,
@@ -43,24 +56,64 @@ function Canvas() {
   const [selectedNodeId, setSelectedNodeId] = useState(null);
   const [toastMessage, setToastMessage] = useState(null);
   const connectionErrorRef = useRef(null);
+  const [modelSummary, setModelSummary] = useState(null);
   const [feedbackDialog, setFeedbackDialog] = useState({
     open: false,
     success: false,
     message: "",
     detail: "",
   });
+  const [contextMenu, setContextMenu] = useState({ nodeId: null, x: 0, y: 0 });
+  const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const defaultViewport = { x: 10, y: 15, zoom: 0.5 };
 
-  // Auto-load the project's first saved model on mount
+  const draftKey = `tensormap_draft_${projectId || "default"}`;
+  const isLoaded = useRef(false);
+  const [hasDraft, setHasDraft] = useState(() => {
+    try {
+      return !!localStorage.getItem(draftKey);
+    } catch (e) {
+      return false;
+    }
+  });
+
+  // Auto-load the project's first saved model or draft on mount
   useEffect(() => {
     let cancelled = false;
     async function loadModel() {
+      // 1. Try loading from draft first
       try {
-        const modelNames = await getAllModels(projectId);
-        if (cancelled || !modelNames || modelNames.length === 0) return;
+        const draftStr = localStorage.getItem(draftKey);
+        if (draftStr) {
+          const draft = JSON.parse(draftStr);
+          if (draft.nodes?.length > 0 || draft.edges?.length > 0 || draft.modelName) {
+            if (!cancelled) {
+              setNodes(draft.nodes || []);
+              setEdges(draft.edges || []);
+              setModelName(draft.modelName || "");
+              setHasDraft(true);
+              isLoaded.current = true;
+            }
+            return;
+          }
+        }
+      } catch (e) {
+        logger.error("Failed to load draft:", e);
+      }
 
-        const result = await getModelGraph(modelNames[0], projectId);
-        if (cancelled || !result.success) return;
+      // 2. Fallback to loading from DB
+      try {
+        const modelObjects = await getAllModels(projectId);
+        if (cancelled || !modelObjects || modelObjects.length === 0) {
+          if (!cancelled) isLoaded.current = true;
+          return;
+        }
+
+        const result = await getModelGraph(modelObjects[0].model_name, projectId);
+        if (cancelled || !result.success) {
+          if (!cancelled) isLoaded.current = true;
+          return;
+        }
 
         const { graph, model_name } = result.data;
 
@@ -77,18 +130,70 @@ function Canvas() {
           target: edge.target,
         }));
 
-        setNodes(loadedNodes);
-        setEdges(loadedEdges);
-        setModelName(model_name);
+        if (!cancelled) {
+          setNodes(loadedNodes);
+          setEdges(loadedEdges);
+          setModelName(model_name);
+          isLoaded.current = true;
+
+          // Populate the global model list from the fetched models
+          setModelList(
+            modelObjects.map((m, i) => ({
+              label: m.model_name + strings.MODEL_EXTENSION,
+              value: m.model_name,
+              id: m.id,
+              key: i,
+            })),
+          );
+        }
       } catch (err) {
         logger.error("Failed to auto-load model:", err);
+        if (!cancelled) isLoaded.current = true;
       }
     }
     loadModel();
     return () => {
       cancelled = true;
     };
-  }, [projectId, setNodes, setEdges]);
+  }, [projectId, setNodes, setEdges, setModelList, draftKey]);
+
+  // Handle debounced saving of draft
+  useEffect(() => {
+    if (!isLoaded.current) return;
+
+    const timer = setTimeout(() => {
+      if (nodes.length === 0 && edges.length === 0 && !modelName) {
+        try {
+          localStorage.removeItem(draftKey);
+        } catch (e) {
+          logger.error("Failed to remove draft:", e);
+        }
+        setHasDraft(false);
+        return;
+      }
+
+      try {
+        localStorage.setItem(draftKey, JSON.stringify({ nodes, edges, modelName }));
+        setHasDraft(true);
+      } catch (e) {
+        logger.error("Failed to save draft:", e);
+      }
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [nodes, edges, modelName, draftKey]);
+
+  const handleDiscardDraft = useCallback(() => {
+    try {
+      localStorage.removeItem(draftKey);
+    } catch (e) {
+      logger.error("Failed to remove draft:", e);
+    }
+    setHasDraft(false);
+    setNodes([]);
+    setEdges([]);
+    setModelName("");
+  }, [draftKey, setNodes, setEdges]);
 
   const onConnect = useCallback((params) => {
     // Mark connection as successful so mouseup doesn't show a false error
@@ -241,9 +346,34 @@ function Canvas() {
     setSelectedNodeId(node.id);
   }, []);
 
+  const closeContextMenu = useCallback(() => {
+    setContextMenu({ nodeId: null, x: 0, y: 0 });
+  }, []);
+
   const onPaneClick = useCallback(() => {
     setSelectedNodeId(null);
+    closeContextMenu();
+  }, [closeContextMenu]);
+
+  const onNodeContextMenu = useCallback((event, node) => {
+    event.preventDefault();
+    setContextMenu({ nodeId: node.id, x: event.clientX, y: event.clientY });
   }, []);
+
+  const duplicateNode = useCallback(() => {
+    setNodes((nds) => {
+      const source = nds.find((n) => n.id === contextMenu.nodeId);
+      if (!source) return nds;
+      const duplicate = {
+        id: crypto.randomUUID(),
+        type: source.type,
+        position: { x: source.position.x + 50, y: source.position.y + 50 },
+        data: { label: source.data.label, params: { ...source.data.params } },
+      };
+      return nds.concat(duplicate);
+    });
+    closeContextMenu();
+  }, [contextMenu.nodeId, setNodes, closeContextMenu]);
 
   const onNodeUpdate = useCallback(
     (nodeId, newParams) => {
@@ -263,6 +393,14 @@ function Canvas() {
     setFeedbackDialog((prev) => ({ ...prev, open: false }));
   };
 
+  const handleClearAll = useCallback(() => {
+    setNodes([]);
+    setEdges([]);
+    setModelName("");
+    setSelectedNodeId(null);
+    setClearConfirmOpen(false);
+  }, [setNodes, setEdges]);
+
   const modelSaveHandler = () => {
     const data = {
       model: {
@@ -276,14 +414,26 @@ function Canvas() {
     saveModel(data)
       .then((resp) => {
         if (resp.success) {
-          setModelList((prevList) => [
-            ...prevList,
-            {
-              label: modelName + strings.MODEL_EXTENSION,
-              value: modelName,
-              key: prevList.length + 1,
-            },
-          ]);
+          setModelSummary(resp.data?.summary || null);
+          try {
+            localStorage.removeItem(draftKey);
+            setHasDraft(false);
+          } catch (e) {
+            logger.error("Failed to clear draft on save:", e);
+          }
+          // Re-fetch the model list so the new entry has its DB id
+          getAllModels(projectId)
+            .then((modelObjects) => {
+              setModelList(
+                modelObjects.map((m, i) => ({
+                  label: m.model_name + strings.MODEL_EXTENSION,
+                  value: m.model_name,
+                  id: m.id,
+                  key: i,
+                })),
+              );
+            })
+            .catch(() => {});
         }
         setFeedbackDialog({
           open: true,
@@ -296,6 +446,7 @@ function Canvas() {
       })
       .catch((error) => {
         logger.error(error);
+        setModelSummary(null);
         setFeedbackDialog({
           open: true,
           success: false,
@@ -388,8 +539,83 @@ function Canvas() {
                 variant={BackgroundVariant.Dots}
               />
             </ReactFlow>
+      <Dialog open={clearConfirmOpen} onOpenChange={setClearConfirmOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Clear canvas</DialogTitle>
+            <DialogDescription>
+              This will remove all {nodes.length} node{nodes.length !== 1 ? "s" : ""} and their
+              connections. This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setClearConfirmOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleClearAll}>
+              Clear All
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <div className="flex gap-4">
+        <ReactFlowProvider>
+          <Sidebar />
+          <div className="flex flex-col flex-1 gap-2">
+            <div className="flex justify-end">
+              <Button
+                variant="destructive"
+                size="sm"
+                disabled={nodes.length === 0}
+                onClick={() => setClearConfirmOpen(true)}
+              >
+                <Trash2 className="mr-2 h-4 w-4" />
+                Clear All
+              </Button>
+            </div>
+            <div className="min-w-0 h-[62vh] flex-1 rounded-md border" ref={reactFlowWrapper}>
+              <ReactFlow
+                nodes={nodes}
+                edges={edges}
+                onNodesChange={onNodesChange}
+                onEdgesChange={onEdgesChange}
+                onConnect={onConnect}
+                onInit={setReactFlowInstance}
+                onDrop={onDrop}
+                onDragOver={onDragOver}
+                onNodeClick={onNodeClick}
+                onPaneClick={onPaneClick}
+                onNodeContextMenu={onNodeContextMenu}
+                nodeTypes={nodeTypes}
+                defaultViewport={defaultViewport}
+              >
+                <Controls />
+                {hasDraft && (
+                  <Panel position="top-right">
+                    <Button variant="destructive" onClick={handleDiscardDraft}>
+                      Discard Draft
+                    </Button>
+                  </Panel>
+                )}
+                <Background
+                  id="1"
+                  gap={10}
+                  color="#e5e5e5"
+                  style={{ backgroundColor: "#fafafa" }}
+                  variant={BackgroundVariant.Dots}
+                />
+              </ReactFlow>
+            </div>
           </div>
-          <div className="w-64 shrink-0">
+          {contextMenu.nodeId && (
+            <ContextMenu
+              x={contextMenu.x}
+              y={contextMenu.y}
+              onDuplicate={duplicateNode}
+              onClose={closeContextMenu}
+            />
+          )}
+          <div className="w-72 shrink-0">
             <NodePropertiesPanel
               selectedNode={selectedNode || null}
               modelName={modelName}
@@ -401,6 +627,7 @@ function Canvas() {
           </div>
         </ReactFlowProvider>
       </div>
+      <ModelSummaryPanel summary={modelSummary} onClose={() => setModelSummary(null)} />
     </>
   );
 }

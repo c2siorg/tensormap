@@ -134,36 +134,50 @@ def get_column_stats_service(db: Session, file_id: uuid_pkg.UUID) -> tuple:
 
     file_path = _get_file_path(file)
     try:
-        df = pd.read_csv(file_path)
+        import dask
+        import dask.dataframe as dd
+
+        df = dd.read_csv(file_path)
     except FileNotFoundError:
         return _resp(500, False, f"File not found: {file_path}")
-    except pd.errors.ParserError as e:
-        logger.exception("CSV parsing error: %s", str(e))
-        return _resp(500, False, f"Error reading CSV: {e}")
     except Exception as e:
         logger.exception("Error reading file: %s", str(e))
         return _resp(500, False, f"Error reading CSV: {e}")
 
-    total_rows = len(df)
     total_cols = len(df.columns)
+    numeric_cols = df.select_dtypes(include="number").columns
+
+    count_task = df.count()
+    null_task = df.isnull().sum()
+
+    if len(numeric_cols) > 0:
+        mean_task = df[numeric_cols].mean()
+        min_task = df[numeric_cols].min()
+        max_task = df[numeric_cols].max()
+        counts_val, nulls_val, means_val, mins_val, maxes_val = dask.compute(
+            count_task, null_task, mean_task, min_task, max_task
+        )
+    else:
+        counts_val, nulls_val = dask.compute(count_task, null_task)
+        means_val = mins_val = maxes_val = {}
+
+    total_rows = int(counts_val.max()) if total_cols > 0 else 0
 
     def _safe_float(v) -> float | None:
         """Return float(v) if v is a finite number, else None."""
         return float(v) if pd.notna(v) else None
 
-    numeric_cols = df.select_dtypes(include="number").columns
     columns = []
     for col in df.columns:
         is_numeric = col in numeric_cols
-        null_count = int(df[col].isnull().sum())
         entry: dict = {
             "column": col,
-            "dtype": str(df[col].dtype),
-            "count": int(df[col].count()),
-            "null_count": null_count,
-            "mean": _safe_float(df[col].mean()) if is_numeric else None,
-            "min": _safe_float(df[col].min()) if is_numeric else None,
-            "max": _safe_float(df[col].max()) if is_numeric else None,
+            "dtype": str(df.dtypes[col]),
+            "count": int(counts_val[col]),
+            "null_count": int(nulls_val[col]),
+            "mean": _safe_float(means_val[col]) if is_numeric and col in means_val else None,
+            "min": _safe_float(mins_val[col]) if is_numeric and col in mins_val else None,
+            "max": _safe_float(maxes_val[col]) if is_numeric and col in maxes_val else None,
         }
         columns.append(entry)
 
@@ -229,9 +243,15 @@ def get_file_data(db: Session, file_id: uuid_pkg.UUID) -> tuple:
     data_json = df.to_json(orient="records")
     return _resp(200, True, "Data sent successfully", data_json)
 
-
-_VALID_TRANSFORMATIONS = {"One Hot Encoding", "Categorical to Numerical", "Drop Column"}
-
+_VALID_TRANSFORMATIONS = {
+    "One Hot Encoding",
+    "Categorical to Numerical",
+    "Drop Column",
+    "Min-Max Normalization",
+    "Z-score Standardization",
+    "Log Transform",
+    "Fill Missing Values",
+}
 
 def preprocess_data(db: Session, file_id: uuid_pkg.UUID, transformations: list) -> tuple:
     """Apply column transformations to a CSV, overwriting the existing file."""
@@ -242,7 +262,12 @@ def preprocess_data(db: Session, file_id: uuid_pkg.UUID, transformations: list) 
     file_path = _get_file_path(file)
 
     try:
-        df = pd.read_csv(file_path)
+        import shutil
+
+        import dask
+        import dask.dataframe as dd
+
+        df = dd.read_csv(file_path)
 
         # Validate all transformations before applying any, so the request either
         # fully succeeds or fully fails — no partial mutations.
@@ -253,6 +278,7 @@ def preprocess_data(db: Session, file_id: uuid_pkg.UUID, transformations: list) 
                     False,
                     f"Unknown transformation '{t.transformation}'. Valid options: {sorted(_VALID_TRANSFORMATIONS)}",
                 )
+            # Checking actual columns in Dask is cheap since metadata is already loaded
             if t.feature not in df.columns:
                 return _resp(
                     422,
@@ -262,39 +288,39 @@ def preprocess_data(db: Session, file_id: uuid_pkg.UUID, transformations: list) 
 
         for t in transformations:
             if t.transformation == "One Hot Encoding":
-                df = pd.get_dummies(df, columns=[t.feature])
+                df = df.categorize(columns=[t.feature])
+                df = dd.get_dummies(df, columns=[t.feature])
             if t.transformation == "Categorical to Numerical":
-                df[t.feature] = pd.Categorical(df[t.feature]).codes
+                df = df.categorize(columns=[t.feature])
+                df[t.feature] = df[t.feature].cat.codes
             if t.transformation == "Drop Column":
                 df = df.drop(columns=[t.feature])
             if t.transformation == "Min-Max Normalization":
-                col_min = df[t.feature].min()
-                col_max = df[t.feature].max()
+                col_min, col_max = dask.compute(df[t.feature].min(), df[t.feature].max())
                 df[t.feature] = 0.0 if np.isclose(col_min, col_max) else (df[t.feature] - col_min) / (col_max - col_min)
             if t.transformation == "Z-score Standardization":
-                std = df[t.feature].std()
-                df[t.feature] = 0.0 if std == 0 else (df[t.feature] - df[t.feature].mean()) / std
+                mean, std = dask.compute(df[t.feature].mean(), df[t.feature].std())
+                df[t.feature] = 0.0 if std == 0 else (df[t.feature] - mean) / std
             if t.transformation == "Log Transform":
-                s = df[t.feature]
-                if (s < -1).any():
-                    logger.warning(
-                        "Log Transform skipped for column '%s': %d value(s) below -1",
-                        t.feature,
-                        int((s < -1).sum()),
-                    )
-                else:
-                    df[t.feature] = np.log1p(s)
+                # Compute using map_partitions for element-wise log mapping
+                df[t.feature] = df[t.feature].map_partitions(
+                    lambda s: np.where(s < -1, s, np.log1p(s)), meta=(t.feature, "float64")
+                )
             if t.transformation == "Fill Missing Values":
                 strategy = (t.params or {}).get("strategy", "mean")
                 if strategy == "median":
-                    df[t.feature] = df[t.feature].fillna(df[t.feature].median())
+                    median_val = df[t.feature].quantile(0.5).compute()
+                    df[t.feature] = df[t.feature].fillna(median_val)
                 elif strategy == "mode":
-                    mode_vals = df[t.feature].mode()
-                    df[t.feature] = df[t.feature].fillna(mode_vals[0] if not mode_vals.empty else df[t.feature].mean())
+                    mode_vals = df[t.feature].value_counts().idxmax().compute()
+                    df[t.feature] = df[t.feature].fillna(mode_vals)
                 else:
-                    df[t.feature] = df[t.feature].fillna(df[t.feature].mean())
+                    mean_val = df[t.feature].mean().compute()
+                    df[t.feature] = df[t.feature].fillna(mean_val)
 
-        df.to_csv(file_path, index=False)
+        tmp_dir = file_path + ".tmp"
+        df.to_csv(tmp_dir, index=False, single_file=True)
+        shutil.move(tmp_dir, file_path)
         return _resp(200, True, "Dataset preprocessed successfully")
     except pd.errors.ParserError as e:
         logger.exception("CSV parsing error: %s", str(e))

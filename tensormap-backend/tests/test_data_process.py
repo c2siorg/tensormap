@@ -2,6 +2,7 @@ import uuid
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
+import dask.dataframe as dd
 
 from app.schemas.data_process import TransformationItem
 from app.services.data_process import preprocess_data
@@ -29,7 +30,7 @@ def _sample_df() -> pd.DataFrame:
 class TestUnknownTransformation:
     def test_returns_422(self):
         db = _make_db()
-        with patch("app.services.data_process.pd.read_csv", return_value=_sample_df()):
+        with patch("dask.dataframe.read_csv", return_value=dd.from_pandas(_sample_df(), npartitions=1)):
             items = [TransformationItem(transformation="INVALID_OP", feature="age")]
             _, status_code = preprocess_data(db, uuid.uuid4(), items)
 
@@ -37,7 +38,7 @@ class TestUnknownTransformation:
 
     def test_error_message_contains_bad_name(self):
         db = _make_db()
-        with patch("app.services.data_process.pd.read_csv", return_value=_sample_df()):
+        with patch("dask.dataframe.read_csv", return_value=dd.from_pandas(_sample_df(), npartitions=1)):
             items = [TransformationItem(transformation="INVALID_OP", feature="age")]
             result, _ = preprocess_data(db, uuid.uuid4(), items)
 
@@ -45,7 +46,7 @@ class TestUnknownTransformation:
 
     def test_error_message_lists_valid_options(self):
         db = _make_db()
-        with patch("app.services.data_process.pd.read_csv", return_value=_sample_df()):
+        with patch("dask.dataframe.read_csv", return_value=dd.from_pandas(_sample_df(), npartitions=1)):
             items = [TransformationItem(transformation="INVALID_OP", feature="age")]
             result, _ = preprocess_data(db, uuid.uuid4(), items)
 
@@ -57,7 +58,7 @@ class TestUnknownTransformation:
 class TestColumnNotFound:
     def test_returns_422(self):
         db = _make_db()
-        with patch("app.services.data_process.pd.read_csv", return_value=_sample_df()):
+        with patch("dask.dataframe.read_csv", return_value=dd.from_pandas(_sample_df(), npartitions=1)):
             items = [TransformationItem(transformation="Drop Column", feature="nonexistent_col")]
             _, status_code = preprocess_data(db, uuid.uuid4(), items)
 
@@ -65,7 +66,7 @@ class TestColumnNotFound:
 
     def test_error_message_contains_missing_column(self):
         db = _make_db()
-        with patch("app.services.data_process.pd.read_csv", return_value=_sample_df()):
+        with patch("dask.dataframe.read_csv", return_value=dd.from_pandas(_sample_df(), npartitions=1)):
             items = [TransformationItem(transformation="Drop Column", feature="nonexistent_col")]
             result, _ = preprocess_data(db, uuid.uuid4(), items)
 
@@ -73,7 +74,7 @@ class TestColumnNotFound:
 
     def test_error_message_lists_available_columns(self):
         db = _make_db()
-        with patch("app.services.data_process.pd.read_csv", return_value=_sample_df()):
+        with patch("dask.dataframe.read_csv", return_value=dd.from_pandas(_sample_df(), npartitions=1)):
             items = [TransformationItem(transformation="Drop Column", feature="nonexistent_col")]
             result, _ = preprocess_data(db, uuid.uuid4(), items)
 
@@ -83,7 +84,7 @@ class TestColumnNotFound:
 
     def test_second_item_with_bad_column_also_caught(self):
         db = _make_db()
-        with patch("app.services.data_process.pd.read_csv", return_value=_sample_df()):
+        with patch("dask.dataframe.read_csv", return_value=dd.from_pandas(_sample_df(), npartitions=1)):
             items = [
                 TransformationItem(transformation="Drop Column", feature="age"),
                 TransformationItem(transformation="Drop Column", feature="ghost_col"),

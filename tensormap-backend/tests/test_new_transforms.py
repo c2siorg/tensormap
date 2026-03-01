@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pandas as pd
 import pytest
+import dask.dataframe as dd
 
 from app.schemas.data_process import TransformationItem
 from app.services.data_process import preprocess_data
@@ -23,9 +24,10 @@ def _run(df: pd.DataFrame, transformation: str, feature: str, params: dict = Non
     items = [TransformationItem(transformation=transformation, feature=feature, params=params)]
     with (
         patch("app.services.data_process.select"),
-        patch("app.services.data_process.pd.read_csv", return_value=df.copy()),
+        patch("dask.dataframe.read_csv", return_value=dd.from_pandas(df.copy(), npartitions=1)),
         patch("app.services.data_process.get_settings") as mock_settings,
-        patch("pandas.DataFrame.to_csv"),
+        patch("dask.dataframe.DataFrame.to_csv"),
+        patch("shutil.move"),
     ):
         mock_settings.return_value.upload_folder = "/tmp"
         result, status_code = preprocess_data(db, uuid.uuid4(), items)
@@ -38,14 +40,16 @@ def _run_df(df: pd.DataFrame, transformation: str, feature: str, params: dict = 
     items = [TransformationItem(transformation=transformation, feature=feature, params=params)]
     saved = {}
 
-    def capture(self_df, path, index=False):
-        saved["df"] = self_df.copy()
+    def capture(self_df, path, index=False, single_file=False):
+        # We compute the Dask dataframe to extract the underlying Pandas logic for the test assertions
+        saved["df"] = self_df.compute().copy()
 
     with (
         patch("app.services.data_process.select"),
-        patch("app.services.data_process.pd.read_csv", return_value=df.copy()),
+        patch("dask.dataframe.read_csv", return_value=dd.from_pandas(df.copy(), npartitions=1)),
         patch("app.services.data_process.get_settings") as mock_settings,
-        patch.object(pd.DataFrame, "to_csv", capture),
+        patch("dask.dataframe.DataFrame.to_csv", side_effect=capture, autospec=True),
+        patch("shutil.move"),
     ):
         mock_settings.return_value.upload_folder = "/tmp"
         preprocess_data(db, uuid.uuid4(), items)

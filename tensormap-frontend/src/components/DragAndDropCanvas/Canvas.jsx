@@ -414,43 +414,6 @@ function Canvas() {
         </div>
       )}
 
-      <div className="flex gap-4">
-        <ReactFlowProvider>
-          <Sidebar />
-          <div className="h-[62vh] flex-1" ref={reactFlowWrapper}>
-            <ReactFlow
-              nodes={nodes}
-              edges={edges}
-              onNodesChange={onNodesChange}
-              onEdgesChange={onEdgesChange}
-              onConnect={onConnect}
-              onInit={setReactFlowInstance}
-              onDrop={onDrop}
-              onDragOver={onDragOver}
-              onNodeClick={onNodeClick}
-              onPaneClick={onPaneClick}
-              onNodeMouseEnter={onNodeMouseEnter}
-              onNodeMouseLeave={onNodeMouseLeave}
-              onNodeContextMenu={onNodeContextMenu}
-              nodeTypes={nodeTypes}
-              defaultViewport={defaultViewport}
-            >
-              <Controls />
-              {hasDraft && (
-                <Panel position="top-right">
-                  <Button variant="destructive" onClick={handleDiscardDraft}>
-                    Discard Draft
-                  </Button>
-                </Panel>
-              )}
-              <Background
-                id="1"
-                gap={10}
-                color="#e5e5e5"
-                style={{ backgroundColor: "#fafafa" }}
-                variant={BackgroundVariant.Dots}
-              />
-            </ReactFlow>
       <Dialog open={clearConfirmOpen} onOpenChange={setClearConfirmOpen}>
         <DialogContent>
           <DialogHeader>
@@ -497,6 +460,8 @@ function Canvas() {
                 onDragOver={onDragOver}
                 onNodeClick={onNodeClick}
                 onPaneClick={onPaneClick}
+                onNodeMouseEnter={onNodeMouseEnter}
+                onNodeMouseLeave={onNodeMouseLeave}
                 onNodeContextMenu={onNodeContextMenu}
                 nodeTypes={nodeTypes}
                 defaultViewport={defaultViewport}

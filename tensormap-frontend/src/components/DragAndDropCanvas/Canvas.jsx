@@ -433,7 +433,7 @@ function Canvas() {
                 })),
               );
             })
-            .catch(() => {});
+            .catch(() => { });
         }
         setFeedbackDialog({
           open: true,
@@ -509,36 +509,6 @@ function Canvas() {
         detail={feedbackDialog.detail}
       />
       <Toast message={toastMessage} onClose={() => setToastMessage(null)} />
-      <div className="flex gap-4">
-        <ReactFlowProvider>
-          <Sidebar />
-          <div className="h-[62vh] flex-1" ref={reactFlowWrapper}>
-            <ReactFlow
-              nodes={nodes}
-              edges={edges}
-              onNodesChange={onNodesChange}
-              onEdgesChange={onEdgesChange}
-              onConnect={onConnect}
-              isValidConnection={isValidConnection}
-              onConnectStart={onConnectStart}
-              onConnectEnd={onConnectEnd}
-              onInit={setReactFlowInstance}
-              onDrop={onDrop}
-              onDragOver={onDragOver}
-              onNodeClick={onNodeClick}
-              onPaneClick={onPaneClick}
-              nodeTypes={nodeTypes}
-              defaultViewport={defaultViewport}
-            >
-              <Controls />
-              <Background
-                id="1"
-                gap={10}
-                color="#e5e5e5"
-                style={{ backgroundColor: "#fafafa" }}
-                variant={BackgroundVariant.Dots}
-              />
-            </ReactFlow>
       <Dialog open={clearConfirmOpen} onOpenChange={setClearConfirmOpen}>
         <DialogContent>
           <DialogHeader>
@@ -580,6 +550,9 @@ function Canvas() {
                 onNodesChange={onNodesChange}
                 onEdgesChange={onEdgesChange}
                 onConnect={onConnect}
+                isValidConnection={isValidConnection}
+                onConnectStart={onConnectStart}
+                onConnectEnd={onConnectEnd}
                 onInit={setReactFlowInstance}
                 onDrop={onDrop}
                 onDragOver={onDragOver}

@@ -404,7 +404,7 @@ def get_available_model_list(
         }
         for m in models
     ]
-    
+
     body = {"success": True, "message": "Model list generated successfully.", "data": data}
     body["pagination"] = {"total": total, "offset": offset, "limit": limit}
     return body, 200

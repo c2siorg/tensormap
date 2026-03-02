@@ -243,6 +243,7 @@ def get_file_data(db: Session, file_id: uuid_pkg.UUID) -> tuple:
     data_json = df.to_json(orient="records")
     return _resp(200, True, "Data sent successfully", data_json)
 
+
 _VALID_TRANSFORMATIONS = {
     "One Hot Encoding",
     "Categorical to Numerical",
@@ -252,6 +253,7 @@ _VALID_TRANSFORMATIONS = {
     "Log Transform",
     "Fill Missing Values",
 }
+
 
 def preprocess_data(db: Session, file_id: uuid_pkg.UUID, transformations: list) -> tuple:
     """Apply column transformations to a CSV, overwriting the existing file."""

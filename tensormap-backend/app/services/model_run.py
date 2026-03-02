@@ -183,7 +183,7 @@ def _run(model_name: str, db: Session) -> None:
             return features, labels
 
         dataset = dataset.map(pack_features_vector)
-
+        dataset = dataset.cache()
         # Approximate splits using take/skip
         train_batches = max(1, split_index // batch_size)
 

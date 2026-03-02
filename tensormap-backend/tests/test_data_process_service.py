@@ -8,7 +8,6 @@ import uuid
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
-import dask.dataframe as dd
 import pytest
 
 from app.models.data import DataFile, DataProcess

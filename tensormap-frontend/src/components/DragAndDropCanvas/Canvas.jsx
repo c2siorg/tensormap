@@ -20,21 +20,11 @@ import ReactFlow, {
   BackgroundVariant,
   Panel,
 } from "reactflow";
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { useRecoilState } from "recoil";
 import * as strings from "../../constants/Strings";
 import logger from "../../shared/logger";
 import FeedbackDialog from "../shared/FeedbackDialog";
 import "reactflow/dist/style.css";
-import { Trash2 } from "lucide-react";
 import InputNode from "./CustomNodes/InputNode/InputNode";
 import DenseNode from "./CustomNodes/DenseNode/DenseNode";
 import FlattenNode from "./CustomNodes/FlattenNode/FlattenNode";
@@ -72,6 +62,7 @@ function Canvas() {
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [reactFlowInstance, setReactFlowInstance] = useState(null);
   const [modelName, setModelName] = useState("");
+  const [modelSummary, setModelSummary] = useState(null);
   const [selectedNodeId, setSelectedNodeId] = useState(null);
   const [clearAllOpen, setClearAllOpen] = useState(false);
   const [feedbackDialog, setFeedbackDialog] = useState({
@@ -81,7 +72,6 @@ function Canvas() {
     detail: "",
   });
   const [contextMenu, setContextMenu] = useState({ nodeId: null, x: 0, y: 0 });
-  const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const defaultViewport = { x: 10, y: 15, zoom: 0.5 };
 
   const draftKey = `tensormap_draft_${projectId || "default"}`;
@@ -551,10 +541,11 @@ function Canvas() {
   const handleClearAll = useCallback(() => {
     setNodes([]);
     setEdges([]);
+    setModelName("");
     setSelectedNodeId(null);
     closeContextMenu();
     setClearAllOpen(false);
-  }, [setNodes, setEdges, closeContextMenu]);
+  }, [setNodes, setEdges, setModelName, closeContextMenu]);
 
   return (
     <>

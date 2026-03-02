@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useParams } from "react-router-dom";
-import { Trash2 } from "lucide-react";
+import { Trash2, Undo2, Redo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -36,6 +36,7 @@ import ModelSummaryPanel from "./ModelSummaryPanel";
 import { getAllModels, getModelGraph, saveModel } from "../../services/ModelServices";
 import { models as allModels } from "../../shared/atoms";
 import ContextMenu from "./ContextMenu";
+import useUndoRedo from "../../hooks/useUndoRedo";
 
 const nodeTypes = {
   custominput: InputNode,
@@ -74,7 +75,90 @@ function Canvas() {
     }
   });
 
-  // Auto-load the project's first saved model or draft on mount
+  const nodesRef = useRef(nodes);
+  const edgesRef = useRef(edges);
+
+  useEffect(() => {
+    nodesRef.current = nodes;
+  }, [nodes]);
+
+  useEffect(() => {
+    edgesRef.current = edges;
+  }, [edges]);
+
+  const { takeSnapshot, undo, redo, canUndo, canRedo } = useUndoRedo(
+    setNodes,
+    setEdges,
+    nodesRef,
+    edgesRef,
+  );
+  const [undoRedoState, setUndoRedoState] = useState({ canUndo: false, canRedo: false });
+
+  const updateUndoRedoState = useCallback(() => {
+    setUndoRedoState({ canUndo: canUndo(), canRedo: canRedo() });
+  }, [canUndo, canRedo]);
+
+  const undoRedoCounter = useRef(0);
+
+  const takeSnapshotAndUpdate = useCallback(
+    (currentNodes, currentEdges) => {
+      if (undoRedoCounter.current > 0) return;
+      takeSnapshot(currentNodes, currentEdges);
+      updateUndoRedoState();
+    },
+    [takeSnapshot, updateUndoRedoState],
+  );
+
+  const performUndo = useCallback(() => {
+    undoRedoCounter.current += 1;
+    undo();
+    updateUndoRedoState();
+    undoRedoCounter.current -= 1;
+  }, [undo, updateUndoRedoState]);
+
+  const performRedo = useCallback(() => {
+    undoRedoCounter.current += 1;
+    redo();
+    updateUndoRedoState();
+    undoRedoCounter.current -= 1;
+  }, [redo, updateUndoRedoState]);
+
+  const undoRef = useRef(performUndo);
+  const redoRef = useRef(performRedo);
+
+  useEffect(() => {
+    undoRef.current = performUndo;
+    redoRef.current = performRedo;
+  }, [performUndo, performRedo]);
+
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      const el = document.activeElement;
+      const tag = el?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || el?.isContentEditable) return;
+
+      const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
+      const modKey = isMac ? event.metaKey : event.ctrlKey;
+
+      if (modKey && event.key === "z" && !event.shiftKey) {
+        event.preventDefault();
+        event.stopPropagation();
+        undoRef.current();
+      } else if (
+        (modKey && event.key === "y") ||
+        (modKey && event.shiftKey && event.key === "z") ||
+        (modKey && event.shiftKey && event.key === "Z")
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        redoRef.current();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown, true);
+    return () => document.removeEventListener("keydown", handleKeyDown, true);
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     async function loadModel() {
@@ -133,7 +217,6 @@ function Canvas() {
           setModelName(model_name);
           isLoaded.current = true;
 
-          // Populate the global model list from the fetched models
           setModelList(
             modelObjects.map((m, i) => ({
               label: m.model_name + strings.MODEL_EXTENSION,
@@ -192,7 +275,39 @@ function Canvas() {
     setModelName("");
   }, [draftKey, setNodes, setEdges]);
 
-  const onConnect = useCallback((params) => setEdges((eds) => addEdge(params, eds)), [setEdges]);
+  const onConnect = useCallback(
+    (params) => {
+      takeSnapshotAndUpdate(nodesRef.current, edgesRef.current);
+      setEdges((eds) => addEdge(params, eds));
+    },
+    [setEdges, takeSnapshotAndUpdate],
+  );
+
+  const handleNodesChange = useCallback(
+    (changes) => {
+      const hasRemoval = changes.some((change) => change.type === "remove");
+      if (hasRemoval) {
+        takeSnapshotAndUpdate(nodesRef.current, edgesRef.current);
+      }
+      onNodesChange(changes);
+    },
+    [onNodesChange, takeSnapshotAndUpdate],
+  );
+
+  const handleEdgesChange = useCallback(
+    (changes) => {
+      const hasRemoval = changes.some((change) => change.type === "remove");
+      if (hasRemoval) {
+        takeSnapshotAndUpdate(nodesRef.current, edgesRef.current);
+      }
+      onEdgesChange(changes);
+    },
+    [onEdgesChange, takeSnapshotAndUpdate],
+  );
+
+  const onNodeDragStart = useCallback(() => {
+    takeSnapshotAndUpdate(nodesRef.current, edgesRef.current);
+  }, [takeSnapshotAndUpdate]);
 
   const onDragOver = useCallback((event) => {
     event.preventDefault();
@@ -223,6 +338,7 @@ function Canvas() {
   }, []);
 
   const duplicateNode = useCallback(() => {
+    takeSnapshotAndUpdate(nodesRef.current, edgesRef.current);
     setNodes((nds) => {
       const source = nds.find((n) => n.id === contextMenu.nodeId);
       if (!source) return nds;
@@ -235,10 +351,11 @@ function Canvas() {
       return nds.concat(duplicate);
     });
     closeContextMenu();
-  }, [contextMenu.nodeId, setNodes, closeContextMenu]);
+  }, [contextMenu.nodeId, setNodes, closeContextMenu, takeSnapshotAndUpdate]);
 
   const onNodeUpdate = useCallback(
     (nodeId, newParams) => {
+      takeSnapshotAndUpdate(nodesRef.current, edgesRef.current);
       setNodes((nds) =>
         nds.map((node) => {
           if (node.id === nodeId) {
@@ -248,7 +365,7 @@ function Canvas() {
         }),
       );
     },
-    [setNodes],
+    [setNodes, takeSnapshotAndUpdate],
   );
 
   const closeFeedback = () => {
@@ -256,12 +373,13 @@ function Canvas() {
   };
 
   const handleClearAll = useCallback(() => {
+    takeSnapshotAndUpdate(nodesRef.current, edgesRef.current);
     setNodes([]);
     setEdges([]);
     setModelName("");
     setSelectedNodeId(null);
     setClearConfirmOpen(false);
-  }, [setNodes, setEdges]);
+  }, [setNodes, setEdges, takeSnapshotAndUpdate]);
 
   const modelSaveHandler = () => {
     const data = {
@@ -283,7 +401,6 @@ function Canvas() {
           } catch (e) {
             logger.error("Failed to clear draft on save:", e);
           }
-          // Re-fetch the model list so the new entry has its DB id
           getAllModels(projectId)
             .then((modelObjects) => {
               setModelList(
@@ -356,9 +473,10 @@ function Canvas() {
         data: { label: `${type} node`, params: defaultParams[type] || {} },
       };
 
+      takeSnapshotAndUpdate(nodesRef.current, edgesRef.current);
       setNodes((nds) => nds.concat(newNode));
     },
-    [reactFlowInstance, setNodes],
+    [reactFlowInstance, setNodes, takeSnapshotAndUpdate],
   );
 
   return (
@@ -376,7 +494,7 @@ function Canvas() {
             <DialogTitle>Clear canvas</DialogTitle>
             <DialogDescription>
               This will remove all {nodes.length} node{nodes.length !== 1 ? "s" : ""} and their
-              connections. This action cannot be undone.
+              connections. You can undo this with Ctrl+Z.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -408,8 +526,8 @@ function Canvas() {
               <ReactFlow
                 nodes={nodes}
                 edges={edges}
-                onNodesChange={onNodesChange}
-                onEdgesChange={onEdgesChange}
+                onNodesChange={handleNodesChange}
+                onEdgesChange={handleEdgesChange}
                 onConnect={onConnect}
                 onInit={setReactFlowInstance}
                 onDrop={onDrop}
@@ -417,9 +535,32 @@ function Canvas() {
                 onNodeClick={onNodeClick}
                 onPaneClick={onPaneClick}
                 onNodeContextMenu={onNodeContextMenu}
+                onNodeDragStart={onNodeDragStart}
                 nodeTypes={nodeTypes}
                 defaultViewport={defaultViewport}
               >
+                <Panel position="top-left" className="flex gap-1">
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={performUndo}
+                    disabled={!undoRedoState.canUndo}
+                    title="Undo (Ctrl+Z)"
+                    className="h-8 w-8"
+                  >
+                    <Undo2 className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={performRedo}
+                    disabled={!undoRedoState.canRedo}
+                    title="Redo (Ctrl+Y)"
+                    className="h-8 w-8"
+                  >
+                    <Redo2 className="h-4 w-4" />
+                  </Button>
+                </Panel>
                 <Controls />
                 {hasDraft && (
                   <Panel position="top-right">

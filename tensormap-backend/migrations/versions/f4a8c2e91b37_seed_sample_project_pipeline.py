@@ -118,7 +118,16 @@ def upgrade():
         )
 
     # 8. Generate Keras JSON model definition
-    _generate_keras_json()
+    try:
+        _generate_keras_json()
+    except PermissionError as exc:
+        import warnings
+        warnings.warn(
+            f"Could not write Keras JSON ({exc}). "
+            "The iris-classifier model JSON was not generated. "
+            "Ensure the container has write access to templates/json-model/.",
+            stacklevel=2,
+        )
 
 
 def downgrade():

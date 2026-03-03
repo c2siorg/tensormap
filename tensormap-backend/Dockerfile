@@ -16,7 +16,8 @@ RUN groupadd -r appuser && useradd -r -g appuser appuser
 COPY --from=builder /app/.venv /app/.venv
 COPY . .
 
-RUN chown -R appuser:appuser /app
+RUN chown -R appuser:appuser /app \
+    && chmod -R u+w /app/templates
 
 ENV PATH="/app/.venv/bin:$PATH"
 

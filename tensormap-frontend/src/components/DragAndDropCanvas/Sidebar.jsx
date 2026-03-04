@@ -1,6 +1,7 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 
 function Sidebar() {
+
   const onDragStart = (event, nodeType) => {
     event.dataTransfer.setData("application/reactflow", nodeType);
     event.dataTransfer.effectAllowed = "move";
@@ -11,7 +12,9 @@ function Sidebar() {
       <CardHeader className="pb-3">
         <CardTitle className="text-sm">Layers</CardTitle>
       </CardHeader>
+
       <CardContent className="space-y-2">
+
         <div
           className="cursor-grab rounded-md border border-l-4 border-l-node-input bg-white px-3 py-2 text-xs font-medium"
           onDragStart={(e) => onDragStart(e, "custominput")}
@@ -19,6 +22,7 @@ function Sidebar() {
         >
           Input
         </div>
+
         <div
           className="cursor-grab rounded-md border border-l-4 border-l-node-dense bg-white px-3 py-2 text-xs font-medium"
           onDragStart={(e) => onDragStart(e, "customdense")}
@@ -26,6 +30,7 @@ function Sidebar() {
         >
           Dense
         </div>
+
         <div
           className="cursor-grab rounded-md border border-l-4 border-l-node-flatten bg-white px-3 py-2 text-xs font-medium"
           onDragStart={(e) => onDragStart(e, "customflatten")}
@@ -33,6 +38,7 @@ function Sidebar() {
         >
           Flatten
         </div>
+
         <div
           className="cursor-grab rounded-md border border-l-4 border-l-node-conv bg-white px-3 py-2 text-xs font-medium"
           onDragStart={(e) => onDragStart(e, "customconv")}
@@ -40,6 +46,15 @@ function Sidebar() {
         >
           Conv2D
         </div>
+
+        <div
+          className="cursor-grab rounded-md border border-l-4 border-l-node-dense bg-white px-3 py-2 text-xs font-medium"
+          onDragStart={(e) => onDragStart(e, "customdropout")}
+          draggable
+        >
+          Dropout
+        </div>
+
       </CardContent>
     </Card>
   );

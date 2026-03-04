@@ -7,6 +7,7 @@ Create Date: 2026-02-23 22:00:00.000000
 """
 
 import json
+import logging
 import os
 import shutil
 
@@ -18,6 +19,8 @@ revision = "f4a8c2e91b37"
 down_revision = "2e66fba94864"
 branch_labels = None
 depends_on = None
+
+log = logging.getLogger(__name__)
 
 # Fixed UUIDs for idempotency
 PROJECT_UUID = "00000000-0000-4000-a000-000000000001"
@@ -118,16 +121,18 @@ def upgrade():
         )
 
     # 8. Generate Keras JSON model definition
+    # NOTE: The Dockerfile chmod ensures write access in normal operation.
+    # This guard surfaces permission failures clearly if that fix is ever bypassed.
     try:
         _generate_keras_json()
-    except PermissionError as exc:
-        import warnings
-        warnings.warn(
-            f"Could not write Keras JSON ({exc}). "
-            "The iris-classifier model JSON was not generated. "
-            "Ensure the container has write access to templates/json-model/.",
-            stacklevel=2,
+    except OSError as exc:
+        log.error(
+            "Cannot write Keras JSON to 'templates/json-model/iris-classifier.json': %s. "
+            "Ensure 'appuser' has write access to templates/json-model/. "
+            "Fix permissions and re-run migrations.",
+            exc,
         )
+        raise
 
 
 def downgrade():

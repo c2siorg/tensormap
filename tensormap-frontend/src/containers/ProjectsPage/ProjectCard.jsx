@@ -19,6 +19,12 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -38,11 +44,12 @@ import logger from "../../shared/logger";
  */
 export default function ProjectCard({ project, onDeleted, onUpdated }) {
   const navigate = useNavigate();
-  const [menuOpen, setMenuOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [deleteError, setDeleteError] = useState(null);
+  const [editError, setEditError] = useState(null);
   const [editName, setEditName] = useState(project.name);
   const [editDescription, setEditDescription] = useState(project.description ?? "");
 
@@ -50,20 +57,15 @@ export default function ProjectCard({ project, onDeleted, onUpdated }) {
     navigate(`/workspace/${project.id}/datasets`);
   };
 
-  const handleMenuToggle = (e) => {
-    e.stopPropagation();
-    setMenuOpen((prev) => !prev);
-  };
-
   const openDeleteDialog = (e) => {
     e.stopPropagation();
-    setMenuOpen(false);
+    setDeleteError(null);
     setDeleteDialogOpen(true);
   };
 
   const openEditDialog = (e) => {
     e.stopPropagation();
-    setMenuOpen(false);
+    setEditError(null);
     setEditName(project.name);
     setEditDescription(project.description ?? "");
     setEditDialogOpen(true);
@@ -75,12 +77,15 @@ export default function ProjectCard({ project, onDeleted, onUpdated }) {
       const resp = await deleteProject(project.id);
       if (resp.data.success) {
         onDeleted(project.id);
+        setDeleteDialogOpen(false);
+      } else {
+        setDeleteError(resp?.data?.message || "Failed to delete project. Please try again.");
       }
     } catch (err) {
       logger.error("Failed to delete project:", err);
+      setDeleteError("Failed to delete project. Please try again.");
     } finally {
       setDeleting(false);
-      setDeleteDialogOpen(false);
     }
   };
 
@@ -94,11 +99,19 @@ export default function ProjectCard({ project, onDeleted, onUpdated }) {
         description: editDescription.trim() || null,
       });
       if (resp.data.success) {
-        onUpdated(resp.data.data);
-        setEditDialogOpen(false);
+        if (resp?.data?.data?.id) {
+          onUpdated(resp.data.data);
+          setEditDialogOpen(false);
+        } else {
+          setEditError("Received an unexpected response from the server.");
+          logger.error("Unexpected update project response:", resp?.data);
+        }
+      } else {
+        setEditError(resp?.data?.message || "Failed to update project. Please try again.");
       }
     } catch (err) {
       logger.error("Failed to update project:", err);
+      setEditError("Failed to update project. Please try again.");
     } finally {
       setSaving(false);
     }
@@ -111,37 +124,29 @@ export default function ProjectCard({ project, onDeleted, onUpdated }) {
         onClick={handleCardClick}
       >
         <div className="absolute right-3 top-3 z-10">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7"
-            onClick={handleMenuToggle}
-            aria-label="Project options"
-          >
-            <MoreVertical className="h-4 w-4" />
-          </Button>
-
-          {menuOpen && (
-            <div
-              className="absolute right-0 top-8 z-20 w-36 rounded-md border bg-popover shadow-md"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <button
-                className="flex w-full items-center gap-2 px-3 py-2 text-sm hover:bg-accent"
-                onClick={openEditDialog}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7"
+                onClick={(e) => e.stopPropagation()}
+                aria-label="Project options"
               >
+                <MoreVertical className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+              <DropdownMenuItem onClick={openEditDialog}>
                 <Pencil className="h-3.5 w-3.5" />
                 Edit
-              </button>
-              <button
-                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-destructive hover:bg-accent"
-                onClick={openDeleteDialog}
-              >
+              </DropdownMenuItem>
+              <DropdownMenuItem className="text-destructive" onClick={openDeleteDialog}>
                 <Trash2 className="h-3.5 w-3.5" />
                 Delete
-              </button>
-            </div>
-          )}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
 
         <CardHeader className="pr-10">
@@ -169,8 +174,13 @@ export default function ProjectCard({ project, onDeleted, onUpdated }) {
         </CardFooter>
       </Card>
 
-      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <DialogContent onClick={(e) => e.stopPropagation()}>
+      <Dialog
+        open={deleteDialogOpen}
+        onOpenChange={(open) => {
+          if (!deleting) setDeleteDialogOpen(open);
+        }}
+      >
+        <DialogContent>
           <DialogHeader>
             <DialogTitle>Delete project</DialogTitle>
             <DialogDescription>
@@ -179,8 +189,9 @@ export default function ProjectCard({ project, onDeleted, onUpdated }) {
               undone.
             </DialogDescription>
           </DialogHeader>
+          {deleteError && <p className="text-sm font-medium text-destructive mt-2">{deleteError}</p>}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>
+            <Button variant="outline" onClick={() => setDeleteDialogOpen(false)} disabled={deleting}>
               Cancel
             </Button>
             <Button variant="destructive" onClick={handleDelete} disabled={deleting}>
@@ -190,12 +201,18 @@ export default function ProjectCard({ project, onDeleted, onUpdated }) {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
-        <DialogContent onClick={(e) => e.stopPropagation()}>
+      <Dialog
+        open={editDialogOpen}
+        onOpenChange={(open) => {
+          if (!saving) setEditDialogOpen(open);
+        }}
+      >
+        <DialogContent>
           <DialogHeader>
             <DialogTitle>Edit project</DialogTitle>
             <DialogDescription>Update the project name or description.</DialogDescription>
           </DialogHeader>
+          {editError && <p className="text-sm font-medium text-destructive mt-2">{editError}</p>}
           <form onSubmit={handleUpdate}>
             <div className="grid gap-4 py-4">
               <div className="grid gap-2">

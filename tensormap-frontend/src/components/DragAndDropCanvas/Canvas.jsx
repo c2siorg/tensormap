@@ -52,8 +52,9 @@ function Canvas() {
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [reactFlowInstance, setReactFlowInstance] = useState(null);
   const [modelName, setModelName] = useState("");
-  const [selectedNodeId, setSelectedNodeId] = useState(null);
   const [modelSummary, setModelSummary] = useState(null);
+  const [selectedNodeId, setSelectedNodeId] = useState(null);
+  const [clearAllOpen, setClearAllOpen] = useState(false);
   const [feedbackDialog, setFeedbackDialog] = useState({
     open: false,
     success: false,
@@ -61,7 +62,6 @@ function Canvas() {
     detail: "",
   });
   const [contextMenu, setContextMenu] = useState({ nodeId: null, x: 0, y: 0 });
-  const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const defaultViewport = { x: 10, y: 15, zoom: 0.5 };
 
   const draftKey = `tensormap_draft_${projectId || "default"}`;
@@ -255,14 +255,6 @@ function Canvas() {
     setFeedbackDialog((prev) => ({ ...prev, open: false }));
   };
 
-  const handleClearAll = useCallback(() => {
-    setNodes([]);
-    setEdges([]);
-    setModelName("");
-    setSelectedNodeId(null);
-    setClearConfirmOpen(false);
-  }, [setNodes, setEdges]);
-
   const modelSaveHandler = () => {
     const data = {
       model: {
@@ -361,6 +353,16 @@ function Canvas() {
     [reactFlowInstance, setNodes],
   );
 
+  const nodeCount = nodes.length;
+  const handleClearAll = useCallback(() => {
+    setNodes([]);
+    setEdges([]);
+    setModelName("");
+    setSelectedNodeId(null);
+    closeContextMenu();
+    setClearAllOpen(false);
+  }, [setNodes, setEdges, setModelName, closeContextMenu]);
+
   return (
     <>
       <FeedbackDialog
@@ -370,17 +372,16 @@ function Canvas() {
         message={feedbackDialog.message}
         detail={feedbackDialog.detail}
       />
-      <Dialog open={clearConfirmOpen} onOpenChange={setClearConfirmOpen}>
+      <Dialog open={clearAllOpen} onOpenChange={setClearAllOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Clear canvas</DialogTitle>
+            <DialogTitle>Clear canvas?</DialogTitle>
             <DialogDescription>
-              This will remove all {nodes.length} node{nodes.length !== 1 ? "s" : ""} and their
-              connections. This action cannot be undone.
+              This will remove {nodeCount} node{nodeCount === 1 ? "" : "s"} and all edges.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setClearConfirmOpen(false)}>
+            <Button variant="outline" onClick={() => setClearAllOpen(false)}>
               Cancel
             </Button>
             <Button variant="destructive" onClick={handleClearAll}>
@@ -392,51 +393,46 @@ function Canvas() {
       <div className="flex gap-4">
         <ReactFlowProvider>
           <Sidebar />
-          <div className="flex flex-col flex-1 gap-2">
-            <div className="flex justify-end">
-              <Button
-                variant="destructive"
-                size="sm"
-                disabled={nodes.length === 0}
-                onClick={() => setClearConfirmOpen(true)}
-              >
-                <Trash2 className="mr-2 h-4 w-4" />
-                Clear All
-              </Button>
-            </div>
-            <div className="min-w-0 h-[62vh] flex-1 rounded-md border" ref={reactFlowWrapper}>
-              <ReactFlow
-                nodes={nodes}
-                edges={edges}
-                onNodesChange={onNodesChange}
-                onEdgesChange={onEdgesChange}
-                onConnect={onConnect}
-                onInit={setReactFlowInstance}
-                onDrop={onDrop}
-                onDragOver={onDragOver}
-                onNodeClick={onNodeClick}
-                onPaneClick={onPaneClick}
-                onNodeContextMenu={onNodeContextMenu}
-                nodeTypes={nodeTypes}
-                defaultViewport={defaultViewport}
-              >
-                <Controls />
+          <div className="h-[62vh] flex-1" ref={reactFlowWrapper}>
+            <ReactFlow
+              nodes={nodes}
+              edges={edges}
+              onNodesChange={onNodesChange}
+              onEdgesChange={onEdgesChange}
+              onConnect={onConnect}
+              onInit={setReactFlowInstance}
+              onDrop={onDrop}
+              onDragOver={onDragOver}
+              onNodeClick={onNodeClick}
+              onPaneClick={onPaneClick}
+              onNodeContextMenu={onNodeContextMenu}
+              nodeTypes={nodeTypes}
+              defaultViewport={defaultViewport}
+            >
+              <Controls />
+              <Panel position="top-right" className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setClearAllOpen(true)}
+                  disabled={nodeCount === 0}
+                >
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Clear All
+                </Button>
                 {hasDraft && (
-                  <Panel position="top-right">
-                    <Button variant="destructive" onClick={handleDiscardDraft}>
-                      Discard Draft
-                    </Button>
-                  </Panel>
+                  <Button variant="destructive" onClick={handleDiscardDraft}>
+                    Discard Draft
+                  </Button>
                 )}
-                <Background
-                  id="1"
-                  gap={10}
-                  color="#e5e5e5"
-                  style={{ backgroundColor: "#fafafa" }}
-                  variant={BackgroundVariant.Dots}
-                />
-              </ReactFlow>
-            </div>
+              </Panel>
+              <Background
+                id="1"
+                gap={10}
+                color="#e5e5e5"
+                style={{ backgroundColor: "#fafafa" }}
+                variant={BackgroundVariant.Dots}
+              />
+            </ReactFlow>
           </div>
           {contextMenu.nodeId && (
             <ContextMenu

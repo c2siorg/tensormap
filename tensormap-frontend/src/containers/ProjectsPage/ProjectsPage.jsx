@@ -43,6 +43,14 @@ export default function ProjectsPage() {
     setProjects((prev) => [newProject, ...prev]);
   };
 
+  const handleProjectDeleted = (deletedId) => {
+    setProjects((prev) => prev.filter((p) => p.id !== deletedId));
+  };
+
+  const handleProjectUpdated = (updatedProject) => {
+    setProjects((prev) => prev.map((p) => (p.id === updatedProject.id ? updatedProject : p)));
+  };
+
   return (
     <div className="min-h-[calc(100vh-3.5rem)] bg-background">
       <div className="mx-auto max-w-6xl px-6 py-8">
@@ -78,7 +86,12 @@ export default function ProjectsPage() {
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {projects.map((project) => (
-              <ProjectCard key={project.id} project={project} />
+              <ProjectCard
+                key={project.id}
+                project={project}
+                onDeleted={handleProjectDeleted}
+                onUpdated={handleProjectUpdated}
+              />
             ))}
           </div>
         )}

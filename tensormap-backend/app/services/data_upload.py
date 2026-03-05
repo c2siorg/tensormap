@@ -27,6 +27,18 @@ def add_file_service(db: Session, file_wrapper: Any, project_id: uuid_pkg.UUID |
 
     filename = secure_filename(file_wrapper.filename.lower())
     file_path = os.path.join(upload_folder, filename)
+
+    # Enforce max upload size before saving to disk
+    file_wrapper._file.file.seek(0, 2)
+    file_size = file_wrapper._file.file.tell()
+    file_wrapper._file.file.seek(0)
+    if file_size > settings.max_content_length:
+        return _resp(
+            413,
+            False,
+            f"File too large. Maximum allowed size is {settings.max_content_length // (1024 * 1024)}MB.",
+        )
+
     file_wrapper.save(file_path)
 
     file_name_db = secure_filename(file_wrapper.filename.rsplit(".", 1)[0].lower())

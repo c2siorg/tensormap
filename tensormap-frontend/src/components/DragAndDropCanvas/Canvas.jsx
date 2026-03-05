@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useParams } from "react-router-dom";
-import { Trash2 } from "lucide-react";
+import { Trash2, Undo2, Redo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -65,6 +65,113 @@ function Canvas() {
   const defaultViewport = { x: 10, y: 15, zoom: 0.5 };
 
   const draftKey = `tensormap_draft_${projectId || "default"}`;
+
+  // History states
+  const [past, setPast] = useState([]);
+  const [future, setFuture] = useState([]);
+
+  const takeSnapshot = useCallback(() => {
+    setPast((p) => {
+      const last = p[p.length - 1];
+      if (last && last.nodes === nodes && last.edges === edges) {
+        return p;
+      }
+      const newPast = [...p, { nodes, edges }];
+      if (newPast.length > 50) return newPast.slice(newPast.length - 50);
+      return newPast;
+    });
+    setFuture([]);
+  }, [nodes, edges]);
+
+  const undo = useCallback(() => {
+    setPast((currentPast) => {
+      if (currentPast.length === 0) return currentPast;
+      const previousState = currentPast[currentPast.length - 1];
+      setFuture((currFuture) => [{ nodes, edges }, ...currFuture]);
+      setNodes(previousState.nodes);
+      setEdges(previousState.edges);
+      return currentPast.slice(0, currentPast.length - 1);
+    });
+  }, [nodes, edges, setNodes, setEdges]);
+
+  const redo = useCallback(() => {
+    setFuture((currentFuture) => {
+      if (currentFuture.length === 0) return currentFuture;
+      const nextState = currentFuture[0];
+      setPast((currPast) => {
+        const newPast = [...currPast, { nodes, edges }];
+        if (newPast.length > 50) return newPast.slice(newPast.length - 50);
+        return newPast;
+      });
+      setNodes(nextState.nodes);
+      setEdges(nextState.edges);
+      return currentFuture.slice(1);
+    });
+  }, [nodes, edges, setNodes, setEdges]);
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+      const modifier = isMac ? e.metaKey : e.ctrlKey;
+      const targetTag = e.target.tagName;
+      
+      if (targetTag === 'INPUT' || targetTag === 'TEXTAREA' || targetTag === 'SELECT') {
+        return;
+      }
+      
+      if (modifier && e.key.toLowerCase() === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        undo();
+      } else if (
+        (modifier && e.key.toLowerCase() === 'y') ||
+        (modifier && e.shiftKey && e.key.toLowerCase() === 'z')
+      ) {
+        e.preventDefault();
+        redo();
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [undo, redo]);
+
+  const dragStartNodesRef = useRef(null);
+
+  const onNodeDragStart = useCallback(() => {
+    dragStartNodesRef.current = { nodes, edges };
+  }, [nodes, edges]);
+
+  const onNodeDragStop = useCallback((_event, node) => {
+    if (!dragStartNodesRef.current) return;
+    const startNode = dragStartNodesRef.current.nodes.find(n => n.id === node.id);
+    if (startNode && (startNode.position.x !== node.position.x || startNode.position.y !== node.position.y)) {
+      setPast(p => {
+        const last = p[p.length - 1];
+        if (last && last.nodes === dragStartNodesRef.current.nodes && last.edges === dragStartNodesRef.current.edges) {
+          return p;
+        }
+        const newPast = [...p, dragStartNodesRef.current];
+        if (newPast.length > 50) return newPast.slice(newPast.length - 50);
+        return newPast;
+      });
+      setFuture([]);
+    }
+    dragStartNodesRef.current = null;
+  }, []);
+
+  const handleNodesChange = useCallback((changes) => {
+    if (changes.some((c) => c.type === "remove")) {
+      takeSnapshot();
+    }
+    onNodesChange(changes);
+  }, [onNodesChange, takeSnapshot]);
+
+  const handleEdgesChange = useCallback((changes) => {
+    if (changes.some((c) => c.type === "remove")) {
+      takeSnapshot();
+    }
+    onEdgesChange(changes);
+  }, [onEdgesChange, takeSnapshot]);
   const isLoaded = useRef(false);
   const [hasDraft, setHasDraft] = useState(() => {
     try {
@@ -192,7 +299,10 @@ function Canvas() {
     setModelName("");
   }, [draftKey, setNodes, setEdges]);
 
-  const onConnect = useCallback((params) => setEdges((eds) => addEdge(params, eds)), [setEdges]);
+  const onConnect = useCallback((params) => {
+    takeSnapshot();
+    setEdges((eds) => addEdge(params, eds));
+  }, [setEdges, takeSnapshot]);
 
   const onDragOver = useCallback((event) => {
     event.preventDefault();
@@ -223,22 +333,25 @@ function Canvas() {
   }, []);
 
   const duplicateNode = useCallback(() => {
-    setNodes((nds) => {
-      const source = nds.find((n) => n.id === contextMenu.nodeId);
-      if (!source) return nds;
-      const duplicate = {
-        id: crypto.randomUUID(),
-        type: source.type,
-        position: { x: source.position.x + 50, y: source.position.y + 50 },
-        data: { label: source.data.label, params: { ...source.data.params } },
-      };
-      return nds.concat(duplicate);
-    });
+    const source = nodes.find((n) => n.id === contextMenu.nodeId);
+    if (!source) {
+      closeContextMenu();
+      return;
+    }
+    takeSnapshot();
+    const duplicate = {
+      id: crypto.randomUUID(),
+      type: source.type,
+      position: { x: source.position.x + 50, y: source.position.y + 50 },
+      data: { label: source.data.label, params: { ...source.data.params } },
+    };
+    setNodes((nds) => nds.concat(duplicate));
     closeContextMenu();
-  }, [contextMenu.nodeId, setNodes, closeContextMenu]);
+  }, [contextMenu.nodeId, setNodes, closeContextMenu, takeSnapshot, nodes]);
 
   const onNodeUpdate = useCallback(
     (nodeId, newParams) => {
+      takeSnapshot();
       setNodes((nds) =>
         nds.map((node) => {
           if (node.id === nodeId) {
@@ -248,7 +361,7 @@ function Canvas() {
         }),
       );
     },
-    [setNodes],
+    [setNodes, takeSnapshot],
   );
 
   const closeFeedback = () => {
@@ -256,12 +369,13 @@ function Canvas() {
   };
 
   const handleClearAll = useCallback(() => {
+    takeSnapshot();
     setNodes([]);
     setEdges([]);
     setModelName("");
     setSelectedNodeId(null);
     setClearConfirmOpen(false);
-  }, [setNodes, setEdges]);
+  }, [setNodes, setEdges, takeSnapshot]);
 
   const modelSaveHandler = () => {
     const data = {
@@ -356,9 +470,10 @@ function Canvas() {
         data: { label: `${type} node`, params: defaultParams[type] || {} },
       };
 
+      takeSnapshot();
       setNodes((nds) => nds.concat(newNode));
     },
-    [reactFlowInstance, setNodes],
+    [reactFlowInstance, setNodes, takeSnapshot],
   );
 
   return (
@@ -393,7 +508,27 @@ function Canvas() {
         <ReactFlowProvider>
           <Sidebar />
           <div className="flex flex-col flex-1 gap-2">
-            <div className="flex justify-end">
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={past.length === 0}
+                onClick={undo}
+                title="Undo (Ctrl+Z)"
+              >
+                <Undo2 className="mr-2 h-4 w-4" />
+                Undo
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={future.length === 0}
+                onClick={redo}
+                title="Redo (Ctrl+Y)"
+              >
+                <Redo2 className="mr-2 h-4 w-4" />
+                Redo
+              </Button>
               <Button
                 variant="destructive"
                 size="sm"
@@ -408,8 +543,8 @@ function Canvas() {
               <ReactFlow
                 nodes={nodes}
                 edges={edges}
-                onNodesChange={onNodesChange}
-                onEdgesChange={onEdgesChange}
+                onNodesChange={handleNodesChange}
+                onEdgesChange={handleEdgesChange}
                 onConnect={onConnect}
                 onInit={setReactFlowInstance}
                 onDrop={onDrop}
@@ -417,6 +552,8 @@ function Canvas() {
                 onNodeClick={onNodeClick}
                 onPaneClick={onPaneClick}
                 onNodeContextMenu={onNodeContextMenu}
+                onNodeDragStart={onNodeDragStart}
+                onNodeDragStop={onNodeDragStop}
                 nodeTypes={nodeTypes}
                 defaultViewport={defaultViewport}
               >

@@ -230,7 +230,15 @@ def get_file_data(db: Session, file_id: uuid_pkg.UUID) -> tuple:
     return _resp(200, True, "Data sent successfully", data_json)
 
 
-_VALID_TRANSFORMATIONS = {"One Hot Encoding", "Categorical to Numerical", "Drop Column"}
+_VALID_TRANSFORMATIONS = {
+    "One Hot Encoding",
+    "Categorical to Numerical",
+    "Drop Column",
+    "Min-Max Normalization",
+    "Z-score Standardization",
+    "Log Transform",
+    "Fill Missing Values",
+}
 
 
 def preprocess_data(db: Session, file_id: uuid_pkg.UUID, transformations: list) -> tuple:

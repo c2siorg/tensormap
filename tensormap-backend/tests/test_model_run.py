@@ -31,11 +31,13 @@ class TestModelRunEmitsErrorOnFailure:
         cfg = _make_model_config(ProblemType.CLASSIFICATION)
         db = _make_db(cfg)
 
-        with patch("app.services.model_run._model_result") as mock_emit, \
-             patch("app.services.model_run._helper_generate_file_location", return_value="/fake/path"), \
-             patch("app.services.model_run.pd.read_csv", side_effect=FileNotFoundError("data file missing")):
-            with pytest.raises(FileNotFoundError):
-                model_run("my_model", db)
+        with (
+            patch("app.services.model_run._model_result") as mock_emit,
+            patch("app.services.model_run._helper_generate_file_location", return_value="/fake/path"),
+            patch("app.services.model_run.pd.read_csv", side_effect=FileNotFoundError("data file missing")),
+            pytest.raises(FileNotFoundError),
+        ):
+            model_run("my_model", db)
 
         error_calls = [c for c in mock_emit.call_args_list if c.args[1] == -1]
         assert len(error_calls) == 1
@@ -44,11 +46,13 @@ class TestModelRunEmitsErrorOnFailure:
         cfg = _make_model_config(ProblemType.CLASSIFICATION)
         db = _make_db(cfg)
 
-        with patch("app.services.model_run._model_result") as mock_emit, \
-             patch("app.services.model_run._helper_generate_file_location", return_value="/fake/path"), \
-             patch("app.services.model_run.pd.read_csv", side_effect=ValueError("shape mismatch")):
-            with pytest.raises(ValueError):
-                model_run("my_model", db)
+        with (
+            patch("app.services.model_run._model_result") as mock_emit,
+            patch("app.services.model_run._helper_generate_file_location", return_value="/fake/path"),
+            patch("app.services.model_run.pd.read_csv", side_effect=ValueError("shape mismatch")),
+            pytest.raises(ValueError),
+        ):
+            model_run("my_model", db)
 
         error_calls = [c for c in mock_emit.call_args_list if c.args[1] == -1]
         assert "shape mismatch" in error_calls[0].args[0]
@@ -57,11 +61,13 @@ class TestModelRunEmitsErrorOnFailure:
         cfg = _make_model_config(ProblemType.CLASSIFICATION)
         db = _make_db(cfg)
 
-        with patch("app.services.model_run._model_result"), \
-             patch("app.services.model_run._helper_generate_file_location", return_value="/fake/path"), \
-             patch("app.services.model_run.pd.read_csv", side_effect=RuntimeError("OOM")):
-            with pytest.raises(RuntimeError, match="OOM"):
-                model_run("my_model", db)
+        with (
+            patch("app.services.model_run._model_result"),
+            patch("app.services.model_run._helper_generate_file_location", return_value="/fake/path"),
+            patch("app.services.model_run.pd.read_csv", side_effect=RuntimeError("OOM")),
+            pytest.raises(RuntimeError, match="OOM"),
+        ):
+            model_run("my_model", db)
 
 
 class TestRunCodeServiceOnFailure:

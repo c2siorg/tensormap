@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useParams } from "react-router-dom";
+import { createPortal } from "react-dom";
 import { Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -44,6 +45,36 @@ const nodeTypes = {
   customconv: ConvNode,
 };
 
+// nodeDescriptions keys MUST match the keys in nodeTypes above.
+// When adding a new entry to nodeTypes, add a corresponding description here.
+const nodeDescriptions = {
+  custominput: "Defines the shape and format of the input data.",
+  customdense: "Applies a learned linear transformation to the input.",
+  customflatten: "Reduces spatial dimensions to a 1D vector.",
+  customconv: "Applies a convolution filter to extract spatial features.",
+};
+
+const getTooltipStyle = (x, y) => {
+  const tooltipWidth = 200;
+  const tooltipHeight = 40;
+  const margin = 8;
+  const adjustedX =
+    typeof window !== "undefined"
+      ? Math.min(
+          Math.max(x, tooltipWidth / 2 + margin),
+          window.innerWidth - tooltipWidth / 2 - margin,
+        )
+      : x;
+  const isNearTop = y < tooltipHeight + 20;
+  const adjustedY = isNearTop ? y + 20 : y - 15;
+  const transformY = isNearTop ? "translateY(0)" : "translateY(-100%)";
+  return {
+    top: adjustedY,
+    left: adjustedX,
+    transform: `translateX(-50%) ${transformY}`,
+  };
+};
+
 function Canvas() {
   const { projectId } = useParams();
   const reactFlowWrapper = useRef(null);
@@ -53,6 +84,8 @@ function Canvas() {
   const [reactFlowInstance, setReactFlowInstance] = useState(null);
   const [modelName, setModelName] = useState("");
   const [selectedNodeId, setSelectedNodeId] = useState(null);
+  const [tooltip, setTooltip] = useState({ show: false, text: "", x: 0, y: 0 });
+  const hoverTimeoutRef = useRef(null);
   const [modelSummary, setModelSummary] = useState(null);
   const [feedbackDialog, setFeedbackDialog] = useState({
     open: false,
@@ -255,6 +288,40 @@ function Canvas() {
     setFeedbackDialog((prev) => ({ ...prev, open: false }));
   };
 
+  const onNodeMouseEnter = useCallback((event, node) => {
+    if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+    const description = nodeDescriptions[node.type];
+    if (description) {
+      const x = event.clientX;
+      const y = event.clientY - 15;
+      hoverTimeoutRef.current = setTimeout(() => {
+        setTooltip({ show: true, text: description, x, y });
+      }, 250);
+    }
+  }, []);
+
+  const onNodeMouseMove = useCallback((event) => {
+    setTooltip((prev) => {
+      if (!prev.show) return prev;
+      return {
+        ...prev,
+        x: event.clientX,
+        y: event.clientY - 15,
+      };
+    });
+  }, []);
+
+  const onNodeMouseLeave = useCallback(() => {
+    if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+    setTooltip({ show: false, text: "", x: 0, y: 0 });
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+    };
+  }, []);
+
   const handleClearAll = useCallback(() => {
     setNodes([]);
     setEdges([]);
@@ -370,6 +437,21 @@ function Canvas() {
         message={feedbackDialog.message}
         detail={feedbackDialog.detail}
       />
+
+      {createPortal(
+        <div
+          id="node-tooltip"
+          role="tooltip"
+          className={`fixed z-50 pointer-events-none px-3 py-2 text-sm text-white bg-gray-800 rounded shadow-lg max-w-xs transition-opacity duration-200 ${
+            tooltip.show ? "opacity-100" : "opacity-0"
+          }`}
+          style={getTooltipStyle(tooltip.x, tooltip.y)}
+        >
+          {tooltip.text}
+        </div>,
+        document.body,
+      )}
+
       <Dialog open={clearConfirmOpen} onOpenChange={setClearConfirmOpen}>
         <DialogContent>
           <DialogHeader>
@@ -416,6 +498,9 @@ function Canvas() {
                 onDragOver={onDragOver}
                 onNodeClick={onNodeClick}
                 onPaneClick={onPaneClick}
+                onNodeMouseEnter={onNodeMouseEnter}
+                onNodeMouseLeave={onNodeMouseLeave}
+                onNodeMouseMove={onNodeMouseMove}
                 onNodeContextMenu={onNodeContextMenu}
                 nodeTypes={nodeTypes}
                 defaultViewport={defaultViewport}

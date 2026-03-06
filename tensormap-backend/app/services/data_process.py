@@ -19,6 +19,17 @@ def _resp(status_code: int, success: bool, message: str, data: Any = None) -> tu
     return {"success": success, "message": message, "data": data}, status_code
 
 
+def _paginated_resp(data: list, pagination: dict) -> tuple:
+    """Build a standard API response tuple for paginated data."""
+    body = {
+        "success": True,
+        "message": "Data sent successfully",
+        "data": data,
+        "pagination": pagination,
+    }
+    return body, 200
+
+
 def _get_file_path(file: DataFile) -> str:
     """Resolve the on-disk path for a DataFile record."""
     settings = get_settings()
@@ -209,6 +220,17 @@ def get_correlation_matrix(db: Session, file_id: uuid_pkg.UUID) -> tuple:
     return _resp(200, True, "Correlation matrix computed successfully", {"columns": columns, "matrix": matrix})
 
 
+def get_file_data(db: Session, file_id: uuid_pkg.UUID, page: int = 1, page_size: int = 50) -> tuple:
+    """Read and return a paginated slice of a CSV file as structured JSON.
+
+    Args:
+        page: 1-based page number.
+        page_size: Number of rows per page (1–1000).
+
+    Returns:
+        Tuple of (response_body_dict, status_code) where body includes
+        'data' (list of row dicts) and 'pagination' metadata.
+    """
 def get_file_data(db: Session, file_id: uuid_pkg.UUID, page: int = 1, page_size: int = 50, page: int = 1, page_size: int = 50) -> tuple:
     """Read and return the paginated contents of a CSV file as JSON."""
     file = db.exec(select(DataFile).where(DataFile.id == file_id)).first()
@@ -216,8 +238,32 @@ def get_file_data(db: Session, file_id: uuid_pkg.UUID, page: int = 1, page_size:
         return _resp(400, False, "Unable to open file")
 
     file_path = _get_file_path(file)
+
+    if file.row_count is not None:
+        total_rows = file.row_count
+    else:
+        try:
+            total_rows = sum(1 for _ in open(file_path, "rb")) - 1
+            if total_rows < 0:
+                total_rows = 0
+        except FileNotFoundError:
+            return _resp(500, False, f"File not found: {file_path}")
+        except Exception as e:
+            return _resp(500, False, f"Error reading file count: {e}")
+
+    total_pages = (total_rows + page_size - 1) // page_size if page_size > 0 else 0
+
+    if total_rows > 0 and page > total_pages:
+        return _resp(400, False, f"Page {page} exceeds total pages ({total_pages})")
+
+    if total_rows == 0:
+        return _paginated_resp([], {"page": page, "page_size": page_size, "total_rows": 0, "total_pages": 0})
+
+    start_idx = (page - 1) * page_size
+    skip = list(range(1, start_idx + 1)) if start_idx > 0 else None
+
     try:
-        df = pd.read_csv(file_path)
+        df_page = pd.read_csv(file_path, skiprows=skip, nrows=page_size)
     except FileNotFoundError:
         return _resp(500, False, f"File not found: {file_path}")
     except pd.errors.ParserError as e:
@@ -227,23 +273,13 @@ def get_file_data(db: Session, file_id: uuid_pkg.UUID, page: int = 1, page_size:
         logger.exception("Error reading file: %s", str(e))
         return _resp(500, False, f"Error reading CSV: {e}")
 
-    total_rows = len(df)
-    total_pages = (total_rows + page_size - 1) // page_size if page_size > 0 else 0
+    # For empty or any dataframe slice, to_dict will convert to list of plain dict elements avoiding json strings
+    data_list = df_page.to_dict(orient="records")
 
-    start_idx = (page - 1) * page_size
-    end_idx = start_idx + page_size
-    df_page = df.iloc[start_idx:end_idx]
-
-    data_json = df_page.to_json(orient="records")
-    data_list = json.loads(data_json)
-
-    body = {
-        "success": True,
-        "message": "Data sent successfully",
-        "data": data_list,
-        "pagination": {"page": page, "page_size": page_size, "total_rows": total_rows, "total_pages": total_pages},
-    }
-    return body, 200
+    return _paginated_resp(
+        data_list, 
+        {"page": page, "page_size": page_size, "total_rows": total_rows, "total_pages": total_pages}
+    )
 
 
 _VALID_TRANSFORMATIONS = {"One Hot Encoding", "Categorical to Numerical", "Drop Column"}

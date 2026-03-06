@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import PropTypes from "prop-types";
 import { getFileData } from "../../services/FileServices";
 import logger from "../../shared/logger";
@@ -12,36 +12,49 @@ import { Button } from "../ui/button";
  *
  * @param {{ fileId: string }} props
  */
-const DisplayDataset = ({ fileId }) => {
+const DisplayDataset = ({ fileId, pageSize = 50 }) => {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState(null);
+  const abortControllerRef = React.useRef(null);
 
-  const fetchData = useCallback(async (fileId, currentPage = 1) => {
-    setIsLoading(true);
-    try {
-      setError(null);
-      const fileData = await getFileData(fileId, currentPage, 50);
-
-      let parsedData;
-      if (typeof fileData.data === "string") {
-        parsedData = JSON.parse(fileData.data);
-      } else {
-        parsedData = fileData.data;
+  const fetchData = useCallback(
+    async (currentFileId, currentPage = 1) => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
       }
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
 
-      setData(parsedData);
-      setPagination(fileData.pagination);
-    } catch (e) {
-      logger.error("Error fetching dataset:", e);
-      setError("Failed to load dataset");
-      setData(null);
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
+      setIsLoading(true);
+      try {
+        setError(null);
+        const fileData = await getFileData(currentFileId, currentPage, pageSize, controller.signal);
+
+        if (!controller.signal.aborted) {
+          setData(fileData.data);
+          setPagination(fileData.pagination);
+        }
+      } catch (e) {
+        if (e.name !== "CanceledError" && e.name !== "AbortError") {
+          logger.error("Error fetching dataset:", e);
+          setError("Failed to load dataset");
+          setData(null);
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsLoading(false);
+        }
+      }
+    },
+    [pageSize]
+  );
+
+  useEffect(() => {
+    setPage(1);
+  }, [fileId]);
 
   useEffect(() => {
     if (fileId) {
@@ -84,10 +97,10 @@ const DisplayDataset = ({ fileId }) => {
           </thead>
           <tbody>
             {data.map((row, index) => (
-              <tr key={index} className="border-b">
+              <tr key={`row-${pagination?.page}-${index}`} className="border-b">
                 {Object.values(row).map((value, idx) => (
-                  <td key={idx} className="border px-3 py-2">
-                    {value !== null ? String(value) : ""}
+                  <td key={`cell-${pagination?.page}-${index}-${idx}`} className="border px-3 py-2">
+                    {value != null ? String(value) : ""}
                   </td>
                 ))}
               </tr>
@@ -130,6 +143,7 @@ const DisplayDataset = ({ fileId }) => {
 
 DisplayDataset.propTypes = {
   fileId: PropTypes.string.isRequired,
+  pageSize: PropTypes.number,
 };
 
 export default DisplayDataset;

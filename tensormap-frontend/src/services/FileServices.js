@@ -99,12 +99,13 @@ export const getCorrelationMatrix = async (file_id) =>
  * @param {string} file_id - ID of the uploaded file.
  * @param {number} page - Page number.
  * @param {number} pageSize - Number of rows per page.
+ * @param {AbortSignal} [signal] - Optional AbortController signal to cancel the request.
  * @returns {Promise<object>} Response data containing data array and pagination metadata.
  */
-export const getFileData = async (file_id, page = 1, pageSize = 50) => {
+export const getFileData = async (file_id, page = 1, pageSize = 50, signal) => {
   try {
     const params = { page, page_size: pageSize };
-    const response = await axios.get(urls.BACKEND_GET_FILE_DATA + file_id, { params });
+    const response = await axios.get(urls.BACKEND_GET_FILE_DATA + file_id, { params, signal });
     return response.data;
   } catch (error) {
     logger.error(error);

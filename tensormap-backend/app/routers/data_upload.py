@@ -33,8 +33,8 @@ class _UploadFileWrapper:
 
 
 @router.post("/data/upload/file")
-async def upload_file(
-    data: UploadFile = File(...),
+def upload_file(
+    data: UploadFile,
     project_id: uuid_pkg.UUID | None = Form(None),
     db: Session = Depends(get_db),
 ):

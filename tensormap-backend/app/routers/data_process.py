@@ -89,7 +89,7 @@ def get_file(
     page_size: int = Query(50, ge=1, le=1000),
     db: Session = Depends(get_db),
 ):
-    """Return the full contents of a CSV file as JSON records."""
+    """Return a paginated slice of a CSV file's contents with pagination metadata."""
     body, status_code = get_file_data(db, file_id=file_id, page=page, page_size=page_size)
     return JSONResponse(status_code=status_code, content=body)
 

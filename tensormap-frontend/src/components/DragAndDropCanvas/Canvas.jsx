@@ -29,6 +29,7 @@ import InputNode from "./CustomNodes/InputNode/InputNode";
 import DenseNode from "./CustomNodes/DenseNode/DenseNode";
 import FlattenNode from "./CustomNodes/FlattenNode/FlattenNode";
 import ConvNode from "./CustomNodes/ConvNode/ConvNode";
+import DropoutNode from "./CustomNodes/DropoutNode/DropoutNode";
 import Sidebar from "./Sidebar";
 import NodePropertiesPanel from "./NodePropertiesPanel";
 import { canSaveModel, generateModelJSON } from "./Helpers";
@@ -42,6 +43,7 @@ const nodeTypes = {
   customdense: DenseNode,
   customflatten: FlattenNode,
   customconv: ConvNode,
+  customdropout: DropoutNode,
 };
 
 function Canvas() {

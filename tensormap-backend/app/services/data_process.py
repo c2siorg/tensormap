@@ -1,4 +1,3 @@
-import json
 import uuid as uuid_pkg
 from typing import Any
 
@@ -241,7 +240,8 @@ def get_file_data(db: Session, file_id: uuid_pkg.UUID, page: int = 1, page_size:
         total_rows = file.row_count
     else:
         try:
-            total_rows = sum(1 for _ in open(file_path, "rb")) - 1
+            with open(file_path, "rb") as f:
+                total_rows = sum(1 for _ in f) - 1
             if total_rows < 0:
                 total_rows = 0
         except FileNotFoundError:
@@ -275,8 +275,7 @@ def get_file_data(db: Session, file_id: uuid_pkg.UUID, page: int = 1, page_size:
     data_list = df_page.to_dict(orient="records")
 
     return _paginated_resp(
-        data_list, 
-        {"page": page, "page_size": page_size, "total_rows": total_rows, "total_pages": total_pages}
+        data_list, {"page": page, "page_size": page_size, "total_rows": total_rows, "total_pages": total_pages}
     )
 
 

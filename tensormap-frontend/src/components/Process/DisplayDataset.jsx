@@ -49,7 +49,7 @@ const DisplayDataset = ({ fileId, pageSize = 50 }) => {
         }
       }
     },
-    [pageSize]
+    [pageSize],
   );
 
   useEffect(() => {

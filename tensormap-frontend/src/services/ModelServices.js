@@ -170,3 +170,13 @@ export const runModel = async (modelName, projectId) => {
       throw err;
     });
 };
+
+export const getLayerRegistry = async () => {
+  try {
+    const resp = await axios.get(urls.BACKEND_GET_LAYERS);
+    return resp.data?.data?.layers || {};
+  } catch (err) {
+    logger.error("Failed to fetch layer registry:", err);
+    return {};
+  }
+};

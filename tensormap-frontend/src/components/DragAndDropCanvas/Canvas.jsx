@@ -25,23 +25,22 @@ import * as strings from "../../constants/Strings";
 import logger from "../../shared/logger";
 import FeedbackDialog from "../shared/FeedbackDialog";
 import "reactflow/dist/style.css";
-import InputNode from "./CustomNodes/InputNode/InputNode";
-import DenseNode from "./CustomNodes/DenseNode/DenseNode";
-import FlattenNode from "./CustomNodes/FlattenNode/FlattenNode";
-import ConvNode from "./CustomNodes/ConvNode/ConvNode";
+import GenericLayerNode from "./CustomNodes/GenericLayerNode";
+import { getLayerRegistry } from "../../services/ModelServices";
 import Sidebar from "./Sidebar";
 import NodePropertiesPanel from "./NodePropertiesPanel";
-import { canSaveModel, generateModelJSON } from "./Helpers";
+import { canSaveModel } from "./Helpers";
 import ModelSummaryPanel from "./ModelSummaryPanel";
 import { getAllModels, getModelGraph, saveModel } from "../../services/ModelServices";
 import { models as allModels } from "../../shared/atoms";
 import ContextMenu from "./ContextMenu";
 
 const nodeTypes = {
-  custominput: InputNode,
-  customdense: DenseNode,
-  customflatten: FlattenNode,
-  customconv: ConvNode,
+  genericLayer: GenericLayerNode,
+  custominput: GenericLayerNode,
+  customdense: GenericLayerNode,
+  customconv: GenericLayerNode,
+  customflatten: GenericLayerNode,
 };
 
 function Canvas() {
@@ -61,9 +60,15 @@ function Canvas() {
     detail: "",
   });
   const [contextMenu, setContextMenu] = useState({ nodeId: null, x: 0, y: 0 });
+  const [layerRegistry, setLayerRegistry] = useState({});
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const defaultViewport = { x: 10, y: 15, zoom: 0.5 };
 
+  useEffect(() => {
+    getLayerRegistry().then(setLayerRegistry);
+  }, []);
+
+  const defaultViewport = { x: 10, y: 15, zoom: 0.5 };
   const draftKey = `tensormap_draft_${projectId || "default"}`;
   const isLoaded = useRef(false);
   const [hasDraft, setHasDraft] = useState(() => {
@@ -74,11 +79,9 @@ function Canvas() {
     }
   });
 
-  // Auto-load the project's first saved model or draft on mount
   useEffect(() => {
     let cancelled = false;
     async function loadModel() {
-      // 1. Try loading from draft first
       try {
         const draftStr = localStorage.getItem(draftKey);
         if (draftStr) {
@@ -98,7 +101,6 @@ function Canvas() {
         logger.error("Failed to load draft:", e);
       }
 
-      // 2. Fallback to loading from DB
       try {
         const modelObjects = await getAllModels(projectId);
         if (cancelled || !modelObjects || modelObjects.length === 0) {
@@ -114,11 +116,16 @@ function Canvas() {
 
         const { graph, model_name } = result.data;
 
+        // FIX 1: Ensure registry is preserved when loading from DB
         const loadedNodes = (graph.nodes || []).map((node, i) => ({
           id: node.id,
           type: node.type,
           position: node.position || { x: 100, y: i * 200 },
-          data: { label: `${node.type} node`, params: node.data?.params || {} },
+          data: { 
+            label: node.data?.label || `${node.type} node`, 
+            params: node.data?.params || {},
+            registry: node.data?.registry || {} 
+          },
         }));
 
         const loadedEdges = (graph.edges || []).map((edge) => ({
@@ -154,10 +161,8 @@ function Canvas() {
     };
   }, [projectId, setNodes, setEdges, setModelList, draftKey]);
 
-  // Handle debounced saving of draft
   useEffect(() => {
     if (!isLoaded.current) return;
-
     const timer = setTimeout(() => {
       if (nodes.length === 0 && edges.length === 0 && !modelName) {
         try {
@@ -168,7 +173,6 @@ function Canvas() {
         setHasDraft(false);
         return;
       }
-
       try {
         localStorage.setItem(draftKey, JSON.stringify({ nodes, edges, modelName }));
         setHasDraft(true);
@@ -176,7 +180,6 @@ function Canvas() {
         logger.error("Failed to save draft:", e);
       }
     }, 500);
-
     return () => clearTimeout(timer);
   }, [nodes, edges, modelName, draftKey]);
 
@@ -199,19 +202,11 @@ function Canvas() {
     event.dataTransfer.dropEffect = "move";
   }, []);
 
-  const modelData =
-    reactFlowInstance === null ? { nodes: [], edges: [] } : reactFlowInstance.toObject();
-
+  const modelData = reactFlowInstance === null ? { nodes: [], edges: [] } : reactFlowInstance.toObject();
   const selectedNode = selectedNodeId ? nodes.find((n) => n.id === selectedNodeId) : null;
 
-  const onNodeClick = useCallback((_event, node) => {
-    setSelectedNodeId(node.id);
-  }, []);
-
-  const closeContextMenu = useCallback(() => {
-    setContextMenu({ nodeId: null, x: 0, y: 0 });
-  }, []);
-
+  const onNodeClick = useCallback((_event, node) => setSelectedNodeId(node.id), []);
+  const closeContextMenu = useCallback(() => setContextMenu({ nodeId: null, x: 0, y: 0 }), []);
   const onPaneClick = useCallback(() => {
     setSelectedNodeId(null);
     closeContextMenu();
@@ -226,11 +221,17 @@ function Canvas() {
     setNodes((nds) => {
       const source = nds.find((n) => n.id === contextMenu.nodeId);
       if (!source) return nds;
+      
+      // FIX 2: Ensure registry is preserved when duplicating nodes
       const duplicate = {
         id: crypto.randomUUID(),
         type: source.type,
         position: { x: source.position.x + 50, y: source.position.y + 50 },
-        data: { label: source.data.label, params: { ...source.data.params } },
+        data: { 
+          label: source.data.label, 
+          params: { ...source.data.params },
+          registry: source.data.registry 
+        },
       };
       return nds.concat(duplicate);
     });
@@ -251,9 +252,7 @@ function Canvas() {
     [setNodes],
   );
 
-  const closeFeedback = () => {
-    setFeedbackDialog((prev) => ({ ...prev, open: false }));
-  };
+  const closeFeedback = () => setFeedbackDialog((prev) => ({ ...prev, open: false }));
 
   const handleClearAll = useCallback(() => {
     setNodes([]);
@@ -264,9 +263,27 @@ function Canvas() {
   }, [setNodes, setEdges]);
 
   const modelSaveHandler = () => {
+    // Bypass the cached Helpers.js entirely and map the payload right here
+    const rawData = reactFlowInstance.toObject();
+    const cleanNodes = rawData.nodes.map((node) => ({
+      id: node.id,
+      type: node.type,
+      position: node.position,
+      data: {
+        params: node.data.params,
+        registry: node.data.registry,
+      },
+    }));
+    
+    const cleanEdges = rawData.edges.map((edge) => ({
+      source: edge.source,
+      target: edge.target,
+    }));
+
     const data = {
       model: {
-        ...generateModelJSON(reactFlowInstance.toObject()),
+        nodes: cleanNodes,
+        edges: cleanEdges,
         model_name: modelName,
       },
       model_name: modelName,
@@ -300,9 +317,7 @@ function Canvas() {
         setFeedbackDialog({
           open: true,
           success: resp.success,
-          message: resp.success
-            ? strings.MODEL_VALIDATION_MODAL_MESSAGE
-            : strings.PROCESS_FAIL_MODEL_MESSAGE,
+          message: resp.success ? strings.MODEL_VALIDATION_MODAL_MESSAGE : strings.PROCESS_FAIL_MODEL_MESSAGE,
           detail: resp.message,
         });
       })
@@ -321,44 +336,34 @@ function Canvas() {
   const onDrop = useCallback(
     (event) => {
       event.preventDefault();
+      const layerKey = event.dataTransfer.getData("application/reactflow");
+      if (typeof layerKey === "undefined" || !layerKey || !layerRegistry[layerKey]) return;
 
-      const reactFlowBounds = reactFlowWrapper.current.getBoundingClientRect();
-      const type = event.dataTransfer.getData("application/reactflow");
-
-      if (typeof type === "undefined" || !type) {
-        return;
-      }
-
-      const position = reactFlowInstance.project({
-        x: event.clientX - reactFlowBounds.left,
-        y: event.clientY - reactFlowBounds.top,
+      const position = reactFlowInstance.screenToFlowPosition({
+        x: event.clientX,
+        y: event.clientY,
       });
 
-      const defaultParams = {
-        custominput: { "dim-1": "", "dim-2": "", "dim-3": "" },
-        customdense: { units: "", activation: "" },
-        customflatten: {},
-        customconv: {
-          filter: "",
-          padding: "valid",
-          activation: "none",
-          strideX: "",
-          strideY: "",
-          kernelX: "",
-          kernelY: "",
-        },
-      };
+      const layerConfig = layerRegistry[layerKey];
+      const defaultParams = {};
+      Object.entries(layerConfig.params || {}).forEach(([key, paramConfig]) => {
+        defaultParams[key] = paramConfig.default !== undefined ? paramConfig.default : "";
+      });
 
       const newNode = {
         id: crypto.randomUUID(),
-        type,
+        type: "genericLayer",
         position,
-        data: { label: `${type} node`, params: defaultParams[type] || {} },
+        data: {
+          label: layerConfig.display_name,
+          params: defaultParams,
+          registry: layerConfig
+        },
       };
 
       setNodes((nds) => nds.concat(newNode));
     },
-    [reactFlowInstance, setNodes],
+    [reactFlowInstance, setNodes, layerRegistry],
   );
 
   return (
@@ -391,7 +396,10 @@ function Canvas() {
       </Dialog>
       <div className="flex gap-4">
         <ReactFlowProvider>
-          <Sidebar />
+          {/* YOUR dynamic sidebar */}
+          <Sidebar registry={layerRegistry} />
+          
+          {/* THEIR new layout wrappers and Clear All button */}
           <div className="flex flex-col flex-1 gap-2">
             <div className="flex justify-end">
               <Button
@@ -439,12 +447,7 @@ function Canvas() {
             </div>
           </div>
           {contextMenu.nodeId && (
-            <ContextMenu
-              x={contextMenu.x}
-              y={contextMenu.y}
-              onDuplicate={duplicateNode}
-              onClose={closeContextMenu}
-            />
+            <ContextMenu x={contextMenu.x} y={contextMenu.y} onDuplicate={duplicateNode} onClose={closeContextMenu} />
           )}
           <div className="w-72 shrink-0">
             <NodePropertiesPanel

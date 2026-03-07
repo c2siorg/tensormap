@@ -22,8 +22,18 @@ from app.services.deep_learning import (
 from app.shared.logging_config import get_logger
 
 logger = get_logger(__name__)
-
 router = APIRouter(tags=["deep-learning"])
+
+# MODULE-LEVEL CACHING: Read the registry once when the server boots, not on every request.
+try:
+    with open(LAYER_REGISTRY_LOCATION, "r") as f:
+        _LAYER_REGISTRY = json.load(f)
+except FileNotFoundError:
+    _LAYER_REGISTRY = None
+    logger.critical("Failed to load layer registry on startup: File not found at %s", LAYER_REGISTRY_LOCATION)
+except json.JSONDecodeError as e:
+    _LAYER_REGISTRY = None
+    logger.critical("Failed to load layer registry on startup. Malformed JSON at %s: %s", LAYER_REGISTRY_LOCATION, e)
 
 
 @router.post("/model/validate")
@@ -104,15 +114,16 @@ async def get_model_list(
 
 @router.get("/layers")
 async def get_layer_registry():
-    """Return the data-driven layer registry for dynamic UI generation."""
+    """
+    Return the data-driven layer registry for dynamic UI generation.
+    NOTE: Public endpoint — no auth required by design (layer schema is non-sensitive and needed for UI rendering).
+    """
     logger.info("Fetching unified layer registry")
-    try:
-        with open(LAYER_REGISTRY_LOCATION, "r") as f:
-            registry = json.load(f)
-        return JSONResponse(status_code=200, content={"success": True, "data": registry})
-    except FileNotFoundError:
-        logger.error("Layer registry not found at %s", LAYER_REGISTRY_LOCATION)
+    
+    if _LAYER_REGISTRY is None:
         return JSONResponse(
-            status_code=500, 
-            content={"success": False, "message": "Unified layer registry missing from server."}
+            status_code=500,
+            content={"success": False, "message": "Unified layer registry is missing or corrupted on the server."}
         )
+        
+    return JSONResponse(status_code=200, content={"success": True, "data": _LAYER_REGISTRY})

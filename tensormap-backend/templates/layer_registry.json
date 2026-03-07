@@ -2,9 +2,17 @@
   "layers": {
     "input": {
       "display_name": "Input",
+      "description": "The entry point for the neural network, defining the shape of the incoming data.",
       "category": "core",
-      "keras_mapping": "tf.keras.layers.InputLayer",
-      "params": {}
+      "keras_mapping": "tf.keras.Input",
+      "params": {
+        "input_shape": {
+          "type": "string",
+          "default": "28,28,1",
+          "required": true,
+          "description": "Comma-separated dimensions, e.g. '28,28,1'"
+        }
+      }
     },
     "dense": {
       "display_name": "Dense",
@@ -23,12 +31,15 @@
     },
     "conv2d": {
       "display_name": "Conv2D",
+      "description": "2D convolution layer (e.g. spatial convolution over images).",
       "category": "convolutional",
       "keras_mapping": "tf.keras.layers.Conv2D",
       "params": {
-        "filters": { "type": "number", "default": 32, "min": 1, "required": true },
-        "kernel_size": { "type": "string", "default": "3,3", "required": true },
-        "activation": { "type": "select", "options": ["relu", "sigmoid", "softmax", "linear"], "default": "relu", "required": false }
+        "filters": { "type": "number", "default": 32, "min": 1, "required": true, "description": "The dimensionality of the output space." },
+        "kernel_size": { "type": "string", "default": "3,3", "required": true, "description": "Height and width of the 2D convolution window." },
+        "strides": { "type": "string", "default": "1,1", "required": false, "description": "The strides of the convolution along the height and width." },
+        "padding": { "type": "select", "options": ["valid", "same"], "default": "valid", "required": false, "description": "Padding method: 'valid' or 'same'." },
+        "activation": { "type": "select", "options": ["relu", "sigmoid", "softmax", "linear"], "default": "relu", "required": false, "description": "Activation function to use." }
       }
     }
   }

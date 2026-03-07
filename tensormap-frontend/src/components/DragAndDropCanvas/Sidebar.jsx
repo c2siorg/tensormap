@@ -8,11 +8,14 @@ function Sidebar({ registry }) {
     event.dataTransfer.effectAllowed = "move";
   };
 
-  const getBorderColor = (category) => {
+  const getCategoryColor = (category) => {
     switch (category) {
-      case "core": return "border-l-blue-600";
-      case "convolutional": return "border-l-green-600";
-      default: return "border-l-slate-600";
+      case "core":
+        return "bg-blue-600 border-blue-700";
+      case "convolutional":
+        return "bg-green-600 border-green-700";
+      default:
+        return "bg-slate-600 border-slate-700";
     }
   };
 
@@ -22,23 +25,33 @@ function Sidebar({ registry }) {
         <CardTitle className="text-sm">Layers</CardTitle>
       </CardHeader>
       <CardContent className="space-y-2">
-        {Object.entries(registry || {}).map(([layerKey, config]) => (
-          <div
-            key={layerKey}
-            className={`cursor-grab rounded-md border border-l-4 ${getBorderColor(config.category)} bg-white px-3 py-2 text-xs font-medium`}
-            onDragStart={(e) => onDragStart(e, layerKey)}
-            draggable
-          >
-            {config.display_name}
-          </div>
-        ))}
+        {Object.keys(registry || {}).length === 0 ? (
+          <p className="text-xs text-muted-foreground">Loading layers...</p>
+        ) : (
+          Object.entries(registry).map(([layerKey, config]) => (
+            <div
+              key={layerKey}
+              className={`cursor-grab rounded border px-3 py-2 text-sm text-white shadow-sm active:cursor-grabbing ${getCategoryColor(config.category)}`}
+              onDragStart={(event) => onDragStart(event, layerKey, config)}
+              draggable
+            >
+              {config.display_name}
+            </div>
+          ))
+        )}
       </CardContent>
     </Card>
   );
 }
 
 Sidebar.propTypes = {
-  registry: PropTypes.object.isRequired,
+  registry: PropTypes.objectOf(
+    PropTypes.shape({
+      display_name: PropTypes.string.isRequired,
+      category: PropTypes.string.isRequired,
+      params: PropTypes.object,
+    }),
+  ).isRequired,
 };
 
 export default Sidebar;

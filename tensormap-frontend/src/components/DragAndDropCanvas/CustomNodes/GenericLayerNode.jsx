@@ -17,8 +17,7 @@ function GenericLayerNode({ data, id }) {
   const displayName = registry?.display_name || data?.label || "Unknown Layer";
   const categoryColor = getCategoryColor(registry?.category);
 
-  // Determine if this is an input layer (case-insensitive for safety)
-  const isInput = displayName.toLowerCase().includes("input");
+  const isInput = registry?.is_source_only === true;
   const summary = Object.entries(params || {})
     .filter(([, val]) => val !== "" && val !== null && val !== undefined)
     .map(([key, val]) => `${key}: ${val}`)
@@ -44,9 +43,9 @@ function GenericLayerNode({ data, id }) {
 
 GenericLayerNode.propTypes = {
   data: PropTypes.shape({
-    params: PropTypes.object.isRequired,
+    label: PropTypes.string,
+    params: PropTypes.object,
     registry: PropTypes.object,
-    label: PropTypes.string, // Added to silence prop-types warnings on older nodes
   }).isRequired,
   id: PropTypes.string.isRequired,
 };

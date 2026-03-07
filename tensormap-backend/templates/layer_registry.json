@@ -3,6 +3,7 @@
     "input": {
       "display_name": "Input",
       "category": "core",
+      "is_source_only": true,
       "keras_mapping": "tf.keras.layers.InputLayer",
       "params": {
         "dim_1": { "type": "number", "default": 28, "min": 1, "required": true },
@@ -16,7 +17,7 @@
       "keras_mapping": "tf.keras.layers.Dense",
       "params": {
         "units": { "type": "number", "default": 32, "min": 1, "required": true },
-        "activation": { "type": "select", "options": ["relu", "sigmoid", "softmax", "linear"], "default": "relu", "required": false }
+        "activation": { "type": "select", "options": ["relu", "sigmoid", "softmax", "linear", "tanh"], "default": "relu", "required": false }
       }
     },
     "flatten": {
@@ -31,7 +32,8 @@
       "keras_mapping": "tf.keras.layers.Conv2D",
       "params": {
         "filters": { "type": "number", "default": 32, "min": 1, "required": true },
-        "kernel_size": { "type": "string", "default": "3,3", "required": true },
+        "kernel_size_rows": { "type": "number", "default": 3, "min": 1, "required": true, "description": "Kernel rows" },
+        "kernel_size_cols": { "type": "number", "default": 3, "min": 1, "required": true, "description": "Kernel columns" },
         "activation": { "type": "select", "options": ["relu", "sigmoid", "softmax", "linear"], "default": "relu", "required": false }
       }
     }

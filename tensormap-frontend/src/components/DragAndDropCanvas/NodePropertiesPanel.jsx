@@ -49,17 +49,26 @@ function NodePropertiesPanel({
   const registry = data.registry || {};
 
   // Safely update parameters, casting to number if required by the API
-const updateParam = (name, value, expectedType) => {
+  const updateParam = (name, value, expectedType) => {
     let parsedValue = value;
-    if (expectedType === "number" || expectedType === "int" || expectedType === "float") {
-      parsedValue = value === "" ? "" : Number(value);
+    if (["number", "int", "float"].includes(expectedType)) {
+      if (value === "") {
+        parsedValue = "";
+      } else {
+        const num = Number(value);
+        if (isNaN(num)) return;
+        parsedValue = num;
+      }
     }
     onNodeUpdate(id, { ...params, [name]: parsedValue });
   };
 
   // Helper to make parameter keys look nice (e.g., 'dim-1' -> 'Dim 1')
   const formatLabel = (str) => {
-    const spaced = str.replace(/-/g, " ").replace(/([A-Z])/g, " $1");
+    const spaced = str
+      .replace(/_/g, " ")
+      .replace(/-/g, " ")
+      .replace(/([A-Z])/g, " $1");
     return spaced.charAt(0).toUpperCase() + spaced.slice(1);
   };
 
@@ -80,7 +89,10 @@ const updateParam = (name, value, expectedType) => {
 
             return (
               <div key={paramKey} className="space-y-1">
-                <Label>{formatLabel(paramKey)}</Label>
+                <Label>
+                  {formatLabel(paramKey)}
+                  {paramConfig.required && <span className="text-destructive ml-1">*</span>}
+                </Label>
                 
                 {isSelect ? (
                   <Select
@@ -100,7 +112,13 @@ const updateParam = (name, value, expectedType) => {
                   </Select>
                 ) : (
                   <Input
-                    type={paramConfig.type === "int" || paramConfig.type === "float" ? "number" : "text"}
+                    type={
+                      ["number", "int", "float"].includes(paramConfig.type)
+                        ? "number"
+                        : "text"
+                    }
+                    min={paramConfig.min}
+                    max={paramConfig.max}
                     placeholder={`Enter ${formatLabel(paramKey)}`}
                     value={currentValue}
                     onChange={(e) => updateParam(paramKey, e.target.value, paramConfig.type)}

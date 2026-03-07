@@ -115,7 +115,7 @@ def get_model_list(
     return JSONResponse(status_code=status_code, content=body)
 
 @router.get("/layers")
-async def get_layer_registry():
+def get_layer_registry():
     """Return the data-driven layer registry for dynamic UI generation."""
     logger.info("Fetching unified layer registry")
     try:
@@ -128,3 +128,4 @@ async def get_layer_registry():
             status_code=500, 
             content={"success": False, "message": "Unified layer registry missing from server."}
         )
+

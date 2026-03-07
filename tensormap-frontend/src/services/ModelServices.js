@@ -2,7 +2,6 @@ import axios from "../shared/Axios";
 import * as urls from "../constants/Urls";
 import * as strings from "../constants/Strings";
 import logger from "../shared/logger";
-import { BACKEND_GET_LAYERS } from "../constants/Urls";
 
 /**
  * Sends a model graph and training config to the backend for validation.
@@ -156,10 +155,10 @@ export const runModel = async (modelName, projectId) => {
 
 export const getLayerRegistry = async () => {
   try {
-    const resp = await axios.get(BACKEND_GET_LAYERS);
+    const resp = await axios.get(urls.BACKEND_GET_LAYERS);
     return resp.data?.data?.layers || {};
   } catch (err) {
-    console.error("Failed to fetch layer registry:", err);
+    logger.error("Failed to fetch layer registry:", err);
     return {};
   }
 };

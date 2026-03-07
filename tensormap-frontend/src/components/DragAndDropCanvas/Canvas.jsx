@@ -294,8 +294,6 @@ function Canvas() {
   const onDrop = useCallback(
     (event) => {
       event.preventDefault();
-
-      // const reactFlowBounds = reactFlowWrapper.current.getBoundingClientRect();
       const layerKey = event.dataTransfer.getData("application/reactflow");
 
       if (typeof layerKey === "undefined" || !layerKey || !layerRegistry[layerKey]) {

@@ -107,6 +107,7 @@ class TrainingConfigRequest(BaseModel):
     optimizer: str = Field(min_length=1)
     metric: str = Field(min_length=1)
     epochs: int = Field(gt=0)
+    batch_size: int = Field(default=32, gt=0)
     project_id: uuid_pkg.UUID | None = None
     loss: LossFunction = "sparse_categorical_crossentropy"
 

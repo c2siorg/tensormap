@@ -29,6 +29,7 @@ class ModelBasic(SQLModel, table=True):
     optimizer: str | None = Field(default=None, max_length=50, nullable=True)
     metric: str | None = Field(default=None, max_length=50, nullable=True)
     epochs: int | None = Field(default=None, nullable=True)
+    batch_size: int | None = Field(default=None, nullable=True)
     loss: str | None = Field(default=None, max_length=50, nullable=True)
     created_on: datetime | None = Field(default=None, sa_column=Column(DateTime, server_default=func.now()))
     updated_on: datetime | None = Field(

@@ -25,10 +25,10 @@ export const validateModel = async (data) =>
     });
 
 /**
- * Fetches the list of validated model names, optionally scoped to a project.
+ * Fetches the list of validated model objects, optionally scoped to a project.
  *
  * @param {string} [projectId]
- * @returns {Promise<string[]>} Array of model name strings.
+ * @returns {Promise<Array<{ id: number, model_name: string }>>} Array of model objects.
  */
 export const getAllModels = async (projectId) => {
   const params = projectId ? { project_id: projectId } : {};
@@ -45,6 +45,24 @@ export const getAllModels = async (projectId) => {
       throw err;
     });
 };
+
+/**
+ * Deletes a saved model by its database ID.
+ *
+ * @param {number} modelId
+ * @returns {Promise<{ success: boolean, message: string }>}
+ */
+export const deleteModel = async (modelId) =>
+  axios
+    .delete(`${urls.BACKEND_DELETE_MODEL}/${modelId}`)
+    .then((resp) => resp.data)
+    .catch((err) => {
+      logger.error(err);
+      if (err.response && err.response.data) {
+        return err.response.data;
+      }
+      return { success: false, message: "Unknown error occurred" };
+    });
 
 /**
  * Downloads the generated Python training script for a model.

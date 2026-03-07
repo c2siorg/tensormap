@@ -6,6 +6,30 @@ from app.services.deep_learning import run_code_service
 from app.services.model_run import model_run
 from app.shared.enums import ProblemType
 
+import typing
+from pydantic import ValidationError
+from app.schemas.deep_learning import LossFunction, TrainingConfigRequest
+from app.services.model_run import _LOSS_FACTORIES
+
+def test_loss_function_literal_matches_mapping():
+    """Ensure the Pydantic schema and the instantiation dictionary never diverge."""
+    literal_values = set(typing.get_args(LossFunction))
+    assert literal_values == set(_LOSS_FACTORIES.keys()), "loss_mapping out of sync with schema"
+
+def test_invalid_loss_raises_validation_error():
+    """Ensure invalid loss names are rejected by Pydantic at the boundary."""
+    with pytest.raises(ValidationError):
+        TrainingConfigRequest(
+            model_name="test",
+            file_id="12345678-1234-5678-1234-567812345678",
+            training_split=80,
+            problem_type_id=1,
+            optimizer="adam",
+            metric="accuracy",
+            epochs=10,
+            loss="invalid_made_up_loss_function"
+        )
+
 
 def _make_model_config(problem_type: int = ProblemType.CLASSIFICATION) -> MagicMock:
     cfg = MagicMock()
@@ -84,3 +108,4 @@ class TestRunCodeServiceOnFailure:
             result, _ = run_code_service(db, "my_model")
 
         assert result["success"] is False
+

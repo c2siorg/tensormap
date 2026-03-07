@@ -35,9 +35,11 @@ class CodeConfig(BaseModel):
 # --- "model" (ReactFlow graph) sub-models ---
 class NodeData(BaseModel):
     """Per-node parameters from the ReactFlow canvas."""
-    
+
     params: dict[str, Any]  # varies per node type; validated downstream by model_generation + TensorFlow
-    registry: dict[str, Any] | None = None  # <--- THE GOLDEN TICKET
+    # The client-sent layer registry contract from layer_registry.json.
+    # Enables the dynamic backend generator to resolve Keras class names safely.
+    registry: dict[str, Any] | None = None
 
 class GraphNode(BaseModel):
     """A single node in the ReactFlow model graph."""

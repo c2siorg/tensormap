@@ -1,16 +1,21 @@
 """Convert a ReactFlow graph into a Keras-compatible JSON model definition."""
 
+import functools
 import json
 import os
 from collections import defaultdict
+
 import tensorflow as tf
+
 from app.shared.logging_config import get_logger
 from app.shared.constants import TEMPLATE_ROOT
 
 logger = get_logger(__name__)
 
+
+@functools.lru_cache(maxsize=1)
 def _get_server_registry() -> dict:
-    """Securely load the Single Source of Truth from the server disk."""
+    """Load registry once; cached for the process lifetime."""
     registry_path = os.path.join(TEMPLATE_ROOT, "layer_registry.json")
     try:
         with open(registry_path, "r") as f:
@@ -103,9 +108,8 @@ def model_generation(model_params: dict) -> dict:
         return json.loads(model.to_json())
 
     except Exception as e:
-        # FIX: Replaced print/traceback with production-safe logger
         logger.exception("Crash detected in model generation.")
-        raise e
+        raise
 
 def _build_secure_layer(node: dict, input_tensor, server_registry: dict):
     """Securely instantiate a Keras layer using only server-side configuration."""
@@ -137,19 +141,34 @@ def _build_secure_layer(node: dict, input_tensor, server_registry: dict):
 
     # 2. Extract trusted class name
     keras_mapping = server_layer_config.get("keras_mapping")
+    if not keras_mapping:
+        raise ValueError(
+            f"Server registry entry for '{client_display_name}' is missing a 'keras_mapping'. "
+            "Please fix layer_registry.json."
+        )
+
     class_name = keras_mapping.split(".")[-1]
-    
-    try:
-        layer_class = getattr(tf.keras.layers, class_name)
-    except AttributeError:
-        raise ValueError(f"Invalid Keras layer class mapped on server: {class_name}")
+    layer_class = getattr(tf.keras.layers, class_name, getattr(tf.keras, class_name, None))
+
+    if not layer_class:
+        raise ValueError(f"Keras layer class '{class_name}' could not be resolved.")
 
     # 3. Securely inject parameters (Only allow parameters defined in the server JSON)
     allowed_params = server_layer_config.get("params", {})
     kwargs = {"name": name}
     
     for key, value in params.items():
-        if key in allowed_params: # Security Check: Is this a permitted parameter?
+        if key in allowed_params:  # Security Check: Is this a permitted parameter?
+            param_schema = allowed_params[key]
+
+            # Explicitly validate 'select' options from the trusted schema.
+            if param_schema.get("type") == "select" and "options" in param_schema:
+                if value not in param_schema["options"]:
+                    raise ValueError(
+                        f"Invalid value '{value}' for param '{key}'. "
+                        f"Allowed: {param_schema['options']}"
+                    )
+
             if isinstance(value, str) and "," in value:
                 kwargs[key] = tuple(int(x.strip()) for x in value.split(","))
             else:

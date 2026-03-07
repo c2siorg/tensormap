@@ -1,3 +1,20 @@
+import typing
+import tensorflow as tf
+from app.schemas.deep_learning import LossFunction
+
+# Module level lazy instantiation to save memory
+_LOSS_FACTORIES = {
+    "sparse_categorical_crossentropy": lambda fl: tf.keras.losses.SparseCategoricalCrossentropy(from_logits=fl),
+    "categorical_crossentropy":        lambda fl: tf.keras.losses.CategoricalCrossentropy(from_logits=fl),
+    "binary_crossentropy":             lambda fl: tf.keras.losses.BinaryCrossentropy(from_logits=fl),
+    "mean_squared_error":              lambda _:  tf.keras.losses.MeanSquaredError(),
+    "mean_absolute_error":             lambda _:  tf.keras.losses.MeanAbsoluteError(),
+    "huber":                           lambda _:  tf.keras.losses.Huber(),
+}
+
+# Module-level safety check to ensure our dictionary stays in sync with Pydantic
+assert set(_LOSS_FACTORIES.keys()) == set(typing.get_args(LossFunction)), "Loss mapping is out of sync with schema"
+
 import asyncio
 import os
 
@@ -177,10 +194,14 @@ def _run(model_name: str, db: Session) -> None:
         json_string = f.read()
     model = tf.keras.models.model_from_json(json_string, custom_objects=None)
     model.summary()
-    if model_configs.loss == "sparse_categorical_crossentropy":
-        loss = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
-    else:
-        loss = tf.keras.losses.MeanSquaredError()
+
+    # Dynamically determine if the last layer outputs raw logits or probabilities
+    last_activation = model.layers[-1].get_config().get("activation", "linear")
+    from_logits = last_activation not in ("softmax", "sigmoid")
+
+    # Instantiate only the specific loss function needed
+    loss = _LOSS_FACTORIES[model_configs.loss](from_logits)
+
     model.compile(
         optimizer=model_configs.optimizer,
         loss=loss,
@@ -206,3 +227,4 @@ def _run(model_name: str, db: Session) -> None:
             verbose=0,
         )
         model.evaluate(x_testing, y_testing, callbacks=[CustomProgressBar()], verbose=0)
+

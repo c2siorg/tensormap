@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useParams } from "react-router-dom";
 import io from "socket.io-client";
 import { useRecoilState } from "recoil";
@@ -9,8 +9,6 @@ import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
-  SelectGroup,
-  SelectLabel,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -28,13 +26,26 @@ import {
 import { getAllFiles } from "../../services/FileServices";
 import { models as modelListAtom } from "../../shared/atoms";
 
+const PROBLEM_TYPE = Object.freeze({
+  BINARY_CLASSIFICATION: "1",
+  REGRESSION: "2",
+  MULTI_CLASS_CLASSIFICATION: "3",
+});
+
+const DEFAULT_LOSS_BY_PROBLEM_TYPE = {
+  [PROBLEM_TYPE.BINARY_CLASSIFICATION]: "sparse_categorical_crossentropy",
+  [PROBLEM_TYPE.MULTI_CLASS_CLASSIFICATION]: "sparse_categorical_crossentropy",
+  [PROBLEM_TYPE.REGRESSION]: "mean_squared_error",
+};
+
+// Cleaned up options (removed opaque 'key' property)
 const lossOptions = [
-  { type: "classification", key: "loss_1", label: "Sparse Categorical Crossentropy", value: "sparse_categorical_crossentropy" },
-  { type: "classification", key: "loss_2", label: "Categorical Crossentropy", value: "categorical_crossentropy" },
-  { type: "classification", key: "loss_3", label: "Binary Crossentropy", value: "binary_crossentropy" },
-  { type: "regression", key: "loss_4", label: "Mean Squared Error", value: "mean_squared_error" },
-  { type: "regression", key: "loss_5", label: "Mean Absolute Error", value: "mean_absolute_error" },
-  { type: "regression", key: "loss_6", label: "Huber", value: "huber" },
+  { type: "classification", label: "Sparse Categorical Crossentropy", value: "sparse_categorical_crossentropy" },
+  { type: "classification", label: "Categorical Crossentropy",        value: "categorical_crossentropy" },
+  { type: "classification", label: "Binary Crossentropy",             value: "binary_crossentropy" },
+  { type: "regression",     label: "Mean Squared Error",              value: "mean_squared_error" },
+  { type: "regression",     label: "Mean Absolute Error",             value: "mean_absolute_error" },
+  { type: "regression",     label: "Huber",                           value: "huber" },
 ];
 
 const optimizerOptions = [
@@ -79,6 +90,20 @@ export default function Training() {
     training_split: "",
     loss: "",
   });
+
+  const visibleLossOptions = useMemo(() => {
+    if (
+      [PROBLEM_TYPE.BINARY_CLASSIFICATION, PROBLEM_TYPE.MULTI_CLASS_CLASSIFICATION].includes(
+        trainingConfig.problem_type_id,
+      )
+    ) {
+      return lossOptions.filter((o) => o.type === "classification");
+    }
+    if (trainingConfig.problem_type_id === PROBLEM_TYPE.REGRESSION) {
+      return lossOptions.filter((o) => o.type === "regression");
+    }
+    return lossOptions; // Show all if no problem type is selected yet
+  }, [trainingConfig.problem_type_id]);
 
   useEffect(() => {
     const socket = io(urls.WS_DL_RESULTS, {
@@ -320,16 +345,8 @@ export default function Training() {
                 <Label>Problem Type</Label>
                 <Select
                   onValueChange={(v) => {
-                    // Auto-select default loss based on problem type (1 & 3 = Classification, 2 = Regression)
-                    let defaultLoss = "";
-                    if (v === "1" || v === "3") defaultLoss = "sparse_categorical_crossentropy";
-                    else if (v === "2") defaultLoss = "mean_squared_error";
-                    
-                    setTrainingConfig((prev) => ({ 
-                      ...prev, 
-                      problem_type_id: v,
-                      loss: defaultLoss 
-                    }));
+                    const defaultLoss = DEFAULT_LOSS_BY_PROBLEM_TYPE[v] ?? "";
+                    setTrainingConfig((prev) => ({ ...prev, problem_type_id: v, loss: defaultLoss }));
                   }}
                 >
                   <SelectTrigger>
@@ -373,22 +390,11 @@ export default function Training() {
                     <SelectValue placeholder="Select loss function" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectGroup>
-                      <SelectLabel className="font-bold text-slate-500">Classification</SelectLabel>
-                      {lossOptions.filter(o => o.type === "classification").map((o) => (
-                        <SelectItem key={o.key} value={o.value}>
-                          {o.label}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                    <SelectGroup>
-                      <SelectLabel className="font-bold text-slate-500">Regression</SelectLabel>
-                      {lossOptions.filter(o => o.type === "regression").map((o) => (
-                        <SelectItem key={o.key} value={o.value}>
-                          {o.label}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
+                    {visibleLossOptions.map((o) => (
+                      <SelectItem key={o.value} value={o.value}>
+                        {o.label}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>

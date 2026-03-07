@@ -1,3 +1,20 @@
+import typing
+import tensorflow as tf
+from app.schemas.deep_learning import LossFunction
+
+# Module level lazy instantiation to save memory
+_LOSS_FACTORIES = {
+    "sparse_categorical_crossentropy": lambda fl: tf.keras.losses.SparseCategoricalCrossentropy(from_logits=fl),
+    "categorical_crossentropy":        lambda fl: tf.keras.losses.CategoricalCrossentropy(from_logits=fl),
+    "binary_crossentropy":             lambda fl: tf.keras.losses.BinaryCrossentropy(from_logits=fl),
+    "mean_squared_error":              lambda _:  tf.keras.losses.MeanSquaredError(),
+    "mean_absolute_error":             lambda _:  tf.keras.losses.MeanAbsoluteError(),
+    "huber":                           lambda _:  tf.keras.losses.Huber(),
+}
+
+# Module-level safety check to ensure our dictionary stays in sync with Pydantic
+assert set(_LOSS_FACTORIES.keys()) == set(typing.get_args(LossFunction)), "Loss mapping is out of sync with schema"
+
 import asyncio
 import os
 
@@ -165,21 +182,13 @@ def model_run(model_name: str, db: Session, loop: asyncio.AbstractEventLoop | No
         json_string = f.read()
     model = tf.keras.models.model_from_json(json_string, custom_objects=None)
     model.summary()
-    
-    # Map the string from the database to the actual Keras Loss object
-    loss_mapping = {
-        "sparse_categorical_crossentropy": tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
-        "categorical_crossentropy": tf.keras.losses.CategoricalCrossentropy(from_logits=True),
-        "binary_crossentropy": tf.keras.losses.BinaryCrossentropy(from_logits=True),
-        "mean_squared_error": tf.keras.losses.MeanSquaredError(),
-        "mean_absolute_error": tf.keras.losses.MeanAbsoluteError(),
-        "huber": tf.keras.losses.Huber()
-    }
 
-    if model_configs.loss not in loss_mapping:
-        raise ValueError(f"Invalid or unsupported loss function: {model_configs.loss}")
-        
-    loss = loss_mapping[model_configs.loss]
+    # Dynamically determine if the last layer outputs raw logits or probabilities
+    last_activation = model.layers[-1].get_config().get("activation", "linear")
+    from_logits = last_activation not in ("softmax", "sigmoid")
+
+    # Instantiate only the specific loss function needed
+    loss = _LOSS_FACTORIES[model_configs.loss](from_logits)
 
     model.compile(
         optimizer=model_configs.optimizer,
@@ -205,3 +214,4 @@ def model_run(model_name: str, db: Session, loop: asyncio.AbstractEventLoop | No
             verbose=0,
         )
         model.evaluate(x_testing, y_testing, callbacks=[CustomProgressBar()], verbose=0)
+

@@ -26,12 +26,12 @@ class DatasetConfig(BaseModel):
 
 class DLModelConfig(BaseModel):
     """Training hyperparameters (optimizer, metric, epochs)."""
-
+    
     model_name: str = Field(min_length=1)
     optimizer: str = Field(min_length=1)
     metric: str = Field(min_length=1)
     epochs: int = Field(gt=0)
-    loss: LossFunction
+    loss: LossFunction = "sparse_categorical_crossentropy"
 
 
 class CodeConfig(BaseModel):
@@ -98,7 +98,7 @@ class ModelSaveRequest(BaseModel):
 
 class TrainingConfigRequest(BaseModel):
     """Request body for setting training configuration on a saved model."""
-
+    
     model_name: str = Field(min_length=1)
     file_id: uuid_pkg.UUID
     target_field: str | None = None
@@ -107,5 +107,6 @@ class TrainingConfigRequest(BaseModel):
     optimizer: str = Field(min_length=1)
     metric: str = Field(min_length=1)
     epochs: int = Field(gt=0)
-    loss: LossFunction
     project_id: uuid_pkg.UUID | None = None
+    loss: LossFunction = "sparse_categorical_crossentropy"
+

@@ -1,5 +1,5 @@
 import uuid as uuid_pkg
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import func
@@ -35,8 +35,12 @@ def create_project_service(db: Session, data: ProjectCreateRequest) -> tuple:
                 "id": str(project.id),
                 "name": project.name,
                 "description": project.description,
-                "created_on": project.created_on.isoformat() if project.created_on else None,
-                "updated_on": project.updated_on.isoformat() if project.updated_on else None,
+                "created_on": project.created_on.replace(tzinfo=UTC).isoformat()
+                if project.created_on
+                else None,
+                "updated_on": project.updated_on.replace(tzinfo=UTC).isoformat()
+                if project.updated_on
+                else None,
             },
         )
     except Exception:
@@ -73,8 +77,8 @@ def get_all_projects_service(db: Session, offset: int = 0, limit: int = 50) -> t
                 "id": str(row.id),
                 "name": row.name,
                 "description": row.description,
-                "created_on": row.created_on.isoformat() if row.created_on else None,
-                "updated_on": row.updated_on.isoformat() if row.updated_on else None,
+                "created_on": row.created_on.replace(tzinfo=UTC).isoformat() if row.created_on else None,
+                "updated_on": row.updated_on.replace(tzinfo=UTC).isoformat() if row.updated_on else None,
                 "file_count": row.file_count,
                 "model_count": row.model_count,
             }
@@ -102,8 +106,12 @@ def get_project_by_id_service(db: Session, project_id: uuid_pkg.UUID) -> tuple:
                 "id": str(project.id),
                 "name": project.name,
                 "description": project.description,
-                "created_on": project.created_on.isoformat() if project.created_on else None,
-                "updated_on": project.updated_on.isoformat() if project.updated_on else None,
+                "created_on": project.created_on.replace(tzinfo=UTC).isoformat()
+                if project.created_on
+                else None,
+                "updated_on": project.updated_on.replace(tzinfo=UTC).isoformat()
+                if project.updated_on
+                else None,
             },
         )
     except Exception:
@@ -135,8 +143,12 @@ def update_project_service(db: Session, project_id: uuid_pkg.UUID, data: Project
                 "id": str(project.id),
                 "name": project.name,
                 "description": project.description,
-                "created_on": project.created_on.isoformat() if project.created_on else None,
-                "updated_on": project.updated_on.isoformat() if project.updated_on else None,
+                "created_on": project.created_on.replace(tzinfo=UTC).isoformat()
+                if project.created_on
+                else None,
+                "updated_on": project.updated_on.replace(tzinfo=UTC).isoformat()
+                if project.updated_on
+                else None,
             },
         )
     except Exception:

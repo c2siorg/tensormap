@@ -1,6 +1,6 @@
 import { useRecoilState } from "recoil";
 import { useParams } from "react-router-dom";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { Card, CardHeader, CardTitle, CardContent } from "../../components/ui/card";
 import ColumnStatsPanel from "../../components/Process/ColumnStatsPanel";
 import DisplayDataset from "../../components/Process/DisplayDataset";
 import SelectFileModal from "../../components/Process/SelectFileModal";

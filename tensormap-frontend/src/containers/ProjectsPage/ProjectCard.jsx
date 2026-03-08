@@ -6,8 +6,8 @@ import {
   CardDescription,
   CardContent,
   CardFooter,
-} from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+} from "../../components/ui/card";
+import { Badge } from "../../components/ui/badge";
 import { FileText, Brain } from "lucide-react";
 
 export default function ProjectCard({ project }) {

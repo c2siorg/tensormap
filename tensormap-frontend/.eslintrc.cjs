@@ -23,5 +23,9 @@ module.exports = {
       files: ["**/*.test.js", "**/*.test.jsx", "**/*.spec.js", "**/*.spec.jsx"],
       env: { jest: true },
     },
+    {
+      files: ["postcss.config.js"],
+      env: { node: true },
+    },
   ],
 };

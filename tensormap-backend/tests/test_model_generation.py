@@ -9,11 +9,12 @@ Covers:
 """
 
 import json
+import re
 
 import pytest
 import tensorflow as tf
 
-from app.services.model_generation import _build_layer, model_generation
+from app.services.model_generation import ModelValidationError, _build_layer, model_generation
 
 # ---------------------------------------------------------------------------
 # Node / edge builder helpers
@@ -117,7 +118,7 @@ class TestBuildLayer:
     def test_unknown_node_type_raises_value_error(self):
         input_t = tf.keras.Input(shape=(5,), name="inp")
         node = {"id": "x", "type": "custom_unknown", "data": {"params": {}}}
-        with pytest.raises(ValueError, match="Unknown node type"):
+        with pytest.raises(ModelValidationError, match="Unknown node type"):
             _build_layer(node, input_t)
 
 
@@ -218,18 +219,18 @@ class TestModelGeneration:
         assert len(model.outputs) == 2
 
     def test_single_input_no_edges(self):
-        """A graph with only an input node and no edges cannot form a valid Keras
-        model — the input tensor is also the output tensor, which Keras 3's
-        Functional API rejects with ValueError."""
+        """A graph with only an input node and no edges should return a valid model."""
         params = {
             "nodes": [_input_node("solo", [4])],
             "edges": [],
         }
-        with pytest.raises(ValueError):
-            model_generation(params)
+        result = model_generation(params)
+        model = tf.keras.models.model_from_json(json.dumps(result))
+        assert model.input_shape == (None, 4)
+        assert model.output_shape == (None, 4)
 
     def test_unknown_layer_type_raises_value_error(self):
-        """An unsupported node type in the graph must propagate a ValueError."""
+        """An unsupported node type in the graph must raise ModelValidationError."""
         params = {
             "nodes": [
                 _input_node("x", [5]),
@@ -237,7 +238,7 @@ class TestModelGeneration:
             ],
             "edges": [_edge("x", "bad")],
         }
-        with pytest.raises(ValueError, match="Unknown node type"):
+        with pytest.raises(ModelValidationError, match="Unknown node type"):
             model_generation(params)
 
     def test_output_is_json_serialisable(self):
@@ -308,3 +309,116 @@ class TestMaxPoolingLayer:
         result = model_generation(params)
         model = tf.keras.models.model_from_json(json.dumps(result))
         assert model.output_shape == (None, 10)
+
+
+class TestModelValidationErrors:
+    """Focused tests for user-facing validation error messages."""
+
+    def test_missing_input_node_raises_user_friendly_error(self):
+        params = {
+            "nodes": [_dense_node("d1", 8, "relu")],
+            "edges": [],
+        }
+        with pytest.raises(ModelValidationError, match="No Input node found"):
+            model_generation(params)
+
+    def test_unknown_layer_type_raises_user_friendly_error(self):
+        params = {
+            "nodes": [_input_node("x", [8]), {"id": "bad", "type": "customfoo", "data": {"params": {}}}],
+            "edges": [_edge("x", "bad")],
+        }
+        with pytest.raises(ModelValidationError) as exc_info:
+            model_generation(params)
+        msg = str(exc_info.value)
+        assert "Unknown node type" in msg
+        assert "customfoo" in msg
+
+    def test_disconnected_graph_reports_unreachable_nodes(self):
+        params = {
+            "nodes": [_input_node("in", [8]), _dense_node("connected", 4), _dense_node("orphan", 2)],
+            "edges": [_edge("in", "connected")],
+        }
+        with pytest.raises(ModelValidationError) as exc_info:
+            model_generation(params)
+        msg = str(exc_info.value)
+        assert "Disconnected graph detected" in msg
+        assert "orphan" in msg
+
+    def test_edge_with_unknown_source_node_is_rejected(self):
+        params = {
+            "nodes": [_input_node("in", [8]), _dense_node("out", 2)],
+            "edges": [_edge("ghost", "out")],
+        }
+        with pytest.raises(ModelValidationError, match="unknown source node"):
+            model_generation(params)
+
+    def test_edge_with_unknown_target_node_is_rejected(self):
+        params = {
+            "nodes": [_input_node("in", [8])],
+            "edges": [_edge("in", "ghost")],
+        }
+        with pytest.raises(ModelValidationError, match="unknown target node"):
+            model_generation(params)
+
+    def test_invalid_input_dim_non_numeric(self):
+        bad_input = {"id": "in", "type": "custominput", "data": {"params": {"dim-1": "abc", "dim-2": 0, "dim-3": 0}}}
+        params = {"nodes": [bad_input, _dense_node("out", 1)], "edges": [_edge("in", "out")]}
+        with pytest.raises(ModelValidationError, match="dim-1"):
+            model_generation(params)
+
+    def test_dense_invalid_units_non_numeric(self):
+        params = {
+            "nodes": [_input_node("in", [8]), _dense_node("out", "NaN")],
+            "edges": [_edge("in", "out")],
+        }
+        with pytest.raises(ModelValidationError, match="units"):
+            model_generation(params)
+
+    def test_dense_invalid_units_non_positive(self):
+        params = {
+            "nodes": [_input_node("in", [8]), _dense_node("out", 0)],
+            "edges": [_edge("in", "out")],
+        }
+        with pytest.raises(ModelValidationError, match="positive integer"):
+            model_generation(params)
+
+    def test_conv_invalid_padding(self):
+        params = {
+            "nodes": [
+                _input_node("img", [28, 28, 1]),
+                _conv_node("conv", filters=8, kernel=(3, 3), stride=(1, 1), padding="mirror"),
+            ],
+            "edges": [_edge("img", "conv")],
+        }
+        with pytest.raises(ModelValidationError, match="padding"):
+            model_generation(params)
+
+    def test_sanitized_error_message_hides_paths(self, monkeypatch):
+        original_conv2d = tf.keras.layers.Conv2D
+
+        class BrokenConv2D:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def __call__(self, _input_tensor):
+                raise ValueError(
+                    'File "/Users/demo/project/internal.py", line 42 Incompatible shape in layer; '
+                    "see C:\\Users\\demo\\work\\layers.py:88 for details"
+                )
+
+        monkeypatch.setattr(tf.keras.layers, "Conv2D", BrokenConv2D)
+        try:
+            params = {
+                "nodes": [
+                    _input_node("img", [28, 28, 1]),
+                    _conv_node("conv", filters=8, kernel=(3, 3), stride=(1, 1), padding="valid"),
+                ],
+                "edges": [_edge("img", "conv")],
+            }
+            with pytest.raises(ModelValidationError) as exc_info:
+                model_generation(params)
+            msg = str(exc_info.value)
+            assert "Failed to apply Conv2D" in msg
+            assert not re.search(r"(/[^ \n\t]+|[A-Za-z]:\\[^ \n\t]+|\\[^ \n\t]+)", msg)
+        finally:
+            monkeypatch.setattr(tf.keras.layers, "Conv2D", original_conv2d)

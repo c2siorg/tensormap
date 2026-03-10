@@ -1,6 +1,7 @@
 """Convert a ReactFlow graph into a Keras-compatible JSON model definition."""
 
 import json
+import re
 from collections import defaultdict
 
 import tensorflow as tf
@@ -10,6 +11,43 @@ from app.shared.logging_config import get_logger
 logger = get_logger(__name__)
 
 
+class ModelValidationError(ValueError):
+    """User-facing validation error for graph/model issues."""
+
+
+def _sanitize_tf_error(msg: str) -> str:
+    """Strip stack trace and file-system path noise from TensorFlow/Keras errors."""
+    # Remove common Python traceback file references.
+    msg = re.sub(r'File\s+["\'][^"\']+\.py["\'](?:,\s*line\s*\d+)?', "", msg)
+    # Remove stray POSIX/Windows python-file paths with optional line numbers.
+    msg = re.sub(r'(?:[A-Za-z]:)?(?:[\\/][^\s,:"\']+)+\.py(?::\d+)?', "", msg)
+    # Collapse whitespace/newlines introduced by replacements.
+    msg = re.sub(r"\s+", " ", msg).strip(" :-")
+    return msg or "TensorFlow reported an invalid model configuration"
+
+
+def _validate_int_param(node_id: str, param_name: str, raw_value, allow_zero: bool = True) -> int:
+    """Validate integer-like node parameters and raise a user-facing error if invalid."""
+    if raw_value is None or raw_value == "":
+        expected = "a non-negative integer" if allow_zero else "a positive integer"
+        raise ModelValidationError(f"Missing value for '{param_name}' on node '{node_id}': expected {expected}.")
+
+    try:
+        value = int(raw_value)
+    except (TypeError, ValueError):
+        raise ModelValidationError(
+            f"Invalid value for '{param_name}' on node '{node_id}': expected an integer, got '{raw_value}'."
+        ) from None
+
+    if value < 0 or (not allow_zero and value == 0):
+        expected = "a non-negative integer" if allow_zero else "a positive integer"
+        raise ModelValidationError(
+            f"Invalid value for '{param_name}' on node '{node_id}': expected {expected}, got '{value}'."
+        )
+
+    return value
+
+
 def model_generation(model_params: dict) -> dict:
     """Transform ReactFlow nodes and edges into a Keras functional-API JSON structure.
 
@@ -17,29 +55,65 @@ def model_generation(model_params: dict) -> dict:
     it via ``model.to_json()`` so the output always matches the installed
     Keras version's expected format.
     """
-    logger.debug("Generating model from %d nodes, %d edges", len(model_params["nodes"]), len(model_params["edges"]))
+    nodes = model_params.get("nodes", [])
+    edges = model_params.get("edges", [])
+    logger.debug("Generating model from %d nodes, %d edges", len(nodes), len(edges))
+
+    input_nodes = [node for node in nodes if node.get("type") == "custominput"]
+    if not input_nodes:
+        raise ModelValidationError("No Input node found. Add at least one Input node to start the model.")
+
+    # Build node lookup map
+    nodes_by_id = {node["id"]: node for node in nodes}
+    # Pre-validate that all edges reference existing node IDs
+    for edge in edges:
+        source_id = edge.get("source")
+        target_id = edge.get("target")
+        if source_id not in nodes_by_id:
+            raise ModelValidationError(
+                f"Edge references unknown source node id '{source_id}'. Every edge must connect existing nodes."
+            )
+        if target_id not in nodes_by_id:
+            raise ModelValidationError(
+                f"Edge from '{source_id}' references unknown target node id '{target_id}'. "
+                "Every edge must connect existing nodes."
+            )
 
     # Build adjacency maps
     source_to_targets = defaultdict(list)
     target_to_sources = defaultdict(list)
-    for edge in model_params["edges"]:
+    for edge in edges:
         source_to_targets[edge["source"]].append(edge["target"])
         target_to_sources[edge["target"]].append(edge["source"])
-
-    nodes_by_id = {node["id"]: node for node in model_params["nodes"]}
 
     # BFS from input nodes to build Keras layers in topological order
     keras_tensors = {}
     visited = set()
     queue = []
 
-    for node in model_params["nodes"]:
-        if node["type"] == "custominput":
-            dims = [int(node["data"]["params"].get(f"dim-{i + 1}", 0) or 0) for i in range(3)]
-            dims = [d for d in dims if d != 0]
+    for node in input_nodes:
+        params = node.get("data", {}).get("params", {})
+        dims = []
+        for i in range(3):
+            param_name = f"dim-{i + 1}"
+            dim = _validate_int_param(node["id"], param_name, params.get(param_name, 0))
+            if dim != 0:
+                dims.append(dim)
+
+        if not dims:
+            raise ModelValidationError(
+                f"Input node '{node['id']}' has no valid dimensions. Provide at least one non-zero dimension."
+            )
+
+        try:
             keras_tensors[node["id"]] = tf.keras.Input(shape=dims, name=node["id"])
-            visited.add(node["id"])
-            queue.append(node["id"])
+        except Exception as e:
+            raise ModelValidationError(
+                f"Invalid Input configuration on node '{node['id']}': {_sanitize_tf_error(str(e))}"
+            ) from None
+
+        visited.add(node["id"])
+        queue.append(node["id"])
 
     while queue:
         current_id = queue.pop(0)
@@ -64,28 +138,51 @@ def model_generation(model_params: dict) -> dict:
             node = nodes_by_id[target_id]
             keras_tensors[target_id] = _build_layer(node, input_tensor)
 
+    unvisited_ids = [node_id for node_id in nodes_by_id if node_id not in visited]
+    if unvisited_ids:
+        joined = ", ".join(unvisited_ids)
+        raise ModelValidationError(
+            f"Disconnected graph detected: {len(unvisited_ids)} unreachable node(s): {joined}. "
+            "Ensure all nodes are connected to an Input path."
+        )
+
     # Identify input and output tensors
-    inputs = [keras_tensors[n["id"]] for n in model_params["nodes"] if n["type"] == "custominput"]
-    output_ids = [n["id"] for n in model_params["nodes"] if n["id"] not in source_to_targets]
+    inputs = [keras_tensors[n["id"]] for n in input_nodes]
+    output_ids = [node_id for node_id in nodes_by_id if node_id not in source_to_targets]
+    if not output_ids:
+        raise ModelValidationError("No output node found. Add at least one node with no outgoing edges.")
     outputs = [keras_tensors[oid] for oid in output_ids]
 
-    model = tf.keras.Model(inputs=inputs, outputs=outputs)
-    return json.loads(model.to_json())
+    try:
+        model = tf.keras.Model(inputs=inputs, outputs=outputs)
+        return json.loads(model.to_json())
+    except Exception as e:
+        sanitized = _sanitize_tf_error(str(e))
+        hint = ""
+        if any(word in sanitized.lower() for word in ["shape", "incompatible", "rank"]):
+            hint = " If this is a dimension mismatch, add a Flatten layer before Dense or adjust layer shapes."
+        raise ModelValidationError(f"Model validation failed: {sanitized}.{hint}".rstrip()) from None
 
 
 def _build_layer(node: dict, input_tensor):
     """Instantiate a single Keras layer from a ReactFlow node and apply it to the input tensor."""
-    params = node["data"]["params"]
+    params = node.get("data", {}).get("params", {})
     node_type = node["type"]
     name = node["id"]
 
     if node_type == "customdense":
-        activation = params["activation"]
-        return tf.keras.layers.Dense(
-            units=int(params["units"]),
-            activation="linear" if activation == "none" else activation,
-            name=name,
-        )(input_tensor)
+        units = _validate_int_param(name, "units", params.get("units"), allow_zero=False)
+        activation = params.get("activation", "linear")
+        try:
+            return tf.keras.layers.Dense(
+                units=units,
+                activation="linear" if activation == "none" else activation,
+                name=name,
+            )(input_tensor)
+        except Exception as e:
+            raise ModelValidationError(
+                f"Failed to apply Dense on node '{name}': {_sanitize_tf_error(str(e))}"
+            ) from None
 
     elif node_type == "customflatten":
         return tf.keras.layers.Flatten(name=name)(input_tensor)
@@ -103,15 +200,31 @@ def _build_layer(node: dict, input_tensor):
             name=name,
         )(input_tensor)
     elif node_type == "customconv":
-        activation = params["activation"]
-        return tf.keras.layers.Conv2D(
-            filters=int(params["filter"]),
-            kernel_size=(int(params["kernelX"]), int(params["kernelY"])),
-            strides=(int(params["strideX"]), int(params["strideY"])),
-            padding=params["padding"],
-            activation="linear" if activation == "none" else activation,
-            name=name,
-        )(input_tensor)
+        filters = _validate_int_param(name, "filter", params.get("filter"), allow_zero=False)
+        kernel_x = _validate_int_param(name, "kernelX", params.get("kernelX"), allow_zero=False)
+        kernel_y = _validate_int_param(name, "kernelY", params.get("kernelY"), allow_zero=False)
+        stride_x = _validate_int_param(name, "strideX", params.get("strideX"), allow_zero=False)
+        stride_y = _validate_int_param(name, "strideY", params.get("strideY"), allow_zero=False)
+        padding = params.get("padding", "valid")
+        if padding not in {"valid", "same"}:
+            raise ModelValidationError(
+                f"Invalid value for 'padding' on node '{name}': expected 'valid' or 'same', got '{padding}'."
+            )
+        activation = params.get("activation", "linear")
+
+        try:
+            return tf.keras.layers.Conv2D(
+                filters=filters,
+                kernel_size=(kernel_x, kernel_y),
+                strides=(stride_x, stride_y),
+                padding=padding,
+                activation="linear" if activation == "none" else activation,
+                name=name,
+            )(input_tensor)
+        except Exception as e:
+            raise ModelValidationError(
+                f"Failed to apply Conv2D on node '{name}': {_sanitize_tf_error(str(e))}"
+            ) from None
 
     else:
-        raise ValueError(f"Unknown node type: {node_type}")
+        raise ModelValidationError(f"Unknown node type: {node_type}")

@@ -16,9 +16,9 @@ from sqlmodel import Session, select
 
 import app.shared.errors as errors
 from app.models import ModelBasic, ModelConfigs
-from app.services.code_generation import generate_code
-from app.services.model_generation import model_generation
-from app.services.model_run import model_run
+from app.services.code_generation import CodeGenerationError, generate_code
+from app.services.model_generation import ModelValidationError, model_generation
+from app.services.model_run import ModelRunError, model_run
 from app.shared.constants import (
     CODE,
     DATASET,
@@ -113,7 +113,10 @@ def _build_model_summary(keras_model) -> dict:
 
 def model_validate_service(db: Session, incoming: dict, project_id: uuid_pkg.UUID | None = None) -> tuple:
     """Validate a model graph with Keras, persist the configuration, and save the JSON file."""
-    model_generated = model_generation(model_params=incoming["model"])
+    try:
+        model_generated = model_generation(model_params=incoming["model"])
+    except ModelValidationError as e:
+        return _resp(400, False, str(e))
 
     try:
         keras_model = tf.keras.models.model_from_json(json.dumps(model_generated))
@@ -195,7 +198,10 @@ def model_validate_service(db: Session, incoming: dict, project_id: uuid_pkg.UUI
 
 def model_save_service(db: Session, incoming: dict, model_name: str, project_id: uuid_pkg.UUID | None = None) -> tuple:
     """Validate a model graph with Keras and save architecture only (no training config)."""
-    model_generated = model_generation(model_params=incoming)
+    try:
+        model_generated = model_generation(model_params=incoming)
+    except ModelValidationError as e:
+        return _resp(400, False, str(e))
 
     try:
         keras_model = tf.keras.models.model_from_json(json.dumps(model_generated))
@@ -320,6 +326,8 @@ def get_code_service(db: Session, model_name: str, project_id: uuid_pkg.UUID | N
         python_code = generate_code(model_name, db)
     except ValueError as e:
         return _resp(400, False, str(e))
+    except CodeGenerationError as e:
+        return _resp(404, False, str(e))
     return {"content": python_code, "file_name": model_name + ".py"}, 200
 
 
@@ -337,6 +345,9 @@ def run_code_service(db: Session, model_name: str, project_id: uuid_pkg.UUID | N
         model_run(model_name, db, loop=loop)
         logger.info("Model '%s' training completed", model_name)
         return _resp(200, True, "Model executed successfully.")
+    except ModelRunError as e:
+        logger.error("Model run failed: %s", str(e))
+        return _resp(404, False, str(e))
     except Exception as e:
         logger.exception("Model run failed: %s", str(e))
         for error in errors.err_msgs:

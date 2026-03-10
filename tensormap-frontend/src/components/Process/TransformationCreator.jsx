@@ -1,13 +1,13 @@
 import { useEffect, useState } from "react";
 import PropTypes from "prop-types";
-import { Button } from "@/components/ui/button";
+import { Button } from "../../components/ui/button";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select";
+} from "../../components/ui/select";
 
 function TransformationCreator({ features, onAdd }) {
   const transformations = [

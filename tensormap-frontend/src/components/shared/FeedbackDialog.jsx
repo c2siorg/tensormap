@@ -5,8 +5,8 @@ import {
   DialogHeader,
   DialogTitle,
   DialogFooter,
-} from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
+} from "../../components/ui/dialog";
+import { Button } from "../../components/ui/button";
 import { CheckCircle2, AlertCircle } from "lucide-react";
 import * as strings from "../../constants/Strings";
 

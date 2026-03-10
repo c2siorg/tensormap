@@ -56,7 +56,7 @@ describe("useUndoRedo", () => {
   // ---------- basic undo ----------
 
   it("undo restores the previous state", () => {
-    const { result, setNodes, setEdges, nodesRef, edgesRef } = setup(
+    const { result, setNodes, setEdges } = setup(
       [{ id: "b" }],
       [{ id: "e1" }],
     );
@@ -197,7 +197,7 @@ describe("useUndoRedo", () => {
   // ---------- canUndo / canRedo reactive values ----------
 
   it("canUndo and canRedo correctly reflect stack state", async () => {
-    const { result, nodesRef, edgesRef } = setup([{ id: "x" }], []);
+    const { result } = setup([{ id: "x" }], []);
 
     expect(result.current.canUndo).toBe(false);
     expect(result.current.canRedo).toBe(false);
@@ -227,7 +227,7 @@ describe("useUndoRedo", () => {
   // ---------- future cleared even during dedup window ----------
 
   it("clears future stack even when snapshot is deduplicated", () => {
-    const { result, nodesRef, edgesRef } = setup([], []);
+    const { result, nodesRef } = setup([], []);
 
     // Take snapshot and immediately undo
     act(() => {
@@ -305,7 +305,7 @@ describe("useUndoRedo", () => {
   // ---------- undo/redo abort when clone fails ----------
 
   it("undo aborts and returns false when current state cannot be cloned", () => {
-    const { result, nodesRef } = setup([], []);
+    const { result } = setup([], []);
 
     // Take a valid snapshot
     act(() => {

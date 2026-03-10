@@ -199,6 +199,8 @@ function Canvas() {
     event.dataTransfer.dropEffect = "move";
   }, []);
 
+  const nodeCount = nodes.length;
+
   const modelData =
     reactFlowInstance === null ? { nodes: [], edges: [] } : reactFlowInstance.toObject();
 
@@ -353,7 +355,6 @@ function Canvas() {
     [reactFlowInstance, setNodes],
   );
 
-  const nodeCount = nodes.length;
   const handleClearAll = useCallback(() => {
     setNodes([]);
     setEdges([]);
@@ -361,7 +362,7 @@ function Canvas() {
     setSelectedNodeId(null);
     closeContextMenu();
     setClearAllOpen(false);
-  }, [setNodes, setEdges, setModelName, closeContextMenu]);
+  }, [setNodes, setEdges, setModelName, setSelectedNodeId, closeContextMenu]);
 
   return (
     <>
@@ -377,7 +378,8 @@ function Canvas() {
           <DialogHeader>
             <DialogTitle>Clear canvas?</DialogTitle>
             <DialogDescription>
-              This will remove {nodeCount} node{nodeCount === 1 ? "" : "s"} and all edges.
+              This will remove {nodeCount} node{nodeCount === 1 ? "" : "s"} and all edges. This
+              action cannot be undone.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -393,7 +395,7 @@ function Canvas() {
       <div className="flex gap-4">
         <ReactFlowProvider>
           <Sidebar />
-          <div className="h-[62vh] flex-1" ref={reactFlowWrapper}>
+          <div className="min-w-0 h-[62vh] flex-1 rounded-md border" ref={reactFlowWrapper}>
             <ReactFlow
               nodes={nodes}
               edges={edges}
@@ -412,7 +414,8 @@ function Canvas() {
               <Controls />
               <Panel position="top-right" className="flex items-center gap-2">
                 <Button
-                  variant="outline"
+                  variant="destructive"
+                  size="sm"
                   onClick={() => setClearAllOpen(true)}
                   disabled={nodeCount === 0}
                 >

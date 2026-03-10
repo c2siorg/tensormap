@@ -1,7 +1,9 @@
 import contextlib
+import copy
 import json
 import os
 import re
+import sys
 import uuid as uuid_pkg
 from typing import Any
 
@@ -48,6 +50,37 @@ def _sanitize_model_name(name: str) -> str:
     if not name or not re.fullmatch(r"[A-Za-z0-9_\-]+", name):
         raise ValueError(f"Invalid model name: {name!r}. Only alphanumeric, hyphens, and underscores are allowed.")
     return name
+
+
+# Maximum size (in bytes) for the serialised graph JSON stored in the DB.
+_MAX_GRAPH_JSON_BYTES = 512 * 1024  # 512 KB
+
+
+def _extract_graph(payload: dict) -> dict | None:
+    """Extract the graph portion (nodes + edges) from a request payload.
+
+    Both ``model_validate_service`` (which receives the full request body) and
+    ``model_save_service`` (which receives only the ``model`` sub-object) call
+    this helper so that ``graph_json`` always stores the same shape:
+    ``{"nodes": [...], "edges": [...], "model_name": ...}``.
+    """
+    if payload is None:
+        return None
+    # If the payload wraps the graph under a "model" key, unwrap it.
+    if "nodes" not in payload and "model" in payload and isinstance(payload["model"], dict):
+        return payload["model"]
+    return payload
+
+
+def _validate_graph_size(graph: dict | None) -> str | None:
+    """Return an error message if the serialised graph exceeds the size limit, else None."""
+    if graph is None:
+        return None
+    raw = json.dumps(graph)
+    size = sys.getsizeof(raw)
+    if size > _MAX_GRAPH_JSON_BYTES:
+        return f"Graph payload too large ({size} bytes > {_MAX_GRAPH_JSON_BYTES})"
+    return None
 
 
 def _build_model_summary(keras_model) -> dict:
@@ -116,7 +149,12 @@ def model_validate_service(db: Session, incoming: dict, project_id: uuid_pkg.UUI
         metric=code[DL_MODEL][MODEL_METRIC],
         epochs=code[DL_MODEL][MODEL_EPOCHS],
         loss=loss,
+        graph_json=_extract_graph(incoming),
     )
+
+    size_err = _validate_graph_size(model.graph_json)
+    if size_err:
+        return _resp(413, False, size_err)
 
     configs = []
     params = flatten(incoming, separator=".")
@@ -176,9 +214,15 @@ def model_save_service(db: Session, incoming: dict, model_name: str, project_id:
     if existing:
         return _resp(400, False, "Model name already used. Use a different name")
 
+    graph_data = _extract_graph(incoming)
+    size_err = _validate_graph_size(graph_data)
+    if size_err:
+        return _resp(413, False, size_err)
+
     model = ModelBasic(
         model_name=model_name,
         project_id=project_id,
+        graph_json=graph_data,
     )
 
     configs = []
@@ -241,6 +285,7 @@ def update_training_config_service(
     model.optimizer = config["optimizer"]
     model.metric = config["metric"]
     model.epochs = config["epochs"]
+    model.batch_size = config.get("batch_size", 32)
     model.loss = loss
 
     try:
@@ -297,7 +342,12 @@ def run_code_service(db: Session, model_name: str, project_id: uuid_pkg.UUID | N
 
 
 def get_model_graph_service(db: Session, model_name: str, project_id: uuid_pkg.UUID | None = None) -> tuple:
-    """Retrieve the full ReactFlow graph for a saved model by unflattening its ModelConfigs."""
+    """Retrieve the full ReactFlow graph for a saved model.
+
+    If ``graph_json`` is populated (models created/saved after the column was
+    added), the raw ReactFlow JSON is returned directly.  Older models fall back
+    to reconstructing the graph from the flattened ``ModelConfigs`` rows.
+    """
     stmt = select(ModelBasic).where(ModelBasic.model_name == model_name)
     if project_id is not None:
         stmt = stmt.where(ModelBasic.project_id == project_id)
@@ -305,18 +355,39 @@ def get_model_graph_service(db: Session, model_name: str, project_id: uuid_pkg.U
     if not model:
         return _resp(404, False, "Model not found")
 
+    # Fast path: graph was stored directly in the JSON column
+    if model.graph_json is not None:
+        # Deep-copy to avoid mutating the ORM-tracked dict (which could trigger
+        # an unintended UPDATE on the next flush/commit in the same session).
+        graph = copy.deepcopy(model.graph_json)
+        _apply_auto_layout(graph)
+        return _resp(200, True, "Model graph retrieved successfully", {"model_name": model_name, "graph": graph})
+
+    # Legacy path: reconstruct graph from flattened ModelConfigs
     configs = db.exec(select(ModelConfigs).where(ModelConfigs.model_id == model.id)).all()
     if not configs:
         return _resp(404, False, "No graph configuration found for this model")
 
     graph = _unflatten_model_configs(configs)
-
-    # Ensure every node has a position (auto-layout fallback)
-    for i, node in enumerate(graph.get("nodes", [])):
-        if "position" not in node:
-            node["position"] = {"x": 100, "y": i * 200}
+    _apply_auto_layout(graph)
 
     return _resp(200, True, "Model graph retrieved successfully", {"model_name": model_name, "graph": graph})
+
+
+def _apply_auto_layout(graph: dict) -> None:
+    """Assign default positions to nodes that lack one.
+
+    This is a simple vertical-stack layout used as a fallback so that the
+    ReactFlow canvas can render the graph without crashing.  For a more
+    sophisticated layout (e.g. dagre), see:
+    https://reactflow.dev/docs/examples/layout/dagre/
+
+    TODO: Replace with a proper auto-layout algorithm (e.g. dagre) in a
+    follow-up issue.
+    """
+    for i, node in enumerate(graph.get("nodes", [])):
+        if "position" not in node:
+            node["position"] = {"x": 100.0, "y": float(i * 200)}
 
 
 def _unflatten_model_configs(configs: list[ModelConfigs]) -> dict:
@@ -387,7 +458,31 @@ def get_available_model_list(
     total = db.exec(select(func.count()).select_from(base_filter.subquery())).one()
 
     models = db.exec(base_filter.offset(offset).limit(limit)).all()
-    data = [m.model_name for m in models]
+    data = [{"id": m.id, "model_name": m.model_name} for m in models]
     body = {"success": True, "message": "Model list generated successfully.", "data": data}
     body["pagination"] = {"total": total, "offset": offset, "limit": limit}
     return body, 200
+
+
+def delete_model_service(db: Session, model_id: int) -> tuple:
+    """Delete a model and its associated ModelConfigs (cascade), and remove the JSON file."""
+    model = db.get(ModelBasic, model_id)
+    if not model:
+        return _resp(404, False, "Model not found")
+
+    model_name = model.model_name
+    try:
+        db.delete(model)
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("Failed to delete model id=%s", model_id)
+        return _resp(500, False, "Failed to delete model")
+
+    # Best-effort removal of the JSON file — do not fail if already gone
+    model_path = os.path.join(MODEL_GENERATION_LOCATION, model_name + MODEL_GENERATION_TYPE)
+    with contextlib.suppress(OSError):
+        os.remove(model_path)
+
+    logger.info("Model '%s' (id=%s) deleted successfully", model_name, model_id)
+    return _resp(200, True, f"Model '{model_name}' deleted successfully")

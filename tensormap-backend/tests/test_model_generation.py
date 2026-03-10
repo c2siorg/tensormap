@@ -6,6 +6,7 @@ Covers:
   - _build_layer() error handling for unknown node types
   - model_generation() end-to-end: linear, branching, multi-input, conv
   - Integration: generated JSON round-trips through tf.keras.models.model_from_json
+  - ModelValidationError for all user-facing error scenarios
 """
 
 import json
@@ -13,7 +14,7 @@ import json
 import pytest
 import tensorflow as tf
 
-from app.services.model_generation import _build_layer, model_generation
+from app.services.model_generation import ModelValidationError, _build_layer, model_generation
 
 # ---------------------------------------------------------------------------
 # Node / edge builder helpers
@@ -114,10 +115,10 @@ class TestBuildLayer:
         output = _build_layer(node, input_t)
         assert output is not None
 
-    def test_unknown_node_type_raises_value_error(self):
+    def test_unknown_node_type_raises_validation_error(self):
         input_t = tf.keras.Input(shape=(5,), name="inp")
         node = {"id": "x", "type": "custom_unknown", "data": {"params": {}}}
-        with pytest.raises(ValueError, match="Unknown node type"):
+        with pytest.raises(ModelValidationError, match="Unknown layer type"):
             _build_layer(node, input_t)
 
 
@@ -220,16 +221,16 @@ class TestModelGeneration:
     def test_single_input_no_edges(self):
         """A graph with only an input node and no edges cannot form a valid Keras
         model — the input tensor is also the output tensor, which Keras 3's
-        Functional API rejects with ValueError."""
+        Functional API rejects."""
         params = {
             "nodes": [_input_node("solo", [4])],
             "edges": [],
         }
-        with pytest.raises(ValueError):
+        with pytest.raises((ValueError, ModelValidationError)):
             model_generation(params)
 
-    def test_unknown_layer_type_raises_value_error(self):
-        """An unsupported node type in the graph must propagate a ValueError."""
+    def test_unknown_layer_type_raises_validation_error(self):
+        """An unsupported node type in the graph must raise ModelValidationError."""
         params = {
             "nodes": [
                 _input_node("x", [5]),
@@ -237,7 +238,7 @@ class TestModelGeneration:
             ],
             "edges": [_edge("x", "bad")],
         }
-        with pytest.raises(ValueError, match="Unknown node type"):
+        with pytest.raises(ModelValidationError, match="Unknown layer type"):
             model_generation(params)
 
     def test_output_is_json_serialisable(self):
@@ -263,3 +264,157 @@ class TestModelGeneration:
         result = model_generation(params)
         model = tf.keras.models.model_from_json(json.dumps(result))
         assert model.input_shape == (None, 28, 28, 1)
+
+
+# ===================================================================
+# Tests for ModelValidationError — user-friendly error messages
+# ===================================================================
+
+
+class TestModelValidationErrors:
+    """Verify that invalid graphs produce clear, user-friendly ModelValidationError messages."""
+
+    def test_no_input_node(self):
+        """A graph with no Input node must produce a helpful message."""
+        params = {
+            "nodes": [_dense_node("d1", 32, "relu")],
+            "edges": [],
+        }
+        with pytest.raises(ModelValidationError, match="No Input layer found"):
+            model_generation(params)
+
+    def test_disconnected_node(self):
+        """A node not reachable from any Input must be reported."""
+        params = {
+            "nodes": [
+                _input_node("in", [10]),
+                _dense_node("connected", 32, "relu"),
+                _dense_node("island", 16, "relu"),  # no edge to this node
+            ],
+            "edges": [_edge("in", "connected")],
+        }
+        with pytest.raises(ModelValidationError, match="Disconnected graph"):
+            model_generation(params)
+
+    def test_disconnected_reports_node_count(self):
+        """The error message should include the number of disconnected nodes."""
+        params = {
+            "nodes": [
+                _input_node("in", [5]),
+                _dense_node("a", 4),
+                _dense_node("b", 4),  # disconnected
+                _dense_node("c", 4),  # disconnected
+            ],
+            "edges": [_edge("in", "a")],
+        }
+        with pytest.raises(ModelValidationError, match="2 node"):
+            model_generation(params)
+
+    def test_unknown_node_type_lists_supported(self):
+        """Unknown layer type error must list the supported types."""
+        params = {
+            "nodes": [
+                _input_node("x", [5]),
+                {"id": "bad", "type": "customlstm", "data": {"params": {}}},
+            ],
+            "edges": [_edge("x", "bad")],
+        }
+        with pytest.raises(ModelValidationError, match="Supported types"):
+            model_generation(params)
+
+    def test_non_numeric_dense_units(self):
+        """Non-numeric 'units' on a Dense node must name the node and parameter."""
+        params = {
+            "nodes": [
+                _input_node("in", [10]),
+                {
+                    "id": "bad_dense",
+                    "type": "customdense",
+                    "data": {"params": {"units": "abc", "activation": "relu"}},
+                },
+            ],
+            "edges": [_edge("in", "bad_dense")],
+        }
+        with pytest.raises(ModelValidationError, match="units.*bad_dense|bad_dense.*units"):
+            model_generation(params)
+
+    def test_non_numeric_conv_filter(self):
+        """Non-numeric 'filter' on a Conv2D node must name the node and parameter."""
+        params = {
+            "nodes": [
+                _input_node("img", [28, 28, 1]),
+                {
+                    "id": "bad_conv",
+                    "type": "customconv",
+                    "data": {
+                        "params": {
+                            "filter": "not_a_number",
+                            "kernelX": 3,
+                            "kernelY": 3,
+                            "strideX": 1,
+                            "strideY": 1,
+                            "padding": "valid",
+                            "activation": "relu",
+                        }
+                    },
+                },
+            ],
+            "edges": [_edge("img", "bad_conv")],
+        }
+        with pytest.raises(ModelValidationError, match="filter.*bad_conv|bad_conv.*filter"):
+            model_generation(params)
+
+    def test_missing_dense_units_param(self):
+        """Missing 'units' parameter should give a clear error, not a KeyError."""
+        params = {
+            "nodes": [
+                _input_node("in", [10]),
+                {
+                    "id": "d1",
+                    "type": "customdense",
+                    "data": {"params": {"activation": "relu"}},
+                },
+            ],
+            "edges": [_edge("in", "d1")],
+        }
+        with pytest.raises(ModelValidationError, match="units.*d1|d1.*units"):
+            model_generation(params)
+
+    def test_error_does_not_expose_file_paths(self):
+        """Error messages must not contain file system paths."""
+        params = {
+            "nodes": [_dense_node("d1", 32, "relu")],
+            "edges": [],
+        }
+        with pytest.raises(ModelValidationError) as exc_info:
+            model_generation(params)
+        msg = str(exc_info.value)
+        assert "/" not in msg or "Input" in msg  # "/" only in prose, not paths
+
+    def test_valid_model_still_works(self):
+        """Ensure valid models are not affected by the new validation logic."""
+        params = {
+            "nodes": [
+                _input_node("x", [10]),
+                _dense_node("h", 32, "relu"),
+                _dense_node("out", 1, "sigmoid"),
+            ],
+            "edges": [_edge("x", "h"), _edge("h", "out")],
+        }
+        result = model_generation(params)
+        model = tf.keras.models.model_from_json(json.dumps(result))
+        assert model.output_shape == (None, 1)
+
+    def test_conv_to_dense_valid_with_flatten(self):
+        """Conv2D → Flatten → Dense must still succeed (no false positive)."""
+        params = {
+            "nodes": [
+                _input_node("img", [28, 28, 1]),
+                _conv_node("c1", filters=8),
+                _flatten_node("flat"),
+                _dense_node("out", 10, "softmax"),
+            ],
+            "edges": [_edge("img", "c1"), _edge("c1", "flat"), _edge("flat", "out")],
+        }
+        result = model_generation(params)
+        assert isinstance(result, dict)

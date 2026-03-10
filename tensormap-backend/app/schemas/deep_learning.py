@@ -39,12 +39,20 @@ class NodeData(BaseModel):
     params: dict[str, Any]  # varies per node type; validated downstream by model_generation + TensorFlow
 
 
+class NodePosition(BaseModel):
+    """X/Y canvas coordinates for a ReactFlow node."""
+
+    x: float
+    y: float
+
+
 class GraphNode(BaseModel):
     """A single node in the ReactFlow model graph."""
 
     id: str
     type: str
     data: NodeData
+    position: NodePosition | None = None
 
 
 class GraphEdge(BaseModel):

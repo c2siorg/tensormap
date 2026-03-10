@@ -370,6 +370,8 @@ function Canvas() {
     event.dataTransfer.dropEffect = "move";
   }, []);
 
+  const nodeCount = nodes.length;
+
   const modelData =
     reactFlowInstance === null ? { nodes: [], edges: [] } : reactFlowInstance.toObject();
 
@@ -537,7 +539,6 @@ function Canvas() {
     [reactFlowInstance, setNodes, takeSnapshotAndUpdate],
   );
 
-  const nodeCount = nodes.length;
   const handleClearAll = useCallback(() => {
     setNodes([]);
     setEdges([]);
@@ -545,7 +546,7 @@ function Canvas() {
     setSelectedNodeId(null);
     closeContextMenu();
     setClearAllOpen(false);
-  }, [setNodes, setEdges, setModelName, closeContextMenu]);
+  }, [setNodes, setEdges, setModelName, setSelectedNodeId, closeContextMenu]);
 
   return (
     <>

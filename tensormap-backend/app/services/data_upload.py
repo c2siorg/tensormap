@@ -4,6 +4,7 @@ from typing import Any
 
 import pandas as pd
 from sqlalchemy import func
+from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session, select
 from werkzeug.utils import secure_filename
 
@@ -41,7 +42,7 @@ def add_file_service(db: Session, file_wrapper: Any, project_id: uuid_pkg.UUID |
             df_header = pd.read_csv(file_path, nrows=0)
             columns_list = list(df_header.columns)
             row_count = sum(chunk.shape[0] for chunk in pd.read_csv(file_path, chunksize=10_000))
-        except Exception:
+        except (pd.errors.ParserError, OSError, UnicodeDecodeError, MemoryError):
             logger.warning("Could not extract columns/row_count from %s", file_path)
 
     record = DataFile(
@@ -88,7 +89,7 @@ def get_all_files_service(
                     file.row_count = row_count
                     db.add(file)
                     db.commit()
-                except Exception:
+                except (pd.errors.ParserError, OSError, UnicodeDecodeError, MemoryError):
                     logger.warning("Failed to read CSV for file %s (id=%s)", file.file_name, file.id)
                     fields = []
                     row_count = 0
@@ -112,7 +113,7 @@ def get_all_files_service(
     except pd.errors.ParserError:
         logger.exception("CSV parsing error")
         return _resp(500, False, "An error occurred while parsing a CSV file")
-    except Exception:
+    except (SQLAlchemyError, OSError, UnicodeDecodeError, MemoryError):
         logger.exception("Error fetching files")
         return _resp(500, False, "An error occurred while fetching the files")
 
@@ -129,13 +130,13 @@ def delete_one_file_by_id_service(db: Session, file_id: uuid_pkg.UUID) -> tuple:
 
         file_path = os.path.join(upload_folder, f"{file.file_name}.{file.file_type}")
 
-        if os.path.isfile(file_path):
+        try:
             os.remove(file_path)
-            db.delete(file)
-            db.commit()
-            return _resp(200, True, "File deleted successfully")
-        else:
-            return _resp(400, False, "File not found")
-    except Exception:
+        except FileNotFoundError:
+            logger.warning("File already absent on disk: %s", file_path)
+        db.delete(file)
+        db.commit()
+        return _resp(200, True, "File deleted successfully")
+    except (SQLAlchemyError, OSError):
         logger.exception("Error deleting file")
         return _resp(500, False, "An error occurred while deleting the file")

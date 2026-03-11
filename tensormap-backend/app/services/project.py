@@ -1,5 +1,5 @@
 import uuid as uuid_pkg
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import func

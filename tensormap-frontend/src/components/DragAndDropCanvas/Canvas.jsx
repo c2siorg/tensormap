@@ -295,9 +295,7 @@ function Canvas() {
   const handleNodesChange = useCallback(
     (changes) => {
       const hasRemoval = changes.some((c) => c.type === "remove");
-      const hasKeyboardMove = changes.some(
-        (c) => c.type === "position" && !c.dragging,
-      );
+      const hasKeyboardMove = changes.some((c) => c.type === "position" && !c.dragging);
       if (hasRemoval || hasKeyboardMove) {
         takeSnapshotAndUpdate(nodesRef.current, edgesRef.current);
       }
@@ -327,20 +325,17 @@ function Canvas() {
    */
   const dragStartStateRef = useRef(null);
 
-  const onNodeDragStart = useCallback(
-    (_event, node) => {
-      if (!dragStartStateRef.current) {
-        // First node in this drag gesture — capture canvas snapshot
-        dragStartStateRef.current = {
-          snapshotNodes: nodesRef.current,
-          snapshotEdges: edgesRef.current,
-          starts: {},
-        };
-      }
-      dragStartStateRef.current.starts[node.id] = { ...node.position };
-    },
-    [],
-  );
+  const onNodeDragStart = useCallback((_event, node) => {
+    if (!dragStartStateRef.current) {
+      // First node in this drag gesture — capture canvas snapshot
+      dragStartStateRef.current = {
+        snapshotNodes: nodesRef.current,
+        snapshotEdges: edgesRef.current,
+        starts: {},
+      };
+    }
+    dragStartStateRef.current.starts[node.id] = { ...node.position };
+  }, []);
 
   const onNodeDragStop = useCallback(
     (_event, node) => {

@@ -16,9 +16,7 @@ function setup(initialNodes = [], initialEdges = []) {
   const nodesRef = { current: initialNodes };
   const edgesRef = { current: initialEdges };
 
-  const { result } = renderHook(() =>
-    useUndoRedo(setNodes, setEdges, nodesRef, edgesRef),
-  );
+  const { result } = renderHook(() => useUndoRedo(setNodes, setEdges, nodesRef, edgesRef));
 
   return { result, setNodes, setEdges, nodesRef, edgesRef };
 }
@@ -56,10 +54,7 @@ describe("useUndoRedo", () => {
   // ---------- basic undo ----------
 
   it("undo restores the previous state", () => {
-    const { result, setNodes, setEdges } = setup(
-      [{ id: "b" }],
-      [{ id: "e1" }],
-    );
+    const { result, setNodes, setEdges } = setup([{ id: "b" }], [{ id: "e1" }]);
 
     // Snapshot the old state ([{id:'a'}], [])
     act(() => {
@@ -316,8 +311,12 @@ describe("useUndoRedo", () => {
     // Stub both structuredClone and JSON.stringify to force safeClone → null
     const origClone = globalThis.structuredClone;
     const origStringify = JSON.stringify;
-    globalThis.structuredClone = () => { throw new Error("clone fail"); };
-    JSON.stringify = () => { throw new Error("stringify fail"); };
+    globalThis.structuredClone = () => {
+      throw new Error("clone fail");
+    };
+    JSON.stringify = () => {
+      throw new Error("stringify fail");
+    };
 
     let ret;
     act(() => {
@@ -352,8 +351,12 @@ describe("useUndoRedo", () => {
     // Stub both structuredClone and JSON.stringify to force safeClone → null
     const origClone = globalThis.structuredClone;
     const origStringify = JSON.stringify;
-    globalThis.structuredClone = () => { throw new Error("clone fail"); };
-    JSON.stringify = () => { throw new Error("stringify fail"); };
+    globalThis.structuredClone = () => {
+      throw new Error("clone fail");
+    };
+    JSON.stringify = () => {
+      throw new Error("stringify fail");
+    };
 
     let ret;
     act(() => {

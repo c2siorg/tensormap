@@ -9,44 +9,41 @@ import ReactFlow, {
   Background,
 } from "reactflow";
 import "reactflow/dist/style.css";
-
 import { useRecoilState } from "recoil";
-
 import Sidebar from "./Sidebar";
 import NodePropertiesPanel from "./NodePropertiesPanel";
 import ModelSummaryPanel from "./ModelSummaryPanel";
 import { allModels } from "../../shared/atoms";
 
+const defaultViewport = { x: 10, y: 15, zoom: 0.5 };
+
 function Canvas() {
   const { projectId } = useParams();
   const [, setModelList] = useRecoilState(allModels);
-
-  return (
-    <CanvasInner
-      projectId={projectId}
-      setModelList={setModelList}
-    />
-  );
-}
-
-function CanvasInner({ projectId, setModelList }) {
-  const reactFlowWrapper = useRef(null);
-
-  const [nodes, setNodes, onNodesChange] = useNodesState([]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
-
-  const [reactFlowInstance, setReactFlowInstance] = useState(null);
-  const [modelName, setModelName] = useState("");
-  const [selectedNodeId, setSelectedNodeId] = useState(null);
-  const [modelSummary, setModelSummary] = useState(null);
-
   const [contextMenu, setContextMenu] = useState({
     nodeId: null,
     x: 0,
     y: 0,
   });
 
-  const draftKey = `tensormap_draft_${projectId || "default"}`;
+  return (
+    <CanvasInner
+      projectId={projectId}
+      setModelList={setModelList}
+      contextMenu={contextMenu}
+      setContextMenu={setContextMenu}
+    />
+  );
+}
+
+function CanvasInner({ setContextMenu }) {
+  const reactFlowWrapper = useRef(null);
+  const [nodes, setNodes, onNodesChange] = useNodesState([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+  const [modelName, setModelName] = useState("");
+  const [selectedNodeId, setSelectedNodeId] = useState(null);
+  const [modelSummary, setModelSummary] = useState(null);
+  const [, setReactFlowInstance] = useState(null);
 
   const selectedNode =
     selectedNodeId ? nodes.find((n) => n.id === selectedNodeId) : null;
@@ -64,18 +61,13 @@ function CanvasInner({ projectId, setModelList }) {
   const onDrop = useCallback(
     (event) => {
       event.preventDefault();
-
       const type = event.dataTransfer.getData("application/reactflow");
-
       if (!type) return;
-
       const bounds = reactFlowWrapper.current.getBoundingClientRect();
-
       const position = {
         x: event.clientX - bounds.left,
         y: event.clientY - bounds.top,
       };
-
       const newNode = {
         id: crypto.randomUUID(),
         type,
@@ -85,7 +77,6 @@ function CanvasInner({ projectId, setModelList }) {
           params: {},
         },
       };
-
       setNodes((nds) => nds.concat(newNode));
     },
     [setNodes]
@@ -97,21 +88,24 @@ function CanvasInner({ projectId, setModelList }) {
 
   const closeContextMenu = useCallback(() => {
     setContextMenu({ nodeId: null, x: 0, y: 0 });
-  }, []);
+  }, [setContextMenu]);
 
   const onPaneClick = useCallback(() => {
     setSelectedNodeId(null);
     closeContextMenu();
   }, [closeContextMenu]);
 
-  const onNodeContextMenu = useCallback((event, node) => {
-    event.preventDefault();
-    setContextMenu({
-      nodeId: node.id,
-      x: event.clientX,
-      y: event.clientY,
-    });
-  }, []);
+  const onNodeContextMenu = useCallback(
+    (event, node) => {
+      event.preventDefault();
+      setContextMenu({
+        nodeId: node.id,
+        x: event.clientX,
+        y: event.clientY,
+      });
+    },
+    [setContextMenu]
+  );
 
   const onNodeUpdate = useCallback(
     (nodeId, newParams) => {
@@ -131,7 +125,6 @@ function CanvasInner({ projectId, setModelList }) {
       <ReactFlowProvider>
         <div className="flex gap-4">
           <Sidebar />
-
           <div className="flex flex-col flex-1 gap-2">
             <div
               className="min-w-0 h-[62vh] flex-1 rounded-md border"
@@ -157,7 +150,6 @@ function CanvasInner({ projectId, setModelList }) {
               </ReactFlow>
             </div>
           </div>
-
           <div className="w-72 shrink-0">
             <NodePropertiesPanel
               selectedNode={selectedNode || null}
@@ -168,7 +160,6 @@ function CanvasInner({ projectId, setModelList }) {
           </div>
         </div>
       </ReactFlowProvider>
-
       <ModelSummaryPanel
         summary={modelSummary}
         onClose={() => setModelSummary(null)}

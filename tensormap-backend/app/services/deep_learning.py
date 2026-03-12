@@ -318,7 +318,14 @@ def get_code_service(db: Session, model_name: str, project_id: uuid_pkg.UUID | N
     try:
         python_code = generate_code(model_name, db)
     except ValueError as e:
+        logger.warning("Code generation failed for model '%s': %s", model_name, str(e))
         return _resp(400, False, str(e))
+    except (FileNotFoundError, OSError) as e:
+        logger.exception("File error during code generation for model '%s'", model_name)
+        return _resp(500, False, "Failed to read model file")
+    except Exception as e:
+        logger.exception("Unexpected error during code generation for model '%s'", model_name)
+        return _resp(500, False, "Internal error generating code")
     return {"content": python_code, "file_name": model_name + ".py"}, 200
 
 

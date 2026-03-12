@@ -1,3 +1,4 @@
+import pandas as pd
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -27,6 +28,57 @@ def _make_db(model_config: MagicMock) -> MagicMock:
 
 
 class TestModelRunEmitsErrorOnFailure:
+    def test_emits_socketio_error_when_target_field_is_missing(self):
+        cfg = _make_model_config(ProblemType.CLASSIFICATION)
+        cfg.target_field = None
+        db = _make_db(cfg)
+
+        with patch("app.services.model_run._model_result") as mock_emit:
+            with pytest.raises(
+                ValueError,
+                match="Training configuration incomplete: target field is required for tabular models",
+            ):
+                model_run("my_model", db)
+
+        error_calls = [c for c in mock_emit.call_args_list if c.args[1] == -1]
+        assert len(error_calls) == 1
+        assert "target field is required for tabular models" in error_calls[0].args[0]
+
+    def test_emits_socketio_error_when_target_field_is_blank(self):
+        cfg = _make_model_config(ProblemType.CLASSIFICATION)
+        cfg.target_field = "   "
+        db = _make_db(cfg)
+
+        with patch("app.services.model_run._model_result") as mock_emit:
+            with pytest.raises(
+                ValueError,
+                match="Training configuration incomplete: target field is required for tabular models",
+            ):
+                model_run("my_model", db)
+
+        error_calls = [c for c in mock_emit.call_args_list if c.args[1] == -1]
+        assert len(error_calls) == 1
+        assert "target field is required for tabular models" in error_calls[0].args[0]
+
+    def test_emits_socketio_error_when_target_field_not_in_csv_columns(self):
+        cfg = _make_model_config(ProblemType.CLASSIFICATION)
+        cfg.target_field = "missing_label"
+        db = _make_db(cfg)
+        features = pd.DataFrame({"feature": [1, 2], "label": [0, 1]})
+
+        with patch("app.services.model_run._model_result") as mock_emit, \
+             patch("app.services.model_run._helper_generate_file_location", return_value="/fake/path"), \
+             patch("app.services.model_run.pd.read_csv", return_value=features):
+            with pytest.raises(
+                ValueError,
+                match="Training configuration error: target field 'missing_label' not found in data file columns",
+            ):
+                model_run("my_model", db)
+
+        error_calls = [c for c in mock_emit.call_args_list if c.args[1] == -1]
+        assert len(error_calls) == 1
+        assert "missing_label" in error_calls[0].args[0]
+
     def test_emits_socketio_error_when_csv_read_fails(self):
         cfg = _make_model_config(ProblemType.CLASSIFICATION)
         db = _make_db(cfg)

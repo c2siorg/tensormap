@@ -156,11 +156,16 @@ def _run(model_name: str, db: Session) -> None:
             label_mode=label_mode,
         )
     else:
-        if model_configs.target_field is None:
+        if model_configs.target_field is None or not str(model_configs.target_field).strip():
             raise ValueError("Training configuration incomplete: target field is required for tabular models")
-        
+
         file_location = _helper_generate_file_location(db, file_id=model_configs.file_id)
         features = pd.read_csv(file_location)
+        if model_configs.target_field not in features.columns:
+            raise ValueError(
+                f"Training configuration error: target field '{model_configs.target_field}' "
+                f"not found in data file columns: {list(features.columns)}"
+            )
         features.dropna(inplace=True)
         # Shuffle data to prevent issues with ordered datasets
         features = features.sample(frac=1, random_state=42).reset_index(drop=True)

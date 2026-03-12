@@ -1,32 +1,25 @@
 /**
- * Determines whether the model can be saved.
- * Returns true when model name is filled, nodes present, all params valid, and graph connected.
+ * Determines whether the model can be saved dynamically based on the Layer Registry contract.
+ * Returns true when model name is filled, nodes present, all required params valid, and graph connected.
  */
 export const canSaveModel = (modelName, modelData) => {
   if (!modelName || modelName.trim() === "") return false;
   if (!modelData.nodes || modelData.nodes.length === 0) return false;
 
   for (const node of modelData.nodes) {
-    if (node.type === "customdense") {
-      if (
-        !node.data.params.units ||
-        node.data.params.units === "" ||
-        !node.data.params.activation ||
-        node.data.params.activation === ""
-      ) {
-        return false;
-      }
-    } else if (node.type === "custominput") {
-      if (!node.data.params["dim-1"] || node.data.params["dim-1"] === "") {
-        return false;
-      }
-    } else if (node.type === "customconv") {
-      const p = node.data.params;
-      if (!p.filter || !p.kernelX || !p.kernelY || !p.strideX || !p.strideY) {
-        return false;
+    const params = node.data.params || {};
+    const registry = node.data.registry || {};
+    const registryParams = registry.params || {};
+
+    // Dynamically validate only the parameters the API explicitly marked as "required: true"
+    for (const [paramKey, paramConfig] of Object.entries(registryParams)) {
+      if (paramConfig.required) {
+        const val = params[paramKey];
+        if (val === undefined || val === null || val === "") {
+          return false;
+        }
       }
     }
-    // customflatten has no params to validate
   }
 
   return isGraphConnected(modelData);
@@ -57,15 +50,18 @@ const isGraphConnected = (graph) => {
 };
 
 /**
- * Strips visual-only properties from a ReactFlow graph snapshot using
- * immutable operations (no destructive delete mutations).
+ * Strips visual-only properties from a ReactFlow graph snapshot,
+ * but specifically PRESERVES the registry contract for the backend generator.
  */
 export const generateModelJSON = (modelData) => {
   const nodes = modelData.nodes.map((node) => ({
     id: node.id,
     type: node.type,
     position: node.position,
-    data: { params: node.data.params },
+    data: { 
+      params: node.data.params,
+      registry: node.data.registry // Send the contract to backend
+    },
   }));
 
   const edges = modelData.edges.map((edge) => ({

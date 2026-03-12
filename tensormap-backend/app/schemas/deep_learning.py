@@ -37,7 +37,9 @@ class NodeData(BaseModel):
     """Per-node parameters from the ReactFlow canvas."""
 
     params: dict[str, Any]  # varies per node type; validated downstream by model_generation + TensorFlow
-
+    # The client-sent layer registry contract from layer_registry.json.
+    # Enables the dynamic backend generator to resolve Keras class names safely.
+    registry: dict[str, Any] | None = None
 
 class NodePosition(BaseModel):
     """X/Y canvas coordinates for a ReactFlow node."""

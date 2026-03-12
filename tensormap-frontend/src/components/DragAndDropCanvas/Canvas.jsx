@@ -7,7 +7,7 @@ import ReactFlow, {
   useEdgesState,
   Controls,
   Background,
-<<<<<<< HEAD
+
   BackgroundVariant,
 } from "reactflow";
 
@@ -71,7 +71,7 @@ function CanvasInner({ projectId, setModelList }) {
 
   const [reactFlowInstance, setReactFlowInstance] = useState(null);
   const [selectedNodeId, setSelectedNodeId] = useState(null);
-<<<<<<< HEAD
+
 
   const [contextMenu, setContextMenu] = useState({
     nodeId: null,
@@ -108,7 +108,7 @@ function CanvasInner({ projectId, setModelList }) {
     (event) => {
       event.preventDefault();
 
-<<<<<<< HEAD
+
       const bounds = reactFlowWrapper.current.getBoundingClientRect();
       const type = event.dataTransfer.getData("application/reactflow");
 =======
@@ -180,7 +180,7 @@ function CanvasInner({ projectId, setModelList }) {
     closeContextMenu();
   }, [closeContextMenu]);
 
-<<<<<<< HEAD
+
   const selectedNode = selectedNodeId
     ? nodes.find((n) => n.id === selectedNodeId)
     : null;
@@ -239,8 +239,7 @@ function Canvas() {
       <CanvasInner key={projectId} />
     </ReactFlowProvider>
 =======
-  const onNodeContextMenu = useCallback((event, node) => {
-    event.preventDefault();
+  const onNodeContextMenu = useCallback((event, node) => {    event.preventDefault();
     setContextMenu({
       nodeId: node.id,
       x: event.clientX,

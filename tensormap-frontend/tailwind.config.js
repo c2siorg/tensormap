@@ -6,7 +6,7 @@ export default {
   theme: {
     extend: {
       colors: {
-<<<<<<< HEAD
+
         "node-dense": { DEFAULT: "rgb(43, 161, 255)", header: "rgb(50, 113, 178)" },
         "node-input": { DEFAULT: "rgb(105, 172, 61)", header: "rgb(93, 149, 34)" },
         "node-flatten": { DEFAULT: "rgb(247, 173, 20)", header: "rgb(170, 121, 24)" },

@@ -167,9 +167,10 @@ def _run(model_name: str, db: Session) -> None:
             available_columns = list(features.columns)
             preview_columns = available_columns[:10]
             logger.warning(
-                "Configured target field '%s' not found in dataset columns: %s",
+                "Configured target field '%s' not found in dataset columns. %d columns available; preview: %s",
                 target_field,
-                available_columns,
+                len(available_columns),
+                preview_columns,
             )
             raise ValueError(
                 f"Training configuration error: target field '{target_field}' not found in data file columns. "

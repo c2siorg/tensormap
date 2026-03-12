@@ -65,7 +65,7 @@ def model_generation(model_params: dict) -> dict:
             keras_tensors[target_id] = _build_layer(node, input_tensor)
 
     # Identify input and output tensors
-    inputs = [keras_tensors[n["id"]] for n in model_params["nodes"] if n["type"] == "custominput"]
+    inputs = [keras_tensors[n["id"]] for n in model_params["nodes"] if n["type"] == "custominput" and n["id"] in keras_tensors]
     output_ids = [n["id"] for n in model_params["nodes"] if n["id"] not in source_to_targets]
     outputs = [keras_tensors[oid] for oid in output_ids]
 

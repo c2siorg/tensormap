@@ -30,9 +30,12 @@ def add_file_service(db: Session, file_wrapper: Any, project_id: uuid_pkg.UUID |
     file_path = os.path.join(upload_folder, filename)
 
     # Enforce max upload size before saving to disk
-    file_wrapper._file.file.seek(0, 2)
-    file_size = file_wrapper._file.file.tell()
-    file_wrapper._file.file.seek(0)
+    try:
+        file_wrapper.file.seek(0, 2)
+        file_size = file_wrapper.file.tell()
+        file_wrapper.file.seek(0)
+    except (AttributeError, OSError):
+        file_size = 0
     if file_size > settings.max_content_length:
         return _resp(
             413,

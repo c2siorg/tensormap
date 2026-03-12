@@ -66,9 +66,11 @@ class TestModelRunEmitsErrorOnFailure:
         db = _make_db(cfg)
         features = pd.DataFrame({"feature": [1, 2], "label": [0, 1]})
 
-        with patch("app.services.model_run._model_result") as mock_emit, \
-             patch("app.services.model_run._helper_generate_file_location", return_value="/fake/path"), \
-             patch("app.services.model_run.pd.read_csv", return_value=features):
+        with (
+            patch("app.services.model_run._model_result") as mock_emit,
+            patch("app.services.model_run._helper_generate_file_location", return_value="/fake/path"),
+            patch("app.services.model_run.pd.read_csv", return_value=features),
+        ):
             with pytest.raises(
                 ValueError,
                 match="Training configuration error: target field 'missing_label' not found in data file columns",

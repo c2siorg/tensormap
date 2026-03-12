@@ -172,7 +172,7 @@ def _run(model_name: str, db: Session) -> None:
                 available_columns,
             )
             raise ValueError(
-                f"Training configuration error: target field '{target_field}' not found in data file. "
+                f"Training configuration error: target field '{target_field}' not found in data file columns. "
                 f"Available columns ({len(available_columns)} total): {preview_columns}"
             )
         features.dropna(inplace=True)

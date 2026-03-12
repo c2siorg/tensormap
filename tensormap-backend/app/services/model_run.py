@@ -156,6 +156,9 @@ def _run(model_name: str, db: Session) -> None:
             label_mode=label_mode,
         )
     else:
+        if model_configs.target_field is None:
+            raise ValueError("Training configuration incomplete: target field is required for tabular models")
+        
         file_location = _helper_generate_file_location(db, file_id=model_configs.file_id)
         features = pd.read_csv(file_location)
         features.dropna(inplace=True)

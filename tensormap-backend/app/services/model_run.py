@@ -123,6 +123,8 @@ def _run(model_name: str, db: Session) -> None:
 
     if model_configs.model_type == ProblemType.IMAGE_CLASSIFICATION:
         image_properties = db.exec(select(ImageProperties).where(ImageProperties.id == model_configs.file_id)).first()
+        if image_properties is None:
+            raise ValueError(f"ImageProperties for file_id {model_configs.file_id} not found in database")
         image_size = (image_properties.image_size, image_properties.image_size)
         batch_size = image_properties.batch_size
         color_mode = image_properties.color_mode

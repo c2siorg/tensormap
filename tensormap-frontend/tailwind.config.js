@@ -6,11 +6,87 @@ export default {
   theme: {
     extend: {
       colors: {
+<<<<<<< HEAD
         "node-dense": { DEFAULT: "rgb(43, 161, 255)", header: "rgb(50, 113, 178)" },
         "node-input": { DEFAULT: "rgb(105, 172, 61)", header: "rgb(93, 149, 34)" },
         "node-flatten": { DEFAULT: "rgb(247, 173, 20)", header: "rgb(170, 121, 24)" },
         "node-conv": { DEFAULT: "rgb(255, 128, 43)", header: "rgb(255, 128, 43)" },
+=======
+        border: "hsl(var(--border))",
+        input: "hsl(var(--input))",
+        ring: "hsl(var(--ring))",
+        background: "hsl(var(--background))",
+        foreground: "hsl(var(--foreground))",
+
+        primary: {
+          DEFAULT: "hsl(var(--primary))",
+          foreground: "hsl(var(--primary-foreground))",
+        },
+
+        secondary: {
+          DEFAULT: "hsl(var(--secondary))",
+          foreground: "hsl(var(--secondary-foreground))",
+        },
+
+        destructive: {
+          DEFAULT: "hsl(var(--destructive))",
+          foreground: "hsl(var(--destructive-foreground))",
+        },
+
+        muted: {
+          DEFAULT: "hsl(var(--muted))",
+          foreground: "hsl(var(--muted-foreground))",
+        },
+
+        accent: {
+          DEFAULT: "hsl(var(--accent))",
+          foreground: "hsl(var(--accent-foreground))",
+        },
+
+        popover: {
+          DEFAULT: "hsl(var(--popover))",
+          foreground: "hsl(var(--popover-foreground))",
+        },
+
+        card: {
+          DEFAULT: "hsl(var(--card))",
+          foreground: "hsl(var(--card-foreground))",
+        },
+
+        // Node colors
+        "node-dense": {
+          DEFAULT: "rgb(43, 161, 255)",
+          header: "rgb(50, 113, 178)",
+        },
+
+        "node-input": {
+          DEFAULT: "rgb(105, 172, 61)",
+          header: "rgb(93, 149, 34)",
+        },
+
+        "node-flatten": {
+          DEFAULT: "rgb(247, 173, 20)",
+          header: "rgb(170, 121, 24)",
+        },
+
+        "node-conv": {
+          DEFAULT: "rgb(255, 128, 43)",
+          header: "rgb(255, 128, 43)",
+        },
+
+        "node-dropout": {
+          DEFAULT: "rgb(167, 139, 250)",
+          header: "rgb(139, 92, 246)",
+        },
+
+        // Added for mentor suggestion
+        "node-batchnorm": {
+          DEFAULT: "rgb(139, 92, 246)",
+          header: "rgb(124, 58, 237)",
+        },
+>>>>>>> ac5c2d0 (fix: address review feedback for BatchNormalizationNode, tailwind config, jsconfig formatting, and add tests)
       },
+
       borderRadius: {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
@@ -18,5 +94,6 @@ export default {
       },
     },
   },
+
   plugins: [tailwindcssAnimate],
 };

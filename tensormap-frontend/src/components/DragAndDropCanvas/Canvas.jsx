@@ -7,6 +7,7 @@ import ReactFlow, {
   useEdgesState,
   Controls,
   Background,
+<<<<<<< HEAD
   BackgroundVariant,
 } from "reactflow";
 
@@ -38,6 +39,31 @@ const defaultViewport = {
 };
 
 function CanvasInner() {
+=======
+} from "reactflow";
+import "reactflow/dist/style.css";
+
+import { useRecoilState } from "recoil";
+
+import Sidebar from "./Sidebar";
+import NodePropertiesPanel from "./NodePropertiesPanel";
+import ModelSummaryPanel from "./ModelSummaryPanel";
+import { allModels } from "../../shared/atoms";
+
+function Canvas() {
+  const { projectId } = useParams();
+  const [, setModelList] = useRecoilState(allModels);
+
+  return (
+    <CanvasInner
+      projectId={projectId}
+      setModelList={setModelList}
+    />
+  );
+}
+
+function CanvasInner({ projectId, setModelList }) {
+>>>>>>> ac5c2d0 (fix: address review feedback for BatchNormalizationNode, tailwind config, jsconfig formatting, and add tests)
   const reactFlowWrapper = useRef(null);
 
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
@@ -45,6 +71,7 @@ function CanvasInner() {
 
   const [reactFlowInstance, setReactFlowInstance] = useState(null);
   const [selectedNodeId, setSelectedNodeId] = useState(null);
+<<<<<<< HEAD
 
   const [contextMenu, setContextMenu] = useState({
     nodeId: null,
@@ -52,6 +79,21 @@ function CanvasInner() {
     y: 0,
   });
 
+=======
+  const [modelSummary, setModelSummary] = useState(null);
+
+  const [contextMenu, setContextMenu] = useState({
+    nodeId: null,
+    x: 0,
+    y: 0,
+  });
+
+  const draftKey = `tensormap_draft_${projectId || "default"}`;
+
+  const selectedNode =
+    selectedNodeId ? nodes.find((n) => n.id === selectedNodeId) : null;
+
+>>>>>>> ac5c2d0 (fix: address review feedback for BatchNormalizationNode, tailwind config, jsconfig formatting, and add tests)
   const onConnect = useCallback(
     (params) => setEdges((eds) => addEdge(params, eds)),
     [setEdges]
@@ -66,8 +108,36 @@ function CanvasInner() {
     (event) => {
       event.preventDefault();
 
+<<<<<<< HEAD
       const bounds = reactFlowWrapper.current.getBoundingClientRect();
       const type = event.dataTransfer.getData("application/reactflow");
+=======
+      const type = event.dataTransfer.getData("application/reactflow");
+
+      if (!type) return;
+
+      const bounds = reactFlowWrapper.current.getBoundingClientRect();
+
+      const position = {
+        x: event.clientX - bounds.left,
+        y: event.clientY - bounds.top,
+      };
+
+      const newNode = {
+        id: crypto.randomUUID(),
+        type,
+        position,
+        data: {
+          label: `${type} node`,
+          params: {},
+        },
+      };
+
+      setNodes((nds) => nds.concat(newNode));
+    },
+    [setNodes]
+  );
+>>>>>>> ac5c2d0 (fix: address review feedback for BatchNormalizationNode, tailwind config, jsconfig formatting, and add tests)
 
       if (!type || !reactFlowInstance) return;
 
@@ -110,6 +180,7 @@ function CanvasInner() {
     closeContextMenu();
   }, [closeContextMenu]);
 
+<<<<<<< HEAD
   const selectedNode = selectedNodeId
     ? nodes.find((n) => n.id === selectedNodeId)
     : null;
@@ -167,6 +238,78 @@ function Canvas() {
     <ReactFlowProvider>
       <CanvasInner key={projectId} />
     </ReactFlowProvider>
+=======
+  const onNodeContextMenu = useCallback((event, node) => {
+    event.preventDefault();
+    setContextMenu({
+      nodeId: node.id,
+      x: event.clientX,
+      y: event.clientY,
+    });
+  }, []);
+
+  const onNodeUpdate = useCallback(
+    (nodeId, newParams) => {
+      setNodes((nds) =>
+        nds.map((node) =>
+          node.id === nodeId
+            ? { ...node, data: { ...node.data, params: newParams } }
+            : node
+        )
+      );
+    },
+    [setNodes]
+  );
+
+  return (
+    <>
+      <ReactFlowProvider>
+        <div className="flex gap-4">
+          <Sidebar />
+
+          <div className="flex flex-col flex-1 gap-2">
+            <div
+              className="min-w-0 h-[62vh] flex-1 rounded-md border"
+              ref={reactFlowWrapper}
+            >
+              <ReactFlow
+                nodes={nodes}
+                edges={edges}
+                onNodesChange={onNodesChange}
+                onEdgesChange={onEdgesChange}
+                onConnect={onConnect}
+                onInit={setReactFlowInstance}
+                onDrop={onDrop}
+                onDragOver={onDragOver}
+                onPaneClick={onPaneClick}
+                onNodeClick={onNodeClick}
+                onNodeContextMenu={onNodeContextMenu}
+                defaultViewport={defaultViewport}
+                fitView
+              >
+                <Controls />
+                <Background />
+              </ReactFlow>
+            </div>
+          </div>
+
+          <div className="w-72 shrink-0">
+            <NodePropertiesPanel
+              selectedNode={selectedNode || null}
+              modelName={modelName}
+              onModelNameChange={setModelName}
+              onNodeUpdate={onNodeUpdate}
+            />
+          </div>
+        </div>
+      </ReactFlowProvider>
+
+      <ModelSummaryPanel
+        summary={modelSummary}
+        onClose={() => setModelSummary(null)}
+      />
+    </>
+>>>>>>> ac5c2d0 (fix: address review feedback for BatchNormalizationNode, tailwind config, jsconfig formatting, and add tests)
   );
 }
 

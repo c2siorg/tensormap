@@ -18,6 +18,7 @@ import ReactFlow, {
   Controls,
   Background,
   BackgroundVariant,
+  MiniMap,
   Panel,
 } from "reactflow";
 import { useRecoilState } from "recoil";
@@ -421,6 +422,24 @@ function Canvas() {
                 defaultViewport={defaultViewport}
               >
                 <Controls />
+                <MiniMap
+                  nodeColor={(node) => {
+                    switch (node.type) {
+                      case "custominput":
+                        return "rgb(105, 172, 61)"; // node-input
+                      case "customdense":
+                        return "rgb(43, 161, 255)"; // node-dense
+                      case "customflatten":
+                        return "rgb(247, 173, 20)"; // node-flatten
+                      case "customconv":
+                        return "rgb(255, 128, 43)"; // node-conv
+                      default:
+                        return "#eee";
+                    }
+                  }}
+                  pannable
+                  zoomable
+                />
                 {hasDraft && (
                   <Panel position="top-right">
                     <Button variant="destructive" onClick={handleDiscardDraft}>

@@ -33,13 +33,15 @@ def generate_code(model_name: str, db: Session) -> str:
     model_configs = db.exec(select(ModelBasic).where(ModelBasic.model_name == model_name)).first()
     if model_configs is None:
         raise ValueError(f"Model '{model_name}' not found in database")
+    if model_configs.file_id is None:
+        raise ValueError(f"Model '{model_name}' has no associated file")
     file = db.exec(select(DataFile).where(DataFile.id == model_configs.file_id)).first()
     if file is None:
         raise ValueError(f"File not found for model '{model_name}'")
 
     data = {
         DATASET: {
-            FILE_NAME: _file_location(model_configs.file_id, db),
+            FILE_NAME: _file_location(file),
             FILE_TARGET: model_configs.target_field,
             MODEL_TRAINING_SPLIT: model_configs.training_split,
         },
@@ -83,12 +85,9 @@ def _map_template(problem_type_id: int) -> str:
     return options[problem_type_id]
 
 
-def _file_location(file_id, db: Session) -> str:
-    """Resolve the on-disk path for a file referenced by its DB ID."""
+def _file_location(file: DataFile) -> str:
+    """Resolve the on-disk path for an already-loaded DataFile object."""
     settings = get_settings()
-    file = db.exec(select(DataFile).where(DataFile.id == file_id)).first()
-    if file is None:
-        raise ValueError(f"File with id {file_id} not found in database")
     if file.file_type == "zip":
         return f"{settings.upload_folder}/{file.file_name}"
     return f"{settings.upload_folder}/{file.file_name}.{file.file_type}"

@@ -19,17 +19,6 @@ def _resp(status_code: int, success: bool, message: str, data: Any = None) -> tu
     return {"success": success, "message": message, "data": data}, status_code
 
 
-def _paginated_resp(data: list, pagination: dict) -> tuple:
-    """Build a standard API response tuple for paginated data."""
-    body = {
-        "success": True,
-        "message": "Data sent successfully",
-        "data": data,
-        "pagination": pagination,
-    }
-    return body, 200
-
-
 def _get_file_path(file: DataFile) -> str:
     """Resolve the on-disk path for a DataFile record."""
     settings = get_settings()
@@ -220,36 +209,40 @@ def get_correlation_matrix(db: Session, file_id: uuid_pkg.UUID) -> tuple:
     return _resp(200, True, "Correlation matrix computed successfully", {"columns": columns, "matrix": matrix})
 
 
-def get_file_data(db: Session, file_id: uuid_pkg.UUID, page: int = 1, page_size: int = 50) -> tuple:
-    """Read and return the paginated contents of a CSV file as JSON."""
+def get_file_data(db: Session, file_id: uuid_pkg.UUID, offset: int = 0, limit: int = 100) -> tuple:
+    """Read and return a paginated preview of a CSV file.
+
+    The response includes:
+    - ``rows``: list of records for the current page
+    - ``columns``: ordered list of column names
+    - ``pagination``: total/offset/limit metadata
+    """
     file = db.exec(select(DataFile).where(DataFile.id == file_id)).first()
     if not file:
         return _resp(400, False, "Unable to open file")
+    if file.file_type != "csv":
+        return _resp(400, False, "Only CSV files support row preview")
 
     file_path = _get_file_path(file)
-
     try:
-        with open(file_path, "rb") as f:
-            total_rows = sum(1 for _ in f) - 1
-        total_rows = max(total_rows, 0)
-    except FileNotFoundError:
-        return _resp(500, False, f"File not found: {file_path}")
-    except Exception as e:
-        return _resp(500, False, f"Error reading file count: {e}")
+        # Cache columns from disk if missing in DB.
+        if file.columns is None:
+            header_df = pd.read_csv(file_path, nrows=0)
+            file.columns = list(header_df.columns)
+            db.add(file)
+            db.commit()
+        columns = file.columns or []
 
-    total_pages = (total_rows + page_size - 1) // page_size if page_size > 0 else 0
+        # Use cached row_count when available; otherwise count once and cache.
+        if file.row_count is None:
+            file.row_count = sum(chunk.shape[0] for chunk in pd.read_csv(file_path, chunksize=10_000))
+            db.add(file)
+            db.commit()
+        total_rows = file.row_count or 0
 
-    if total_rows > 0 and page > total_pages:
-        return _resp(400, False, f"Page {page} exceeds total pages ({total_pages})")
-
-    if total_rows == 0:
-        return _paginated_resp([], {"page": page, "page_size": page_size, "total_rows": 0, "total_pages": 0})
-
-    start_idx = (page - 1) * page_size
-    skip = list(range(1, start_idx + 1)) if start_idx > 0 else None
-
-    try:
-        df_page = pd.read_csv(file_path, skiprows=skip, nrows=page_size)
+        # Read only the requested page rows (keep header row intact).
+        skiprows = range(1, offset + 1) if offset > 0 else None
+        df = pd.read_csv(file_path, skiprows=skiprows, nrows=limit)
     except FileNotFoundError:
         return _resp(500, False, f"File not found: {file_path}")
     except pd.errors.ParserError as e:
@@ -259,12 +252,13 @@ def get_file_data(db: Session, file_id: uuid_pkg.UUID, page: int = 1, page_size:
         logger.exception("Error reading file: %s", str(e))
         return _resp(500, False, f"Error reading CSV: {e}")
 
-    # For empty or any dataframe slice, to_dict will convert to list of plain dict elements avoiding json strings
-    data_list = df_page.to_dict(orient="records")
-
-    return _paginated_resp(
-        data_list, {"page": page, "page_size": page_size, "total_rows": total_rows, "total_pages": total_pages}
-    )
+    rows = df.to_dict(orient="records")
+    data = {
+        "rows": rows,
+        "columns": columns,
+        "pagination": {"total": total_rows, "offset": offset, "limit": limit},
+    }
+    return _resp(200, True, "Data sent successfully", data)
 
 
 # Transformation handler functions

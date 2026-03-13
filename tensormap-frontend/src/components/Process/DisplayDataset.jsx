@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import PropTypes from "prop-types";
+import { Button } from "@/components/ui/button";
 import { getFileData } from "../../services/FileServices";
 import logger from "../../shared/logger";
-import { Button } from "../ui/button";
 
 /**
  * Tabular preview of a CSV dataset.
@@ -12,61 +12,43 @@ import { Button } from "../ui/button";
  *
  * @param {{ fileId: string }} props
  */
-const DisplayDataset = ({ fileId, pageSize = 50 }) => {
-  const [data, setData] = useState(null);
+const DisplayDataset = ({ fileId }) => {
+  const PAGE_SIZE = 50;
+  const [rows, setRows] = useState([]);
+  const [columns, setColumns] = useState([]);
+  const [pagination, setPagination] = useState({ total: 0, offset: 0, limit: PAGE_SIZE });
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [page, setPage] = useState(1);
-  const [pagination, setPagination] = useState(null);
-  const abortControllerRef = React.useRef(null);
 
-  const fetchData = useCallback(
-    async (currentFileId, currentPage = 1) => {
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
-      const controller = new AbortController();
-      abortControllerRef.current = controller;
-
-      setIsLoading(true);
-      try {
-        setError(null);
-        const fileData = await getFileData(currentFileId, currentPage, pageSize, controller.signal);
-
-        if (!controller.signal.aborted) {
-          setData(fileData.data);
-          setPagination(fileData.pagination);
-        }
-      } catch (e) {
-        if (e.name !== "CanceledError" && e.name !== "AbortError") {
-          logger.error("Error fetching dataset:", e);
-          setError("Failed to load dataset");
-          setData(null);
-        }
-      } finally {
-        if (!controller.signal.aborted) {
-          setIsLoading(false);
-        }
-      }
-    },
-    [pageSize],
-  );
-
-  useEffect(() => {
-    setPage(1);
+  const fetchData = useCallback(async (nextOffset = 0) => {
+    try {
+      setLoading(true);
+      setError(null);
+      const fileData = await getFileData(fileId, { offset: nextOffset, limit: PAGE_SIZE });
+      setRows(fileData.rows || []);
+      setColumns(fileData.columns || []);
+      setPagination(fileData.pagination || { total: 0, offset: nextOffset, limit: PAGE_SIZE });
+    } catch (e) {
+      logger.error("Error fetching dataset:", e);
+      setError("Failed to load dataset");
+      setRows([]);
+      setColumns([]);
+    } finally {
+      setLoading(false);
+    }
   }, [fileId]);
 
   useEffect(() => {
     if (fileId) {
-      fetchData(fileId, page);
+      fetchData(0);
     }
-  }, [fileId, page, fetchData]);
+  }, [fileId, fetchData]);
 
   if (error) {
     return <div className="flex h-48 items-center justify-center text-destructive">{error}</div>;
   }
 
-  if (isLoading) {
+  if (loading) {
     return (
       <div className="flex h-48 items-center justify-center text-muted-foreground">
         Loading data...
@@ -74,21 +56,33 @@ const DisplayDataset = ({ fileId, pageSize = 50 }) => {
     );
   }
 
-  if (!data || data.length === 0) {
-    return (
-      <div className="flex h-48 items-center justify-center text-muted-foreground">
-        Dataset is empty.
-      </div>
-    );
+  if (!rows.length) {
+    return <div className="flex h-48 items-center justify-center text-muted-foreground">No rows found.</div>;
   }
 
+  const { total, offset, limit } = pagination;
+  const start = total === 0 ? 0 : offset + 1;
+  const end = Math.min(offset + rows.length, total);
+  const hasPrev = offset > 0;
+  const hasNext = offset + limit < total;
+
+  const handlePrevious = () => {
+    if (!hasPrev) return;
+    fetchData(Math.max(0, offset - limit));
+  };
+
+  const handleNext = () => {
+    if (!hasNext) return;
+    fetchData(offset + limit);
+  };
+
   return (
-    <div className="flex flex-col space-y-4">
+    <div className="space-y-3">
       <div className="max-h-[500px] w-full overflow-auto">
         <table className="w-full border-collapse">
           <thead>
             <tr className="border-b">
-              {Object.keys(data[0]).map((key) => (
+              {columns.map((key) => (
                 <th key={key} className="border px-3 py-2 text-left font-semibold">
                   {key.trim()}
                 </th>
@@ -96,11 +90,11 @@ const DisplayDataset = ({ fileId, pageSize = 50 }) => {
             </tr>
           </thead>
           <tbody>
-            {data.map((row, index) => (
-              <tr key={`row-${pagination?.page}-${index}`} className="border-b">
-                {Object.values(row).map((value, idx) => (
-                  <td key={`cell-${pagination?.page}-${index}-${idx}`} className="border px-3 py-2">
-                    {value != null ? String(value) : ""}
+            {rows.map((row, index) => (
+              <tr key={`${offset}-${index}`} className="border-b">
+                {columns.map((column) => (
+                  <td key={column} className="border px-3 py-2">
+                    {String(row[column] ?? "")}
                   </td>
                 ))}
               </tr>
@@ -110,29 +104,14 @@ const DisplayDataset = ({ fileId, pageSize = 50 }) => {
       </div>
 
       <div className="flex items-center justify-between text-sm text-muted-foreground">
-        <div>
-          Showing {pagination ? (pagination.page - 1) * pagination.page_size + 1 : 0} to{" "}
-          {pagination ? Math.min(pagination.page * pagination.page_size, pagination.total_rows) : 0}{" "}
-          of {pagination ? pagination.total_rows : 0} Total rows
-        </div>
-        <div className="flex items-center space-x-2">
-          <div>
-            Page {pagination?.page || 1} of {pagination?.total_pages || 1}
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-            disabled={!pagination || pagination.page <= 1}
-          >
+        <span>
+          Showing {start}-{end} of {total}
+        </span>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={handlePrevious} disabled={!hasPrev || loading}>
             Previous
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setPage((p) => p + 1)}
-            disabled={!pagination || pagination.page >= pagination.total_pages}
-          >
+          <Button variant="outline" size="sm" onClick={handleNext} disabled={!hasNext || loading}>
             Next
           </Button>
         </div>
@@ -143,7 +122,6 @@ const DisplayDataset = ({ fileId, pageSize = 50 }) => {
 
 DisplayDataset.propTypes = {
   fileId: PropTypes.string.isRequired,
-  pageSize: PropTypes.number,
 };
 
 export default DisplayDataset;

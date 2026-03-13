@@ -4,6 +4,9 @@ import socketio
 
 from app.config import get_settings
 from app.shared.constants import SOCKETIO_DL_NAMESPACE
+from app.shared.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 sio = socketio.AsyncServer(
     async_mode="asgi",
@@ -13,5 +16,7 @@ sio = socketio.AsyncServer(
 
 @sio.on("connect", namespace=SOCKETIO_DL_NAMESPACE)
 async def dl_connect(sid, environ):
-    """Accept client connections to the training progress namespace."""
-    pass
+    """Log client connections to the training progress namespace."""
+    client_ip = environ.get("REMOTE_ADDR", "unknown")
+    origin = environ.get("HTTP_ORIGIN", "unknown")
+    logger.info("Socket.IO client connected: sid=%s ip=%s origin=%s", sid, client_ip, origin)

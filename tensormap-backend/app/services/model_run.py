@@ -116,6 +116,8 @@ def model_run(model_name: str, db: Session, loop: asyncio.AbstractEventLoop | No
 
 def _run(model_name: str, db: Session) -> None:
     model_configs = db.exec(select(ModelBasic).where(ModelBasic.model_name == model_name)).first()
+    if model_configs is None:
+        raise ValueError(f"Model '{model_name}' not found in database")
 
     if model_configs.model_type == ProblemType.IMAGE_CLASSIFICATION:
         image_properties = db.exec(select(ImageProperties).where(ImageProperties.id == model_configs.file_id)).first()

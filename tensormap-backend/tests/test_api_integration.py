@@ -80,6 +80,20 @@ def test_upload_valid_csv(client: TestClient):
     assert body["success"] is True
 
 
+def test_upload_oversized_csv_returns_413(client: TestClient):
+    with patch("app.routers.data_upload.get_settings") as mock_get_settings:
+        mock_get_settings.return_value = MagicMock(max_content_length=10)
+        resp = client.post(
+            "/api/v1/data/upload/file",
+            files={"data": ("test.csv", io.BytesIO(CSV_BYTES), "text/csv")},
+        )
+
+    assert resp.status_code == 413
+    body = resp.json()
+    assert body["success"] is False
+    assert "File too large" in body["message"]
+
+
 def test_upload_non_csv_extension(client: TestClient):
     resp = client.post(
         "/api/v1/data/upload/file",

@@ -1,9 +1,11 @@
 import uuid as uuid_pkg
+from os import SEEK_END
 
 from fastapi import APIRouter, Depends, Form, Query, UploadFile
 from fastapi.responses import JSONResponse
 from sqlmodel import Session
 
+from app.config import get_settings
 from app.database import get_db
 from app.services.data_upload import (
     add_file_service,
@@ -40,6 +42,7 @@ def upload_file(
 ):
     """Upload a CSV file and persist its metadata."""
     logger.debug("Upload request: filename=%s, project_id=%s", data.filename, project_id)
+    settings = get_settings()
     if not data.filename:
         return JSONResponse(
             status_code=400,
@@ -53,6 +56,25 @@ def upload_file(
             content={
                 "success": False,
                 "message": "Only CSV files are supported.",
+                "data": None,
+            },
+        )
+
+    try:
+        data.file.seek(0, SEEK_END)
+        file_size = data.file.tell()
+        data.file.seek(0)
+    except (AttributeError, OSError):
+        file_size = None
+        logger.warning("Unable to determine upload size for file: %s", data.filename)
+
+    if file_size is not None and file_size > settings.max_content_length:
+        max_mb = settings.max_content_length // (1024 * 1024)
+        return JSONResponse(
+            status_code=413,
+            content={
+                "success": False,
+                "message": f"File too large. Maximum allowed size is {max_mb}MB.",
                 "data": None,
             },
         )

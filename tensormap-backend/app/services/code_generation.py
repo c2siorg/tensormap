@@ -31,7 +31,14 @@ logger = get_logger(__name__)
 def generate_code(model_name: str, db: Session) -> str:
     """Generate TensorFlow Python code from a saved model configuration."""
     model_configs = db.exec(select(ModelBasic).where(ModelBasic.model_name == model_name)).first()
+    if model_configs is None:
+        raise ValueError(f"Model '{model_name}' not found in database")
+    if model_configs.file_id is None:
+        raise ValueError(f"Model '{model_name}' has no dataset configured")
+
     file = db.exec(select(DataFile).where(DataFile.id == model_configs.file_id)).first()
+    if file is None:
+        raise ValueError(f"File with id {model_configs.file_id} not found in database")
 
     data = {
         DATASET: {
@@ -74,6 +81,8 @@ def _map_template(problem_type_id: int) -> str:
         ProblemType.REGRESSION: CODE_TEMPLATE_FOLDER + "linear-regression-all-float.py",
         ProblemType.IMAGE_CLASSIFICATION: CODE_TEMPLATE_FOLDER + "simple-image-classification.py",
     }
+    if problem_type_id not in options:
+        raise ValueError(f"Unsupported problem type id: {problem_type_id}")
     return options[problem_type_id]
 
 
@@ -81,6 +90,8 @@ def _file_location(file_id, db: Session) -> str:
     """Resolve the on-disk path for a file referenced by its DB ID."""
     settings = get_settings()
     file = db.exec(select(DataFile).where(DataFile.id == file_id)).first()
+    if file is None:
+        raise ValueError(f"File with id {file_id} not found in database")
     if file.file_type == "zip":
         return f"{settings.upload_folder}/{file.file_name}"
     return f"{settings.upload_folder}/{file.file_name}.{file.file_type}"

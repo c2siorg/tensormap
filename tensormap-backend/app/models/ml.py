@@ -16,7 +16,7 @@ class ModelBasic(SQLModel, table=True):
     __tablename__ = "model_basic"
 
     id: int | None = Field(default=None, primary_key=True)
-    model_name: str = Field(max_length=50, nullable=False, unique=True)
+    model_name: str = Field(max_length=50, nullable=False)
     file_id: uuid_pkg.UUID | None = Field(
         default=None, sa_column=Column(PgUUID(as_uuid=True), ForeignKey("data_file.id"), index=True, nullable=True)
     )

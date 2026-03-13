@@ -28,10 +28,18 @@ from app.shared.logging_config import get_logger
 logger = get_logger(__name__)
 
 
-def generate_code(model_name: str, db: Session) -> str:
+def generate_code(model_name: str, db: Session, model_id: int | None = None) -> str:
     """Generate TensorFlow Python code from a saved model configuration."""
-    model_configs = db.exec(select(ModelBasic).where(ModelBasic.model_name == model_name)).first()
+    if model_id is not None:
+        model_configs = db.get(ModelBasic, model_id)
+    else:
+        model_configs = db.exec(select(ModelBasic).where(ModelBasic.model_name == model_name)).first()
+    if model_configs is None:
+        raise ValueError("Model not found")
+
     file = db.exec(select(DataFile).where(DataFile.id == model_configs.file_id)).first()
+    if file is None:
+        raise ValueError("Dataset file not found")
 
     data = {
         DATASET: {

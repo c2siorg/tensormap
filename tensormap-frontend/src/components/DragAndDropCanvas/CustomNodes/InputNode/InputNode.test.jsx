@@ -6,6 +6,7 @@ import InputNode from "./InputNode";
 vi.mock("reactflow", () => ({
   Handle: (props) => <div data-testid={`handle-${props.type}-${props.position}`} {...props} />,
   Position: { Left: "left", Right: "right", Top: "top", Bottom: "bottom" },
+  useReactFlow: () => ({ deleteElements: vi.fn() }),
 }));
 
 describe("InputNode", () => {

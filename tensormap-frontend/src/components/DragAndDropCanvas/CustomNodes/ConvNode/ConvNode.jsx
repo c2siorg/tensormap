@@ -1,7 +1,8 @@
 import PropTypes from "prop-types";
-import { Handle, Position } from "reactflow";
+import { Handle, Position, useReactFlow } from "reactflow";
 
 function ConvNode({ data, id }) {
+  const { deleteElements } = useReactFlow();
   const p = data.params;
   const parts = [
     p.filter ? `F: ${p.filter}` : null,
@@ -13,11 +14,26 @@ function ConvNode({ data, id }) {
     .filter(Boolean)
     .join(", ");
 
+  const handleDelete = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    deleteElements({ nodes: [{ id }] });
+  };
+
   return (
     <div className="w-48 rounded-lg border bg-white shadow-sm">
       <Handle type="target" position={Position.Left} isConnectable id={`${id}_in`} />
-      <div className="rounded-t-lg bg-node-conv px-3 py-1.5 text-xs font-bold text-white">
-        Conv2D
+      <div className="flex items-center justify-between rounded-t-lg bg-node-conv px-3 py-1.5 text-xs font-bold text-white">
+        <span>Conv2D</span>
+        <button
+          type="button"
+          onClick={handleDelete}
+          className="rounded px-1 leading-none text-white/80 hover:bg-white/20 hover:text-white"
+          aria-label="Delete layer"
+          title="Delete layer"
+        >
+          ×
+        </button>
       </div>
       <div className="px-3 py-2 text-xs text-muted-foreground">{parts || "Not configured"}</div>
       <Handle type="source" position={Position.Right} isConnectable id={`${id}_out`} />

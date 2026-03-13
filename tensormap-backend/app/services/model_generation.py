@@ -19,21 +19,46 @@ def model_generation(model_params: dict) -> dict:
     """
     logger.debug("Generating model from %d nodes, %d edges", len(model_params["nodes"]), len(model_params["edges"]))
 
+    nodes = model_params.get("nodes", [])
+    edges = model_params.get("edges", [])
+    if not nodes:
+        raise ValueError("Graph must include at least one node")
+
+    node_ids = [node["id"] for node in nodes]
+    if len(set(node_ids)) != len(node_ids):
+        raise ValueError("Duplicate node IDs are not allowed")
+
+    input_ids = [node["id"] for node in nodes if node["type"] == "custominput"]
+    if not input_ids:
+        raise ValueError("Graph must include at least one input node")
+
+    nodes_by_id = {node["id"]: node for node in nodes}
+
     # Build adjacency maps
     source_to_targets = defaultdict(list)
     target_to_sources = defaultdict(list)
-    for edge in model_params["edges"]:
+    for edge in edges:
+        if edge["source"] not in nodes_by_id or edge["target"] not in nodes_by_id:
+            raise ValueError(f"Edge references unknown node(s): source={edge['source']}, target={edge['target']}")
         source_to_targets[edge["source"]].append(edge["target"])
         target_to_sources[edge["target"]].append(edge["source"])
 
-    nodes_by_id = {node["id"]: node for node in model_params["nodes"]}
+    for input_id in input_ids:
+        if target_to_sources.get(input_id):
+            raise ValueError(f"Input node '{input_id}' cannot have incoming edges")
+        if not source_to_targets.get(input_id):
+            raise ValueError(f"Input node '{input_id}' must connect to at least one layer")
+
+    for node in nodes:
+        if node["type"] != "custominput" and not target_to_sources.get(node["id"]):
+            raise ValueError(f"Node '{node['id']}' has no incoming edges")
 
     # BFS from input nodes to build Keras layers in topological order
     keras_tensors = {}
     visited = set()
     queue = []
 
-    for node in model_params["nodes"]:
+    for node in nodes:
         if node["type"] == "custominput":
             dims = [int(node["data"]["params"].get(f"dim-{i + 1}", 0) or 0) for i in range(3)]
             dims = [d for d in dims if d != 0]
@@ -62,11 +87,21 @@ def model_generation(model_params: dict) -> dict:
                 input_tensor = source_tensors[0]
 
             node = nodes_by_id[target_id]
-            keras_tensors[target_id] = _build_layer(node, input_tensor)
+            try:
+                keras_tensors[target_id] = _build_layer(node, input_tensor)
+            except (KeyError, TypeError, ValueError) as e:
+                raise ValueError(f"Failed to build node '{target_id}': {e}") from e
+
+    unresolved_nodes = [node_id for node_id in node_ids if node_id not in visited]
+    if unresolved_nodes:
+        raise ValueError(f"Graph contains disconnected or cyclic nodes: {sorted(unresolved_nodes)}")
+
+    if all(nodes_by_id[node_id]["type"] == "custominput" for node_id in visited):
+        raise ValueError("Graph must include at least one non-input layer connected to an input")
 
     # Identify input and output tensors
-    inputs = [keras_tensors[n["id"]] for n in model_params["nodes"] if n["type"] == "custominput"]
-    output_ids = [n["id"] for n in model_params["nodes"] if n["id"] not in source_to_targets]
+    inputs = [keras_tensors[n["id"]] for n in nodes if n["type"] == "custominput"]
+    output_ids = [n["id"] for n in nodes if n["id"] not in source_to_targets]
     outputs = [keras_tensors[oid] for oid in output_ids]
 
     model = tf.keras.Model(inputs=inputs, outputs=outputs)

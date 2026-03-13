@@ -27,6 +27,20 @@ def _make_db(model_config: MagicMock) -> MagicMock:
 
 
 class TestModelRunEmitsErrorOnFailure:
+    def test_raises_clear_error_when_target_field_missing(self):
+        cfg = _make_model_config(ProblemType.CLASSIFICATION)
+        cfg.target_field = None
+        db = _make_db(cfg)
+
+        with (
+            patch("app.services.model_run._model_result"),
+            patch("app.services.model_run._helper_generate_file_location") as mock_file_location,
+            pytest.raises(ValueError, match="target field is required"),
+        ):
+            model_run("my_model", db)
+
+        mock_file_location.assert_not_called()
+
     def test_emits_socketio_error_when_csv_read_fails(self):
         cfg = _make_model_config(ProblemType.CLASSIFICATION)
         db = _make_db(cfg)

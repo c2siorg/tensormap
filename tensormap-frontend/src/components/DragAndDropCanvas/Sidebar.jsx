@@ -19,6 +19,7 @@ function Sidebar() {
         >
           Input
         </div>
+
         <div
           className="cursor-grab rounded-md border border-l-4 border-l-node-dense bg-white px-3 py-2 text-xs font-medium"
           onDragStart={(e) => onDragStart(e, "customdense")}
@@ -26,6 +27,7 @@ function Sidebar() {
         >
           Dense
         </div>
+
         <div
           className="cursor-grab rounded-md border border-l-4 border-l-node-flatten bg-white px-3 py-2 text-xs font-medium"
           onDragStart={(e) => onDragStart(e, "customflatten")}
@@ -33,12 +35,21 @@ function Sidebar() {
         >
           Flatten
         </div>
+
         <div
           className="cursor-grab rounded-md border border-l-4 border-l-node-conv bg-white px-3 py-2 text-xs font-medium"
           onDragStart={(e) => onDragStart(e, "customconv")}
           draggable
         >
           Conv2D
+        </div>
+
+        <div
+          className="cursor-grab rounded-md border border-l-4 border-l-node-conv bg-white px-3 py-2 text-xs font-medium"
+          onDragStart={(e) => onDragStart(e, "custommaxpool")}
+          draggable
+        >
+          MaxPooling2D
         </div>
       </CardContent>
     </Card>

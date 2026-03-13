@@ -43,6 +43,8 @@ def sample_file(file_id):
     f.id = file_id
     f.file_name = "iris"
     f.file_type = "csv"
+    f.columns = None
+    f.row_count = None
     return f
 
 
@@ -315,7 +317,10 @@ class TestGetFileData:
 
         assert status == 200
         assert body["success"] is True
-        assert body["data"] is not None
+        assert body["data"]["rows"] is not None
+        assert body["data"]["columns"] == ["sepal_length", "sepal_width", "species"]
+        assert body["data"]["pagination"]["total"] == 4
+        assert body["data"]["pagination"]["offset"] == 0
 
     def test_file_not_in_db(self, mock_db, file_id):
         mock_db.exec.return_value.first.return_value = None
@@ -334,6 +339,21 @@ class TestGetFileData:
 
         assert status == 500
         assert body["success"] is False
+
+    @patch("app.services.data_process.get_settings")
+    def test_success_with_offset_and_limit(self, mock_settings, mock_db, file_id, sample_file, classification_csv):
+        mock_settings.return_value.upload_folder = str(classification_csv)
+        mock_db.exec.return_value.first.return_value = sample_file
+
+        body, status = get_file_data(mock_db, file_id, offset=1, limit=2)
+
+        assert status == 200
+        assert body["success"] is True
+        assert len(body["data"]["rows"]) == 2
+        assert body["data"]["rows"][0]["sepal_length"] == pytest.approx(4.9)
+        assert body["data"]["pagination"]["total"] == 4
+        assert body["data"]["pagination"]["offset"] == 1
+        assert body["data"]["pagination"]["limit"] == 2
 
 
 # ---------------------------------------------------------------------------

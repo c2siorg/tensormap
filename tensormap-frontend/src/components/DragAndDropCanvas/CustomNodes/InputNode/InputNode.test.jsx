@@ -1,11 +1,14 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import InputNode from "./InputNode";
+
+const deleteElementsMock = vi.fn();
 
 // Mock reactflow's Handle and Position since we're testing the node purely presentationally.
 vi.mock("reactflow", () => ({
   Handle: (props) => <div data-testid={`handle-${props.type}-${props.position}`} {...props} />,
   Position: { Left: "left", Right: "right", Top: "top", Bottom: "bottom" },
+  useReactFlow: () => ({ deleteElements: deleteElementsMock }),
 }));
 
 describe("InputNode", () => {
@@ -19,6 +22,10 @@ describe("InputNode", () => {
       },
     },
   };
+
+  beforeEach(() => {
+    deleteElementsMock.mockClear();
+  });
 
   it("renders the title correctly", () => {
     render(<InputNode {...defaultProps} />);
@@ -69,5 +76,15 @@ describe("InputNode", () => {
     // Should not have a target handle
     const targetHandleLeft = screen.queryByTestId("handle-target-left");
     expect(targetHandleLeft).not.toBeInTheDocument();
+  });
+
+  it("renders delete button and deletes node on click", () => {
+    render(<InputNode {...defaultProps} />);
+
+    const deleteButton = screen.getByTestId("input-node-delete-button");
+    expect(deleteButton).toBeInTheDocument();
+
+    fireEvent.click(deleteButton);
+    expect(deleteElementsMock).toHaveBeenCalledWith({ nodes: [{ id: defaultProps.id }] });
   });
 });

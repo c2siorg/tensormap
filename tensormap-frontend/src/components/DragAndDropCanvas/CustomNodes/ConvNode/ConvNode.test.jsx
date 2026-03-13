@@ -1,10 +1,13 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import ConvNode from "./ConvNode";
+
+const deleteElementsMock = vi.fn();
 
 vi.mock("reactflow", () => ({
   Handle: (props) => <div data-testid={`handle-${props.type}-${props.position}`} {...props} />,
   Position: { Left: "left", Right: "right", Top: "top", Bottom: "bottom" },
+  useReactFlow: () => ({ deleteElements: deleteElementsMock }),
 }));
 
 describe("ConvNode", () => {
@@ -22,6 +25,10 @@ describe("ConvNode", () => {
       },
     },
   };
+
+  beforeEach(() => {
+    deleteElementsMock.mockClear();
+  });
 
   it("renders the title correctly", () => {
     render(<ConvNode {...defaultProps} />);
@@ -89,5 +96,15 @@ describe("ConvNode", () => {
 
     const sourceHandle = screen.getByTestId("handle-source-right");
     expect(sourceHandle).toBeInTheDocument();
+  });
+
+  it("renders delete button and deletes node on click", () => {
+    render(<ConvNode {...defaultProps} />);
+
+    const deleteButton = screen.getByTestId("conv-node-delete-button");
+    expect(deleteButton).toBeInTheDocument();
+
+    fireEvent.click(deleteButton);
+    expect(deleteElementsMock).toHaveBeenCalledWith({ nodes: [{ id: defaultProps.id }] });
   });
 });

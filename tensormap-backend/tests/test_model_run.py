@@ -1,3 +1,4 @@
+import uuid
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -101,3 +102,60 @@ class TestGetCodeServiceOnFailure:
 
         assert result["success"] is False
         assert result["message"] == "file missing"
+
+
+class TestModelNameScoping:
+    def test_get_code_requires_project_id_when_name_is_ambiguous(self):
+        m1 = MagicMock()
+        m1.id = 1
+        m2 = MagicMock()
+        m2.id = 2
+        db = MagicMock()
+        db.exec.return_value.all.return_value = [m1, m2]
+
+        result, status_code = get_code_service(db, "shared_name")
+
+        assert status_code == 409
+        assert result["success"] is False
+        assert "project_id" in result["message"]
+
+    def test_get_code_uses_project_scoped_model_id(self):
+        project_id = uuid.uuid4()
+        model = MagicMock()
+        model.id = 42
+        db = MagicMock()
+        db.exec.return_value.first.return_value = model
+
+        with patch("app.services.deep_learning.generate_code", return_value="# code") as mock_generate:
+            result, status_code = get_code_service(db, "shared_name", project_id=project_id)
+
+        assert status_code == 200
+        assert result["file_name"] == "shared_name.py"
+        mock_generate.assert_called_once_with("shared_name", db, model_id=42)
+
+    def test_get_code_returns_400_when_generation_raises_value_error(self):
+        model = MagicMock()
+        model.id = 9
+        db = MagicMock()
+        db.exec.return_value.all.return_value = [model]
+
+        with patch("app.services.deep_learning.generate_code", side_effect=ValueError("file missing")):
+            result, status_code = get_code_service(db, "shared_name")
+
+        assert status_code == 400
+        assert result["success"] is False
+        assert result["message"] == "file missing"
+
+    def test_run_code_requires_project_id_when_name_is_ambiguous(self):
+        m1 = MagicMock()
+        m1.id = 1
+        m2 = MagicMock()
+        m2.id = 2
+        db = MagicMock()
+        db.exec.return_value.all.return_value = [m1, m2]
+
+        result, status_code = run_code_service(db, "shared_name")
+
+        assert status_code == 409
+        assert result["success"] is False
+        assert "project_id" in result["message"]

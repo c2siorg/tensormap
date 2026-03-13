@@ -53,6 +53,42 @@ def _sanitize_model_name(name: str) -> str:
     return name
 
 
+def _find_existing_model_in_scope(db: Session, model_name: str, project_id: uuid_pkg.UUID | None) -> ModelBasic | None:
+    """Find an existing model name within the same uniqueness scope."""
+    stmt = select(ModelBasic).where(ModelBasic.model_name == model_name)
+    if project_id is None:
+        stmt = stmt.where(ModelBasic.project_id.is_(None))
+    else:
+        stmt = stmt.where(ModelBasic.project_id == project_id)
+    return db.exec(stmt).first()
+
+
+def _get_single_model_by_name(
+    db: Session, model_name: str, project_id: uuid_pkg.UUID | None = None
+) -> tuple[ModelBasic | None, tuple | None]:
+    """Resolve one model by name, handling ambiguous names safely."""
+    stmt = select(ModelBasic).where(ModelBasic.model_name == model_name)
+    if project_id is not None:
+        model = db.exec(stmt.where(ModelBasic.project_id == project_id)).first()
+        if not model:
+            return None, _resp(404, False, "Model not found in this project")
+        return model, None
+
+    matches = db.exec(stmt).all()
+    if not matches:
+        return None, _resp(404, False, "Model not found")
+    if len(matches) > 1:
+        return (
+            None,
+            _resp(
+                409,
+                False,
+                "Multiple models share this name across projects. Please provide project_id.",
+            ),
+        )
+    return matches[0], None
+
+
 # Maximum size (in bytes) for the serialised graph JSON stored in the DB.
 _MAX_GRAPH_JSON_BYTES = 512 * 1024  # 512 KB
 
@@ -130,9 +166,9 @@ def model_validate_service(db: Session, incoming: dict, project_id: uuid_pkg.UUI
     except ValueError as e:
         return _resp(400, False, str(e))
 
-    existing = db.exec(select(ModelBasic).where(ModelBasic.model_name == code[DL_MODEL][MODEL_NAME])).first()
+    existing = _find_existing_model_in_scope(db, code[DL_MODEL][MODEL_NAME], project_id)
     if existing:
-        return _resp(400, False, "Model name already used. Use a different name")
+        return _resp(400, False, "Model name already used in this project. Use a different name")
 
     if code[PROBLEM_TYPE] in (ProblemType.CLASSIFICATION, ProblemType.IMAGE_CLASSIFICATION):
         loss = "sparse_categorical_crossentropy"
@@ -211,9 +247,9 @@ def model_save_service(db: Session, incoming: dict, model_name: str, project_id:
     except ValueError as e:
         return _resp(400, False, str(e))
 
-    existing = db.exec(select(ModelBasic).where(ModelBasic.model_name == model_name)).first()
+    existing = _find_existing_model_in_scope(db, model_name, project_id)
     if existing:
-        return _resp(400, False, "Model name already used. Use a different name")
+        return _resp(400, False, "Model name already used in this project. Use a different name")
 
     graph_data = _extract_graph(incoming)
     size_err = _validate_graph_size(graph_data)
@@ -266,12 +302,9 @@ def update_training_config_service(
     db: Session, model_name: str, config: dict, project_id: uuid_pkg.UUID | None = None
 ) -> tuple:
     """Set training configuration on a previously saved model."""
-    stmt = select(ModelBasic).where(ModelBasic.model_name == model_name)
-    if project_id is not None:
-        stmt = stmt.where(ModelBasic.project_id == project_id)
-    model = db.exec(stmt).first()
-    if not model:
-        return _resp(404, False, "Model not found")
+    model, err = _get_single_model_by_name(db, model_name, project_id)
+    if err:
+        return err
 
     problem_type_id = config["problem_type_id"]
     if problem_type_id in (ProblemType.CLASSIFICATION, ProblemType.IMAGE_CLASSIFICATION):
@@ -301,23 +334,13 @@ def update_training_config_service(
     return _resp(200, True, "Training configuration saved successfully")
 
 
-def _verify_model_project(db: Session, model_name: str, project_id: uuid_pkg.UUID | None) -> tuple | None:
-    """If project_id is provided, verify the model belongs to that project. Returns an error response or None."""
-    if project_id is None:
-        return None
-    model = db.exec(select(ModelBasic).where(ModelBasic.model_name == model_name)).first()
-    if not model or model.project_id != project_id:
-        return _resp(404, False, "Model not found in this project")
-    return None
-
-
 def get_code_service(db: Session, model_name: str, project_id: uuid_pkg.UUID | None = None) -> tuple:
     """Generate a downloadable Python training script for the named model."""
-    err = _verify_model_project(db, model_name, project_id)
+    model, err = _get_single_model_by_name(db, model_name, project_id)
     if err:
         return err
     try:
-        python_code = generate_code(model_name, db)
+        python_code = generate_code(model_name, db, model_id=model.id)
     except ValueError as e:
         return _resp(400, False, str(e))
     return {"content": python_code, "file_name": model_name + ".py"}, 200
@@ -325,16 +348,13 @@ def get_code_service(db: Session, model_name: str, project_id: uuid_pkg.UUID | N
 
 def run_code_service(db: Session, model_name: str, project_id: uuid_pkg.UUID | None = None, loop=None) -> tuple:
     """Train a saved model and emit progress events via Socket.IO."""
-    err = _verify_model_project(db, model_name, project_id)
+    model, err = _get_single_model_by_name(db, model_name, project_id)
     if err:
         return err
-    model = db.exec(select(ModelBasic).where(ModelBasic.model_name == model_name)).first()
-    if not model:
-        return _resp(404, False, "Model not found")
     if model.file_id is None or model.epochs is None:
         return _resp(400, False, "Training configuration not set. Please configure training parameters first.")
     try:
-        model_run(model_name, db, loop=loop)
+        model_run(model_name, db, loop=loop, model_id=model.id)
         logger.info("Model '%s' training completed", model_name)
         return _resp(200, True, "Model executed successfully.")
     except Exception as e:
@@ -352,12 +372,9 @@ def get_model_graph_service(db: Session, model_name: str, project_id: uuid_pkg.U
     added), the raw ReactFlow JSON is returned directly.  Older models fall back
     to reconstructing the graph from the flattened ``ModelConfigs`` rows.
     """
-    stmt = select(ModelBasic).where(ModelBasic.model_name == model_name)
-    if project_id is not None:
-        stmt = stmt.where(ModelBasic.project_id == project_id)
-    model = db.exec(stmt).first()
-    if not model:
-        return _resp(404, False, "Model not found")
+    model, err = _get_single_model_by_name(db, model_name, project_id)
+    if err:
+        return err
 
     # Fast path: graph was stored directly in the JSON column
     if model.graph_json is not None:

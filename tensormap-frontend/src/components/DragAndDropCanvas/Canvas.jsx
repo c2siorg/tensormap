@@ -34,6 +34,8 @@ const nodeTypes = {
   customconv: ConvNode,
 };
 
+const defaultViewport = { x: 10, y: 15, zoom: 0.5 };
+
 function Canvas() {
   const { projectId } = useParams();
   const reactFlowWrapper = useRef(null);
@@ -50,7 +52,6 @@ function Canvas() {
     detail: "",
   });
   const [contextMenu, setContextMenu] = useState({ nodeId: null, x: 0, y: 0 });
-  const defaultViewport = { x: 10, y: 15, zoom: 0.5 };
 
   const draftKey = `tensormap_draft_${projectId || "default"}`;
   const isLoaded = useRef(false);
@@ -93,28 +94,23 @@ function Canvas() {
           if (!cancelled) isLoaded.current = true;
           return;
         }
-
         const result = await getModelGraph(modelNames[0], projectId);
         if (cancelled || !result.success) {
           if (!cancelled) isLoaded.current = true;
           return;
         }
-
         const { graph, model_name } = result.data;
-
         const loadedNodes = (graph.nodes || []).map((node, i) => ({
           id: node.id,
           type: node.type,
           position: node.position || { x: 100, y: i * 200 },
           data: { label: `${node.type} node`, params: node.data?.params || {} },
         }));
-
         const loadedEdges = (graph.edges || []).map((edge) => ({
           id: edge.id || `e-${edge.source}-${edge.target}`,
           source: edge.source,
           target: edge.target,
         }));
-
         if (!cancelled) {
           setNodes(loadedNodes);
           setEdges(loadedEdges);
@@ -135,7 +131,6 @@ function Canvas() {
   // Handle debounced saving of draft
   useEffect(() => {
     if (!isLoaded.current) return;
-
     const timer = setTimeout(() => {
       if (nodes.length === 0 && edges.length === 0 && !modelName) {
         try {
@@ -146,7 +141,6 @@ function Canvas() {
         setHasDraft(false);
         return;
       }
-
       try {
         localStorage.setItem(draftKey, JSON.stringify({ nodes, edges, modelName }));
         setHasDraft(true);
@@ -154,7 +148,6 @@ function Canvas() {
         logger.error("Failed to save draft:", e);
       }
     }, 500);
-
     return () => clearTimeout(timer);
   }, [nodes, edges, modelName, draftKey]);
 
@@ -170,12 +163,50 @@ function Canvas() {
     setModelName("");
   }, [draftKey, setNodes, setEdges]);
 
-  const onConnect = useCallback((params) => setEdges((eds) => addEdge(params, eds)), [setEdges]);
+  const onConnect = useCallback(
+    (params) => setEdges((eds) => addEdge(params, eds)),
+    [setEdges]
+  );
 
   const onDragOver = useCallback((event) => {
     event.preventDefault();
     event.dataTransfer.dropEffect = "move";
   }, []);
+
+  const onDrop = useCallback(
+    (event) => {
+      event.preventDefault();
+      const reactFlowBounds = reactFlowWrapper.current.getBoundingClientRect();
+      const type = event.dataTransfer.getData("application/reactflow");
+      if (typeof type === "undefined" || !type) return;
+      const position = reactFlowInstance.project({
+        x: event.clientX - reactFlowBounds.left,
+        y: event.clientY - reactFlowBounds.top,
+      });
+      const defaultParams = {
+        custominput: { "dim-1": "", "dim-2": "", "dim-3": "" },
+        customdense: { units: "", activation: "" },
+        customflatten: {},
+        customconv: {
+          filter: "",
+          padding: "valid",
+          activation: "none",
+          strideX: "",
+          strideY: "",
+          kernelX: "",
+          kernelY: "",
+        },
+      };
+      const newNode = {
+        id: crypto.randomUUID(),
+        type,
+        position,
+        data: { label: `${type} node`, params: defaultParams[type] || {} },
+      };
+      setNodes((nds) => nds.concat(newNode));
+    },
+    [reactFlowInstance, setNodes]
+  );
 
   const modelData =
     reactFlowInstance === null ? { nodes: [], edges: [] } : reactFlowInstance.toObject();
@@ -223,10 +254,10 @@ function Canvas() {
             return { ...node, data: { ...node.data, params: newParams } };
           }
           return node;
-        }),
+        })
       );
     },
-    [setNodes],
+    [setNodes]
   );
 
   const closeFeedback = () => {
@@ -242,7 +273,6 @@ function Canvas() {
       model_name: modelName,
       project_id: projectId || null,
     };
-
     saveModel(data)
       .then((resp) => {
         if (resp.success) {
@@ -280,49 +310,6 @@ function Canvas() {
         });
       });
   };
-
-  const onDrop = useCallback(
-    (event) => {
-      event.preventDefault();
-
-      const reactFlowBounds = reactFlowWrapper.current.getBoundingClientRect();
-      const type = event.dataTransfer.getData("application/reactflow");
-
-      if (typeof type === "undefined" || !type) {
-        return;
-      }
-
-      const position = reactFlowInstance.project({
-        x: event.clientX - reactFlowBounds.left,
-        y: event.clientY - reactFlowBounds.top,
-      });
-
-      const defaultParams = {
-        custominput: { "dim-1": "", "dim-2": "", "dim-3": "" },
-        customdense: { units: "", activation: "" },
-        customflatten: {},
-        customconv: {
-          filter: "",
-          padding: "valid",
-          activation: "none",
-          strideX: "",
-          strideY: "",
-          kernelX: "",
-          kernelY: "",
-        },
-      };
-
-      const newNode = {
-        id: crypto.randomUUID(),
-        type,
-        position,
-        data: { label: `${type} node`, params: defaultParams[type] || {} },
-      };
-
-      setNodes((nds) => nds.concat(newNode));
-    },
-    [reactFlowInstance, setNodes],
-  );
 
   return (
     <>

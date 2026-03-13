@@ -102,20 +102,27 @@ def _helper_generate_json_model_file_location(model_name: str) -> str:
     return path
 
 
-def model_run(model_name: str, db: Session, loop: asyncio.AbstractEventLoop | None = None) -> None:
+def model_run(
+    model_name: str, db: Session, loop: asyncio.AbstractEventLoop | None = None, model_id: int | None = None
+) -> None:
     """Load, compile, and train a Keras model, emitting progress via Socket.IO."""
     global _main_loop
     _main_loop = loop
     try:
-        _run(model_name, db)
+        _run(model_name, db, model_id=model_id)
     except Exception as e:
         logger.exception("Training failed for model '%s': %s", model_name, str(e))
         _model_result(f"Training failed: {e}", -1)
         raise
 
 
-def _run(model_name: str, db: Session) -> None:
-    model_configs = db.exec(select(ModelBasic).where(ModelBasic.model_name == model_name)).first()
+def _run(model_name: str, db: Session, model_id: int | None = None) -> None:
+    if model_id is not None:
+        model_configs = db.get(ModelBasic, model_id)
+    else:
+        model_configs = db.exec(select(ModelBasic).where(ModelBasic.model_name == model_name)).first()
+    if model_configs is None:
+        raise ValueError("Model not found")
 
     if model_configs.model_type == ProblemType.IMAGE_CLASSIFICATION:
         image_properties = db.exec(select(ImageProperties).where(ImageProperties.id == model_configs.file_id)).first()

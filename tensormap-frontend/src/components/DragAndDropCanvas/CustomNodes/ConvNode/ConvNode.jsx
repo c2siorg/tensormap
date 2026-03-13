@@ -31,6 +31,7 @@ function ConvNode({ data, id }) {
           className="rounded px-1 leading-none text-white/80 hover:bg-white/20 hover:text-white"
           aria-label="Delete layer"
           title="Delete layer"
+          data-testid="conv-node-delete-button"
         >
           ×
         </button>

@@ -1,11 +1,13 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import DenseNode from "./DenseNode";
+
+const deleteElementsMock = vi.fn();
 
 vi.mock("reactflow", () => ({
   Handle: (props) => <div data-testid={`handle-${props.type}-${props.position}`} {...props} />,
   Position: { Left: "left", Right: "right", Top: "top", Bottom: "bottom" },
-  useReactFlow: () => ({ deleteElements: vi.fn() }),
+  useReactFlow: () => ({ deleteElements: deleteElementsMock }),
 }));
 
 describe("DenseNode", () => {
@@ -18,6 +20,10 @@ describe("DenseNode", () => {
       },
     },
   };
+
+  beforeEach(() => {
+    deleteElementsMock.mockClear();
+  });
 
   it("renders the title correctly", () => {
     render(<DenseNode {...defaultProps} />);
@@ -67,5 +73,15 @@ describe("DenseNode", () => {
     // and a source handle on the right
     const sourceHandle = screen.getByTestId("handle-source-right");
     expect(sourceHandle).toBeInTheDocument();
+  });
+
+  it("renders delete button and deletes node on click", () => {
+    render(<DenseNode {...defaultProps} />);
+
+    const deleteButton = screen.getByTestId("dense-node-delete-button");
+    expect(deleteButton).toBeInTheDocument();
+
+    fireEvent.click(deleteButton);
+    expect(deleteElementsMock).toHaveBeenCalledWith({ nodes: [{ id: defaultProps.id }] });
   });
 });

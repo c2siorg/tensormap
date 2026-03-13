@@ -21,10 +21,12 @@ def _make_db() -> MagicMock:
 def _run(df: pd.DataFrame, transformation: str, feature: str, params: dict = None):
     db = _make_db()
     items = [TransformationItem(transformation=transformation, feature=feature, params=params)]
-    with patch("app.services.data_process.select"), \
-         patch("app.services.data_process.pd.read_csv", return_value=df.copy()), \
-         patch("app.services.data_process.get_settings") as mock_settings, \
-         patch("pandas.DataFrame.to_csv"):
+    with (
+        patch("app.services.data_process.select"),
+        patch("app.services.data_process.pd.read_csv", return_value=df.copy()),
+        patch("app.services.data_process.get_settings") as mock_settings,
+        patch("pandas.DataFrame.to_csv"),
+    ):
         mock_settings.return_value.upload_folder = "/tmp"
         result, status_code = preprocess_data(db, uuid.uuid4(), items)
     return result, status_code
@@ -39,10 +41,12 @@ def _run_df(df: pd.DataFrame, transformation: str, feature: str, params: dict = 
     def capture(self_df, path, index=False):
         saved["df"] = self_df.copy()
 
-    with patch("app.services.data_process.select"), \
-         patch("app.services.data_process.pd.read_csv", return_value=df.copy()), \
-         patch("app.services.data_process.get_settings") as mock_settings, \
-         patch.object(pd.DataFrame, "to_csv", capture):
+    with (
+        patch("app.services.data_process.select"),
+        patch("app.services.data_process.pd.read_csv", return_value=df.copy()),
+        patch("app.services.data_process.get_settings") as mock_settings,
+        patch.object(pd.DataFrame, "to_csv", capture),
+    ):
         mock_settings.return_value.upload_folder = "/tmp"
         preprocess_data(db, uuid.uuid4(), items)
     return saved["df"]
@@ -95,7 +99,7 @@ class TestLogTransform:
         df = pd.DataFrame({"price": values})
         result_df = _run_df(df, "Log Transform", "price")
         expected = [np.log1p(v) for v in values]
-        for got, exp in zip(result_df["price"], expected):
+        for got, exp in zip(result_df["price"], expected, strict=False):
             assert got == pytest.approx(exp)
 
     def test_zero_input_gives_zero(self):

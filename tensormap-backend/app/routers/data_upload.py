@@ -39,7 +39,6 @@ def upload_file(
 ):
     """Upload a CSV file and persist its metadata."""
     logger.debug("Upload request: filename=%s, project_id=%s", data.filename, project_id)
-
     if not data.filename:
         return JSONResponse(
             status_code=400,

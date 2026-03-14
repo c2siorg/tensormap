@@ -1,4 +1,4 @@
-name: Lint
+name: CI
 
 on:
   pull_request:
@@ -281,10 +281,35 @@ jobs:
               owner: context.repo.owner, repo: context.repo.repo,
               issue_number: context.issue.number,
             });
-            const existing = comments.find(c => c.body.includes(marker));
             if (existing) {
               await github.rest.issues.deleteComment({
                 owner: context.repo.owner, repo: context.repo.repo,
                 comment_id: existing.id,
               });
             }
+
+  backend-test:
+    name: Backend Test
+    if: >-
+      github.event_name != 'issue_comment'
+      || (
+        github.event.issue.pull_request
+        && contains(github.event.comment.body, '/test')
+        && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
+      )
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tensormap-backend
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'issue_comment' && format('refs/pull/{0}/head', github.event.issue.number) || '' }}
+      - uses: astral-sh/setup-uv@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync --frozen --extra dev
+
+      - name: Run Pytest
+        run: uv run pytest tests/ -v --tb=short

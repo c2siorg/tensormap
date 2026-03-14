@@ -184,8 +184,9 @@ def model_validate_service(db: Session, incoming: dict, project_id: uuid_pkg.UUI
             f.write(json.dumps(model_generated) + "\n")
         db.commit()
     except OSError:
-        db.rollback()
-        logger.exception("Error writing model file")
+        db.delete(model)
+        db.commit()
+        logger.exception("Error writing model file — orphaned DB record cleaned up")
         return _resp(400, False, "Model validated but failed to save")
 
     logger.info("Model '%s' validated and saved successfully", code[DL_MODEL][MODEL_NAME])
@@ -253,8 +254,9 @@ def model_save_service(db: Session, incoming: dict, model_name: str, project_id:
             f.write(json.dumps(model_generated) + "\n")
         db.commit()
     except OSError:
-        db.rollback()
-        logger.exception("Error writing model file")
+        db.delete(model)
+        db.commit()
+        logger.exception("Error writing model file — orphaned DB record cleaned up")
         return _resp(400, False, "Model validated but failed to save")
 
     logger.info("Model '%s' validated and saved successfully", model_name)

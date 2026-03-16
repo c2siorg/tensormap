@@ -140,10 +140,64 @@ class TestApplyAutoLayout:
     def test_adds_positions_to_nodes_without_them(self):
         graph = copy.deepcopy(SAMPLE_GRAPH_NO_POSITIONS)
         _apply_auto_layout(graph)
+        
+        # Verify positions exist
         for node in graph["nodes"]:
             assert "position" in node
             assert isinstance(node["position"]["x"], float)
             assert isinstance(node["position"]["y"], float)
+            
+        # Verify layered assignment based on DAG structure
+        # n0 -> n1 means n0 is layer 0, n1 is layer 1
+        pos_n0 = graph["nodes"][0]["position"] # n0
+        pos_n1 = graph["nodes"][1]["position"] # n1
+        
+        # y should be greater for n1 than n0
+        assert pos_n1["y"] > pos_n0["y"]
+        # Since both layers have 1 node, x should be 0.0 (centered)
+        assert pos_n0["x"] == 0.0
+        assert pos_n1["x"] == 0.0
+
+    def test_handles_multiple_layers_and_branches(self):
+        graph = {
+            "nodes": [
+                {"id": "input1", "type": "custominput"},
+                {"id": "input2", "type": "custominput"},
+                {"id": "dense1", "type": "customdense"},
+                {"id": "dense2", "type": "customdense"},
+                {"id": "output", "type": "customdense"},
+            ],
+            "edges": [
+                {"source": "input1", "target": "dense1"},
+                {"source": "input2", "target": "dense2"},
+                {"source": "dense1", "target": "output"},
+                {"source": "dense2", "target": "output"},
+            ],
+        }
+        _apply_auto_layout(graph)
+        
+        nodes_by_id = {n["id"]: n for n in graph["nodes"]}
+        
+        # Layer 0: input1, input2 (y=0)
+        assert nodes_by_id["input1"]["position"]["y"] == 0.0
+        assert nodes_by_id["input2"]["position"]["y"] == 0.0
+        
+        # The two nodes in layer 0 should be centered around x=0
+        # Wait, the x positions should be symmetrically opposite
+        # -150.0 and 150.0 assuming width 300, start_x = -150
+        x_inputs = {nodes_by_id["input1"]["position"]["x"], nodes_by_id["input2"]["position"]["x"]}
+        assert x_inputs == {-150.0, 150.0}
+        
+        # Layer 1: dense1, dense2 (y=150)
+        assert nodes_by_id["dense1"]["position"]["y"] == 150.0
+        assert nodes_by_id["dense2"]["position"]["y"] == 150.0
+        
+        x_denses = {nodes_by_id["dense1"]["position"]["x"], nodes_by_id["dense2"]["position"]["x"]}
+        assert x_denses == {-150.0, 150.0}
+        
+        # Layer 2: output (y=300)
+        assert nodes_by_id["output"]["position"]["y"] == 300.0
+        assert nodes_by_id["output"]["position"]["x"] == 0.0
 
     def test_preserves_existing_positions(self):
         graph = copy.deepcopy(SAMPLE_GRAPH)

@@ -1,0 +1,7 @@
+{
+ "nodes":[
+  {"id":"dense1","type":"Dense"},
+  {"id":"dense2","type":"Dense"}
+ ],
+ "edges":[]
+}

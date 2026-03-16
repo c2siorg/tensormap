@@ -1,0 +1,28 @@
+name: Integration Tests
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  integration-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        working-directory: tensormap-server
+        run: |
+          pip install -r requirements.txt
+          pip install pytest pytest-flask python-socketio[asyncio_client] pytest-asyncio
+
+      - name: Run integration tests
+        working-directory: tensormap-server
+        run: pytest tests/integration/ -v

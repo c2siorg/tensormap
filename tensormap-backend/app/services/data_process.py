@@ -58,7 +58,12 @@ def get_all_targets_service(db: Session, offset: int = 0, limit: int = 50) -> tu
     total = db.exec(select(func.count()).select_from(DataProcess)).one()
 
     stmt = (
-        select(DataProcess.file_id, DataFile.file_name, DataFile.file_type, DataProcess.target)
+        select(
+            DataProcess.file_id,
+            DataFile.file_name,
+            DataFile.file_type,
+            DataProcess.target,
+        )
         .join(DataFile, DataFile.id == DataProcess.file_id)
         .offset(offset)
         .limit(limit)
@@ -73,7 +78,11 @@ def get_all_targets_service(db: Session, offset: int = 0, limit: int = 50) -> tu
         }
         for row in rows
     ]
-    body = {"success": True, "message": "Target fields of all files received successfully", "data": data}
+    body = {
+        "success": True,
+        "message": "Target fields of all files received successfully",
+        "data": data,
+    }
     body["pagination"] = {"total": total, "offset": offset, "limit": limit}
     return body, 200
 
@@ -217,7 +226,12 @@ def get_correlation_matrix(db: Session, file_id: uuid_pkg.UUID) -> tuple:
     # Convert the DataFrame to a plain list-of-lists; NaN becomes None (JSON null)
     columns = corr.columns.tolist()
     matrix = [[None if pd.isna(v) else round(float(v), 6) for v in row] for row in corr.to_numpy()]
-    return _resp(200, True, "Correlation matrix computed successfully", {"columns": columns, "matrix": matrix})
+    return _resp(
+        200,
+        True,
+        "Correlation matrix computed successfully",
+        {"columns": columns, "matrix": matrix},
+    )
 
 
 def get_file_data(db: Session, file_id: uuid_pkg.UUID, page: int = 1, page_size: int = 50) -> tuple:

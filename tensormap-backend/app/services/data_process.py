@@ -1,4 +1,5 @@
 import uuid as uuid_pkg
+from collections.abc import Callable
 from typing import Any
 
 import numpy as np
@@ -230,7 +231,78 @@ def get_file_data(db: Session, file_id: uuid_pkg.UUID) -> tuple:
     return _resp(200, True, "Data sent successfully", data_json)
 
 
-_VALID_TRANSFORMATIONS = {"One Hot Encoding", "Categorical to Numerical", "Drop Column"}
+# Transformation handler functions
+def _handle_one_hot_encoding(df: pd.DataFrame, feature: str, params: dict = None) -> pd.DataFrame:
+    """Apply one-hot encoding to a categorical column."""
+    return pd.get_dummies(df, columns=[feature])
+
+
+def _handle_categorical_to_numerical(df: pd.DataFrame, feature: str, params: dict = None) -> pd.DataFrame:
+    """Convert categorical values to numerical codes."""
+    df[feature] = pd.Categorical(df[feature]).codes
+    return df
+
+
+def _handle_drop_column(df: pd.DataFrame, feature: str, params: dict = None) -> pd.DataFrame:
+    """Drop a column from the dataframe."""
+    return df.drop(columns=[feature])
+
+
+def _handle_min_max_normalization(df: pd.DataFrame, feature: str, params: dict = None) -> pd.DataFrame:
+    """Apply min-max normalization to a numeric column."""
+    col_min = df[feature].min()
+    col_max = df[feature].max()
+    df[feature] = 0.0 if np.isclose(col_min, col_max) else (df[feature] - col_min) / (col_max - col_min)
+    return df
+
+
+def _handle_z_score_standardization(df: pd.DataFrame, feature: str, params: dict = None) -> pd.DataFrame:
+    """Apply z-score standardization to a numeric column."""
+    std = df[feature].std()
+    df[feature] = 0.0 if std == 0 else (df[feature] - df[feature].mean()) / std
+    return df
+
+
+def _handle_log_transform(df: pd.DataFrame, feature: str, params: dict = None) -> pd.DataFrame:
+    """Apply log transformation to a numeric column."""
+    s = df[feature]
+    if (s < -1).any():
+        logger.warning(
+            "Log Transform skipped for column '%s': %d value(s) below -1",
+            feature,
+            int((s < -1).sum()),
+        )
+    else:
+        df[feature] = np.log1p(s)
+    return df
+
+
+def _handle_fill_missing_values(df: pd.DataFrame, feature: str, params: dict = None) -> pd.DataFrame:
+    """Fill missing values in a column using specified strategy."""
+    strategy = (params or {}).get("strategy", "mean")
+    if strategy == "median":
+        df[feature] = df[feature].fillna(df[feature].median())
+    elif strategy == "mode":
+        mode_vals = df[feature].mode()
+        df[feature] = df[feature].fillna(mode_vals[0] if not mode_vals.empty else df[feature].mean())
+    else:
+        df[feature] = df[feature].fillna(df[feature].mean())
+    return df
+
+
+# Dispatch dictionary mapping transformation names to handler functions
+_TRANSFORMATION_HANDLERS: dict[str, Callable] = {
+    "One Hot Encoding": _handle_one_hot_encoding,
+    "Categorical to Numerical": _handle_categorical_to_numerical,
+    "Drop Column": _handle_drop_column,
+    "Min-Max Normalization": _handle_min_max_normalization,
+    "Z-score Standardization": _handle_z_score_standardization,
+    "Log Transform": _handle_log_transform,
+    "Fill Missing Values": _handle_fill_missing_values,
+}
+
+# Derived automatically — no manual sync needed
+_VALID_TRANSFORMATIONS = set(_TRANSFORMATION_HANDLERS.keys())
 
 
 def preprocess_data(db: Session, file_id: uuid_pkg.UUID, transformations: list) -> tuple:
@@ -247,52 +319,48 @@ def preprocess_data(db: Session, file_id: uuid_pkg.UUID, transformations: list) 
         # Validate all transformations before applying any, so the request either
         # fully succeeds or fully fails — no partial mutations.
         for t in transformations:
-            if t.transformation not in _VALID_TRANSFORMATIONS:
+            # Handle both dict-like and object attribute access
+            if hasattr(t, "transformation"):
+                name = t.transformation
+                feature = t.feature
+                params = getattr(t, "params", None)
+            else:
+                name = t.get("transformation")
+                feature = t.get("feature")
+                params = t.get("params")
+
+            if name.casefold() not in {t.casefold() for t in _VALID_TRANSFORMATIONS}:
                 return _resp(
                     422,
                     False,
-                    f"Unknown transformation '{t.transformation}'. Valid options: {sorted(_VALID_TRANSFORMATIONS)}",
+                    f"Unsupported transformation '{name}'. Valid options: {sorted(_VALID_TRANSFORMATIONS)}",
                 )
-            if t.feature not in df.columns:
+            if feature not in df.columns:
                 return _resp(
                     422,
                     False,
-                    f"Column '{t.feature}' not found. Available columns: {list(df.columns)}",
+                    f"Column '{feature}' not found. Available columns: {list(df.columns)}",
                 )
 
         for t in transformations:
-            if t.transformation == "One Hot Encoding":
-                df = pd.get_dummies(df, columns=[t.feature])
-            if t.transformation == "Categorical to Numerical":
-                df[t.feature] = pd.Categorical(df[t.feature]).codes
-            if t.transformation == "Drop Column":
-                df = df.drop(columns=[t.feature])
-            if t.transformation == "Min-Max Normalization":
-                col_min = df[t.feature].min()
-                col_max = df[t.feature].max()
-                df[t.feature] = 0.0 if np.isclose(col_min, col_max) else (df[t.feature] - col_min) / (col_max - col_min)
-            if t.transformation == "Z-score Standardization":
-                std = df[t.feature].std()
-                df[t.feature] = 0.0 if std == 0 else (df[t.feature] - df[t.feature].mean()) / std
-            if t.transformation == "Log Transform":
-                s = df[t.feature]
-                if (s < -1).any():
-                    logger.warning(
-                        "Log Transform skipped for column '%s': %d value(s) below -1",
-                        t.feature,
-                        int((s < -1).sum()),
-                    )
-                else:
-                    df[t.feature] = np.log1p(s)
-            if t.transformation == "Fill Missing Values":
-                strategy = (t.params or {}).get("strategy", "mean")
-                if strategy == "median":
-                    df[t.feature] = df[t.feature].fillna(df[t.feature].median())
-                elif strategy == "mode":
-                    mode_vals = df[t.feature].mode()
-                    df[t.feature] = df[t.feature].fillna(mode_vals[0] if not mode_vals.empty else df[t.feature].mean())
-                else:
-                    df[t.feature] = df[t.feature].fillna(df[t.feature].mean())
+            # Handle both dict-like and object attribute access
+            if hasattr(t, "transformation"):
+                name = t.transformation
+                feature = t.feature
+                params = getattr(t, "params", None)
+            else:
+                name = t.get("transformation")
+                feature = t.get("feature")
+                params = t.get("params")
+
+            # Find the matching transformation name (case-insensitive)
+            actual_name = next(
+                (valid_name for valid_name in _VALID_TRANSFORMATIONS if valid_name.casefold() == name.casefold()), None
+            )
+
+            if actual_name and actual_name in _TRANSFORMATION_HANDLERS:
+                handler = _TRANSFORMATION_HANDLERS[actual_name]
+                df = handler(df, feature, params)
 
         df.to_csv(file_path, index=False)
         return _resp(200, True, "Dataset preprocessed successfully")

@@ -44,8 +44,9 @@ describe("FlattenNode", () => {
   it("renders delete button and deletes node on click", () => {
     render(<FlattenNode {...defaultProps} />);
 
-    const deleteButton = screen.getByTestId("flatten-node-delete-button");
+    const deleteButton = screen.getByRole("button", { name: "Delete layer" });
     expect(deleteButton).toBeInTheDocument();
+    expect(deleteButton).toHaveAttribute("title", "Delete layer");
 
     fireEvent.click(deleteButton);
     expect(deleteElementsMock).toHaveBeenCalledWith({ nodes: [{ id: defaultProps.id }] });

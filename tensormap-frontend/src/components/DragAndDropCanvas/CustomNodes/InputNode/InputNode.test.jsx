@@ -81,8 +81,9 @@ describe("InputNode", () => {
   it("renders delete button and deletes node on click", () => {
     render(<InputNode {...defaultProps} />);
 
-    const deleteButton = screen.getByTestId("input-node-delete-button");
+    const deleteButton = screen.getByRole("button", { name: "Delete layer" });
     expect(deleteButton).toBeInTheDocument();
+    expect(deleteButton).toHaveAttribute("title", "Delete layer");
 
     fireEvent.click(deleteButton);
     expect(deleteElementsMock).toHaveBeenCalledWith({ nodes: [{ id: defaultProps.id }] });

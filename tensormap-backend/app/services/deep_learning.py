@@ -377,7 +377,7 @@ def get_model_graph_service(db: Session, model_name: str, project_id: uuid_pkg.U
 
 def _apply_auto_layout(graph: dict) -> None:
     """Assign default positions to nodes that lack one using a layered DAG layout.
-    
+
     Nodes without a predefined position are placed by:
     1. Identifying input nodes (in-degree 0).
     2. Grouping nodes into layers based on the longest path from an input.
@@ -392,11 +392,10 @@ def _apply_auto_layout(graph: dict) -> None:
         return
 
     edges = graph.get("edges", [])
-    
+
     # 1. Build adjacency list and map nodes by ID
     adj = {node["id"]: [] for node in nodes}
     in_degree = {node["id"]: 0 for node in nodes}
-    node_by_id = {node["id"]: node for node in nodes}
 
     for edge in edges:
         source = edge.get("source")
@@ -409,14 +408,14 @@ def _apply_auto_layout(graph: dict) -> None:
     # Initialize all nodes with in-degree 0 at layer 0
     layers_by_node = {}
     queue = []
-    
+
     # We find true inputs or just any node with 0 in-degree
     for node_id, degree in in_degree.items():
         if degree == 0:
             layers_by_node[node_id] = 0
             queue.append(node_id)
-            
-    # For cyclical graphs or isolated components without in-degree 0, 
+
+    # For cyclical graphs or isolated components without in-degree 0,
     # just assign unvisited to layer 0 as fallback
     if not queue and nodes:
         first_node = nodes[0]["id"]
@@ -427,13 +426,13 @@ def _apply_auto_layout(graph: dict) -> None:
     while queue:
         curr = queue.pop(0)
         curr_layer = layers_by_node[curr]
-        
+
         for neighbor in adj[curr]:
             # Update layer if this path is longer
             if neighbor not in layers_by_node or layers_by_node[neighbor] < curr_layer + 1:
                 layers_by_node[neighbor] = curr_layer + 1
                 queue.append(neighbor)
-                
+
     # Fallback for remaining nodes (isolated or cyclical parts)
     for node in nodes:
         if node["id"] not in layers_by_node:
@@ -448,17 +447,17 @@ def _apply_auto_layout(graph: dict) -> None:
     # 4. Assign positions based on layers
     X_SPACING = 300.0
     Y_SPACING = 150.0
-    
+
     for layer_idx, layer_nodes in enumerate(layers):
         if not layer_nodes:
             continue
-            
+
         y_pos = layer_idx * Y_SPACING
-        
+
         # Center nodes horizontally
         total_width = (len(layer_nodes) - 1) * X_SPACING
         start_x = -total_width / 2.0
-        
+
         for i, node in enumerate(layer_nodes):
             if "position" not in node:
                 node["position"] = {"x": start_x + (i * X_SPACING), "y": y_pos}

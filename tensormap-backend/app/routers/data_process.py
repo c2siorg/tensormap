@@ -83,9 +83,14 @@ async def get_correlation(file_id: uuid_pkg.UUID, db: Session = Depends(get_db))
 
 
 @router.get("/data/process/file/{file_id}")
-def get_file(file_id: uuid_pkg.UUID, db: Session = Depends(get_db)):
-    """Return the full contents of a CSV file as JSON records."""
-    body, status_code = get_file_data(db, file_id=file_id)
+def get_file(
+    file_id: uuid_pkg.UUID,
+    offset: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    db: Session = Depends(get_db),
+):
+    """Return a paginated CSV preview as JSON records."""
+    body, status_code = get_file_data(db, file_id=file_id, offset=offset, limit=limit)
     return JSONResponse(status_code=status_code, content=body)
 
 

@@ -94,15 +94,19 @@ export const getCorrelationMatrix = async (file_id) =>
     });
 
 /**
- * Fetches the raw data content of a file as a JSON string.
+ * Fetches a paginated dataset preview for a file.
  *
  * @param {string} file_id - ID of the uploaded file.
- * @returns {Promise<string>} JSON string of the file data.
+ * @param {{ offset?: number, limit?: number }} [params]
+ * @returns {Promise<{ rows: Array<object>, columns: string[], pagination: { total: number, offset: number, limit: number } }>}
  */
-export const getFileData = async (file_id) => {
+export const getFileData = async (file_id, params = {}) => {
   try {
-    const response = await axios.get(urls.BACKEND_GET_FILE_DATA + file_id);
-    return response.data.data;
+    const response = await axios.get(urls.BACKEND_GET_FILE_DATA + file_id, { params });
+    if (response.data.success === true) {
+      return response.data.data;
+    }
+    throw new Error(response.data.message || "Failed to fetch dataset");
   } catch (error) {
     logger.error(error);
     throw error;

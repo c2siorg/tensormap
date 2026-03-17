@@ -209,15 +209,40 @@ def get_correlation_matrix(db: Session, file_id: uuid_pkg.UUID) -> tuple:
     return _resp(200, True, "Correlation matrix computed successfully", {"columns": columns, "matrix": matrix})
 
 
-def get_file_data(db: Session, file_id: uuid_pkg.UUID) -> tuple:
-    """Read and return the full contents of a CSV file as JSON."""
+def get_file_data(db: Session, file_id: uuid_pkg.UUID, offset: int = 0, limit: int = 100) -> tuple:
+    """Read and return a paginated preview of a CSV file.
+
+    The response includes:
+    - ``rows``: list of records for the current page
+    - ``columns``: ordered list of column names
+    - ``pagination``: total/offset/limit metadata
+    """
     file = db.exec(select(DataFile).where(DataFile.id == file_id)).first()
     if not file:
         return _resp(400, False, "Unable to open file")
+    if file.file_type != "csv":
+        return _resp(400, False, "Only CSV files support row preview")
 
     file_path = _get_file_path(file)
     try:
-        df = pd.read_csv(file_path)
+        # Cache columns from disk if missing in DB.
+        if file.columns is None:
+            header_df = pd.read_csv(file_path, nrows=0)
+            file.columns = list(header_df.columns)
+            db.add(file)
+            db.commit()
+        columns = file.columns or []
+
+        # Use cached row_count when available; otherwise count once and cache.
+        if file.row_count is None:
+            file.row_count = sum(chunk.shape[0] for chunk in pd.read_csv(file_path, chunksize=10_000))
+            db.add(file)
+            db.commit()
+        total_rows = file.row_count or 0
+
+        # Read only the requested page rows (keep header row intact).
+        skiprows = range(1, offset + 1) if offset > 0 else None
+        df = pd.read_csv(file_path, skiprows=skiprows, nrows=limit)
     except FileNotFoundError:
         return _resp(500, False, f"File not found: {file_path}")
     except pd.errors.ParserError as e:
@@ -227,8 +252,13 @@ def get_file_data(db: Session, file_id: uuid_pkg.UUID) -> tuple:
         logger.exception("Error reading file: %s", str(e))
         return _resp(500, False, f"Error reading CSV: {e}")
 
-    data_json = df.to_json(orient="records")
-    return _resp(200, True, "Data sent successfully", data_json)
+    rows = df.to_dict(orient="records")
+    data = {
+        "rows": rows,
+        "columns": columns,
+        "pagination": {"total": total_rows, "offset": offset, "limit": limit},
+    }
+    return _resp(200, True, "Data sent successfully", data)
 
 
 # Transformation handler functions

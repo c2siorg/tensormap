@@ -26,11 +26,44 @@ def _get_file_path(file: DataFile) -> str:
 
 
 def add_target_service(db: Session, file_id: uuid_pkg.UUID, target: str) -> tuple:
-    """Create a DataProcess record linking a file to its target column."""
+    """Create or update the target field for a file."""
     try:
         file = db.exec(select(DataFile).where(DataFile.id == file_id)).first()
         if not file:
             return _resp(400, False, "File doesn't exist in DB")
+        if file.file_type != "csv":
+            return _resp(400, False, "Only CSV files support target field assignment")
+
+        # Validate target against dataset columns.
+        columns = file.columns
+        if columns is None:
+            file_path = _get_file_path(file)
+            header_df = pd.read_csv(file_path, nrows=0)
+            columns = list(header_df.columns)
+            file.columns = columns
+            db.add(file)
+            db.commit()
+
+        if target not in (columns or []):
+            return _resp(
+                422,
+                False,
+                f"Target column '{target}' not found. Available columns: {columns or []}",
+            )
+
+        existing_rows = db.exec(select(DataProcess).where(DataProcess.file_id == file_id)).all()
+        if existing_rows:
+            target_record = existing_rows[0]
+            # Backfill cleanup in case legacy duplicates exist.
+            for duplicate in existing_rows[1:]:
+                db.delete(duplicate)
+            if target_record.target == target and len(existing_rows) == 1:
+                return _resp(200, True, "Target field already set for this file")
+            target_record.target = target
+            db.add(target_record)
+            db.commit()
+            logger.info("Target field updated to '%s' for file_id=%s", target, file_id)
+            return _resp(200, True, "Target field updated successfully")
 
         data_process = DataProcess(file_id=file_id, target=target)
         db.add(data_process)
@@ -38,6 +71,7 @@ def add_target_service(db: Session, file_id: uuid_pkg.UUID, target: str) -> tupl
         logger.info("Target field '%s' added for file_id=%s", target, file_id)
         return _resp(201, True, "Target field added successfully")
     except Exception as e:
+        db.rollback()
         logger.exception("Error storing record: %s", str(e))
         return _resp(500, False, f"Error storing record: {e}")
 

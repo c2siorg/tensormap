@@ -43,6 +43,8 @@ def sample_file(file_id):
     f.id = file_id
     f.file_name = "iris"
     f.file_type = "csv"
+    f.columns = ["sepal_length", "sepal_width", "species"]
+    f.row_count = 4
     return f
 
 
@@ -91,7 +93,10 @@ def regression_csv(tmp_path):
 
 class TestAddTargetService:
     def test_success(self, mock_db, file_id, sample_file):
-        mock_db.exec.return_value.first.return_value = sample_file
+        mock_db.exec.side_effect = [
+            MagicMock(first=MagicMock(return_value=sample_file)),
+            MagicMock(all=MagicMock(return_value=[])),
+        ]
 
         body, status = add_target_service(mock_db, file_id, "species")
 
@@ -108,6 +113,73 @@ class TestAddTargetService:
         assert status == 400
         assert body["success"] is False
         assert "doesn't exist" in body["message"]
+
+    def test_target_not_in_columns(self, mock_db, file_id, sample_file):
+        mock_db.exec.return_value.first.return_value = sample_file
+
+        body, status = add_target_service(mock_db, file_id, "nonexistent")
+
+        assert status == 422
+        assert body["success"] is False
+        assert "not found" in body["message"]
+
+    def test_updates_existing_target(self, mock_db, file_id, sample_file):
+        existing = MagicMock(spec=DataProcess)
+        existing.target = "sepal_width"
+
+        mock_db.exec.side_effect = [
+            MagicMock(first=MagicMock(return_value=sample_file)),
+            MagicMock(all=MagicMock(return_value=[existing])),
+        ]
+
+        body, status = add_target_service(mock_db, file_id, "species")
+
+        assert status == 200
+        assert body["success"] is True
+        assert existing.target == "species"
+        mock_db.add.assert_called_with(existing)
+
+    def test_returns_already_set_when_target_unchanged(self, mock_db, file_id, sample_file):
+        existing = MagicMock(spec=DataProcess)
+        existing.target = "species"
+
+        mock_db.exec.side_effect = [
+            MagicMock(first=MagicMock(return_value=sample_file)),
+            MagicMock(all=MagicMock(return_value=[existing])),
+        ]
+
+        body, status = add_target_service(mock_db, file_id, "species")
+
+        assert status == 200
+        assert body["success"] is True
+        assert "already set" in body["message"]
+
+    def test_rejects_non_csv_files(self, mock_db, file_id, sample_file):
+        sample_file.file_type = "zip"
+        mock_db.exec.return_value.first.return_value = sample_file
+
+        body, status = add_target_service(mock_db, file_id, "species")
+
+        assert status == 400
+        assert body["success"] is False
+
+    @patch("app.services.data_process.get_settings")
+    def test_reads_header_when_columns_not_cached(
+        self, mock_settings, mock_db, file_id, sample_file, classification_csv
+    ):
+        sample_file.columns = None
+        sample_file.row_count = None
+        mock_settings.return_value.upload_folder = str(classification_csv)
+        mock_db.exec.side_effect = [
+            MagicMock(first=MagicMock(return_value=sample_file)),
+            MagicMock(all=MagicMock(return_value=[])),
+        ]
+
+        body, status = add_target_service(mock_db, file_id, "species")
+
+        assert status == 201
+        assert body["success"] is True
+        assert sample_file.columns == ["sepal_length", "sepal_width", "species"]
 
 
 # ---------------------------------------------------------------------------

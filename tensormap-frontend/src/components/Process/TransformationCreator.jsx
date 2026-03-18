@@ -49,26 +49,30 @@ function TransformationCreator({ features, onAdd }) {
         </Select>
       </div>
       <div className="w-[40%]">
+<<<<<<< HEAD
         <Select
           value={selectedTransformation}
           onValueChange={(value) => setSelectedTransformation(value)}
         >
-          <SelectTrigger>
-            <SelectValue placeholder="Transformation" />
-          </SelectTrigger>
-          <SelectContent>
-            {transformations.map((transformation) => (
-              <SelectItem key={transformation} value={transformation}>
-                {transformation}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-      <Button onClick={handleAdd} disabled={disabledButton}>
-        Add Transformation
-      </Button>
-    </div>
+=======
+        <Select value={selectedTransformation} onValueChange={(value) => setSelectedTransformation(value)}>
+>>>>>>> b4b7125 (  fix: harden preprocessing transforms and exercise service in tests)
+      <SelectTrigger>
+        <SelectValue placeholder="Transformation" />
+      </SelectTrigger>
+      <SelectContent>
+        {transformations.map((transformation) => (
+          <SelectItem key={transformation} value={transformation}>
+            {transformation}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  </div>
+    <Button onClick={handleAdd} disabled={disabledButton}>
+      Add Transformation
+    </Button>
+    </div >
   );
 }
 

@@ -43,6 +43,7 @@ def sample_file(file_id):
     f.id = file_id
     f.file_name = "iris"
     f.file_type = "csv"
+    f.row_count = None
     return f
 
 
@@ -307,15 +308,60 @@ class TestGetDataMetrics:
 
 class TestGetFileData:
     @patch("app.services.data_process.get_settings")
-    def test_success(self, mock_settings, mock_db, file_id, sample_file, classification_csv):
+    def test_get_file_data_page1(self, mock_settings, mock_db, file_id, sample_file, classification_csv):
         mock_settings.return_value.upload_folder = str(classification_csv)
         mock_db.exec.return_value.first.return_value = sample_file
 
-        body, status = get_file_data(mock_db, file_id)
+        body, status = get_file_data(mock_db, file_id, page=1, page_size=3)
 
         assert status == 200
         assert body["success"] is True
-        assert body["data"] is not None
+        assert body["pagination"]["page"] == 1
+        assert body["pagination"]["total_rows"] == 4
+        assert body["pagination"]["total_pages"] == 2
+        assert len(body["data"]) == 3
+
+    @patch("app.services.data_process.get_settings")
+    def test_get_file_data_last_page_partial(self, mock_settings, mock_db, file_id, sample_file, classification_csv):
+        mock_settings.return_value.upload_folder = str(classification_csv)
+        mock_db.exec.return_value.first.return_value = sample_file
+
+        body, status = get_file_data(mock_db, file_id, page=2, page_size=3)
+
+        assert status == 200
+        assert body["success"] is True
+        assert body["pagination"]["page"] == 2
+        assert len(body["data"]) == 1
+
+    @patch("app.services.data_process.get_settings")
+    def test_get_file_data_out_of_range_page(self, mock_settings, mock_db, file_id, sample_file, classification_csv):
+        mock_settings.return_value.upload_folder = str(classification_csv)
+        mock_db.exec.return_value.first.return_value = sample_file
+
+        body, status = get_file_data(mock_db, file_id, page=999, page_size=2)
+
+        assert status == 400
+        assert body["success"] is False
+        assert "exceeds total pages" in body["message"]
+
+    @patch("app.services.data_process.get_settings")
+    def test_get_file_data_empty_file(self, mock_settings, mock_db, file_id, tmp_path):
+        pd.DataFrame(columns=["a", "b"]).to_csv(tmp_path / "empty.csv", index=False)
+
+        empty_file = MagicMock(spec=DataFile)
+        empty_file.file_name = "empty"
+        empty_file.file_type = "csv"
+        empty_file.row_count = None
+
+        mock_settings.return_value.upload_folder = str(tmp_path)
+        mock_db.exec.return_value.first.return_value = empty_file
+
+        body, status = get_file_data(mock_db, file_id, page=1, page_size=50)
+
+        assert status == 200
+        assert body["pagination"]["total_rows"] == 0
+        assert body["pagination"]["total_pages"] == 0
+        assert len(body["data"]) == 0
 
     def test_file_not_in_db(self, mock_db, file_id):
         mock_db.exec.return_value.first.return_value = None

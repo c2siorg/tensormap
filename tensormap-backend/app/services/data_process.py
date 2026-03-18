@@ -105,9 +105,7 @@ def delete_one_target_by_id_service(db: Session, file_id: uuid_pkg.UUID) -> tupl
     if not file:
         return _resp(400, False, "File doesn't exist in DB")
 
-    target_record = db.exec(
-        select(DataProcess).where(DataProcess.file_id == file_id)
-    ).first()
+    target_record = db.exec(select(DataProcess).where(DataProcess.file_id == file_id)).first()
     if not target_record:
         return _resp(400, False, "Target field doesn't exist")
 
@@ -123,9 +121,7 @@ def get_one_target_by_id_service(db: Session, file_id: uuid_pkg.UUID) -> tuple:
     if not file:
         return _resp(400, False, "File doesn't exist in DB")
 
-    target_record = db.exec(
-        select(DataProcess).where(DataProcess.file_id == file_id)
-    ).first()
+    target_record = db.exec(select(DataProcess).where(DataProcess.file_id == file_id)).first()
     if not target_record:
         return _resp(400, False, "Target field doesn't exist")
 
@@ -236,17 +232,12 @@ def get_correlation_matrix(db: Session, file_id: uuid_pkg.UUID) -> tuple:
 
     numeric_df = df.select_dtypes(include="number")
     if numeric_df.empty:
-        return _resp(
-            200, True, "No numeric columns found", {"columns": [], "matrix": []}
-        )
+        return _resp(200, True, "No numeric columns found", {"columns": [], "matrix": []})
 
     corr = numeric_df.corr()
     # Convert the DataFrame to a plain list-of-lists; NaN becomes None (JSON null)
     columns = corr.columns.tolist()
-    matrix = [
-        [None if pd.isna(v) else round(float(v), 6) for v in row]
-        for row in corr.to_numpy()
-    ]
+    matrix = [[None if pd.isna(v) else round(float(v), 6) for v in row] for row in corr.to_numpy()]
     return _resp(
         200,
         True,
@@ -278,54 +269,38 @@ def get_file_data(db: Session, file_id: uuid_pkg.UUID) -> tuple:
 
 
 # Transformation handler functions
-def _handle_one_hot_encoding(
-    df: pd.DataFrame, feature: str, params: dict = None
-) -> pd.DataFrame:
+def _handle_one_hot_encoding(df: pd.DataFrame, feature: str, params: dict = None) -> pd.DataFrame:
     """Apply one-hot encoding to a categorical column."""
     return pd.get_dummies(df, columns=[feature])
 
 
-def _handle_categorical_to_numerical(
-    df: pd.DataFrame, feature: str, params: dict = None
-) -> pd.DataFrame:
+def _handle_categorical_to_numerical(df: pd.DataFrame, feature: str, params: dict = None) -> pd.DataFrame:
     """Convert categorical values to numerical codes."""
     df[feature] = pd.Categorical(df[feature]).codes
     return df
 
 
-def _handle_drop_column(
-    df: pd.DataFrame, feature: str, params: dict = None
-) -> pd.DataFrame:
+def _handle_drop_column(df: pd.DataFrame, feature: str, params: dict = None) -> pd.DataFrame:
     """Drop a column from the dataframe."""
     return df.drop(columns=[feature])
 
 
-def _handle_min_max_normalization(
-    df: pd.DataFrame, feature: str, params: dict = None
-) -> pd.DataFrame:
+def _handle_min_max_normalization(df: pd.DataFrame, feature: str, params: dict = None) -> pd.DataFrame:
     """Apply min-max normalization to a numeric column."""
     col_min = df[feature].min()
     col_max = df[feature].max()
-    df[feature] = (
-        0.0
-        if np.isclose(col_min, col_max)
-        else (df[feature] - col_min) / (col_max - col_min)
-    )
+    df[feature] = 0.0 if np.isclose(col_min, col_max) else (df[feature] - col_min) / (col_max - col_min)
     return df
 
 
-def _handle_z_score_standardization(
-    df: pd.DataFrame, feature: str, params: dict = None
-) -> pd.DataFrame:
+def _handle_z_score_standardization(df: pd.DataFrame, feature: str, params: dict = None) -> pd.DataFrame:
     """Apply z-score standardization to a numeric column."""
     std = df[feature].std()
     df[feature] = 0.0 if std == 0 else (df[feature] - df[feature].mean()) / std
     return df
 
 
-def _handle_log_transform(
-    df: pd.DataFrame, feature: str, params: dict = None
-) -> pd.DataFrame:
+def _handle_log_transform(df: pd.DataFrame, feature: str, params: dict = None) -> pd.DataFrame:
     """Apply log transformation to a numeric column."""
     s = df[feature]
     if (s < -1).any():
@@ -339,18 +314,14 @@ def _handle_log_transform(
     return df
 
 
-def _handle_fill_missing_values(
-    df: pd.DataFrame, feature: str, params: dict = None
-) -> pd.DataFrame:
+def _handle_fill_missing_values(df: pd.DataFrame, feature: str, params: dict = None) -> pd.DataFrame:
     """Fill missing values in a column using specified strategy."""
     strategy = (params or {}).get("strategy", "mean")
     if strategy == "median":
         df[feature] = df[feature].fillna(df[feature].median())
     elif strategy == "mode":
         mode_vals = df[feature].mode()
-        df[feature] = df[feature].fillna(
-            mode_vals[0] if not mode_vals.empty else df[feature].mean()
-        )
+        df[feature] = df[feature].fillna(mode_vals[0] if not mode_vals.empty else df[feature].mean())
     else:
         df[feature] = df[feature].fillna(df[feature].mean())
     return df
@@ -371,9 +342,7 @@ _TRANSFORMATION_HANDLERS: dict[str, Callable] = {
 _VALID_TRANSFORMATIONS = set(_TRANSFORMATION_HANDLERS.keys())
 
 
-def preprocess_data(
-    db: Session, file_id: uuid_pkg.UUID, transformations: list
-) -> tuple:
+def preprocess_data(db: Session, file_id: uuid_pkg.UUID, transformations: list) -> tuple:
     """Apply column transformations to a CSV, overwriting the existing file."""
     file = db.exec(select(DataFile).where(DataFile.id == file_id)).first()
     if not file:
@@ -423,11 +392,7 @@ def preprocess_data(
 
             # Find the matching transformation name (case-insensitive)
             actual_name = next(
-                (
-                    valid_name
-                    for valid_name in _VALID_TRANSFORMATIONS
-                    if valid_name.casefold() == name.casefold()
-                ),
+                (valid_name for valid_name in _VALID_TRANSFORMATIONS if valid_name.casefold() == name.casefold()),
                 None,
             )
 

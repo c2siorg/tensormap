@@ -228,18 +228,14 @@ def get_file_data(db: Session, file_id: uuid_pkg.UUID, page: int = 1, page_size:
 
     file_path = _get_file_path(file)
 
-    if file.row_count is not None:
-        total_rows = file.row_count
-    else:
-        try:
-            with open(file_path, "rb") as f:
-                total_rows = sum(1 for _ in f) - 1
-            if total_rows < 0:
-                total_rows = 0
-        except FileNotFoundError:
-            return _resp(500, False, f"File not found: {file_path}")
-        except Exception as e:
-            return _resp(500, False, f"Error reading file count: {e}")
+    try:
+        with open(file_path, "rb") as f:
+            total_rows = sum(1 for _ in f) - 1
+        total_rows = max(total_rows, 0)
+    except FileNotFoundError:
+        return _resp(500, False, f"File not found: {file_path}")
+    except Exception as e:
+        return _resp(500, False, f"Error reading file count: {e}")
 
     total_pages = (total_rows + page_size - 1) // page_size if page_size > 0 else 0
 

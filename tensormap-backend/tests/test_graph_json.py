@@ -179,10 +179,18 @@ class TestApplyAutoLayout:
         nodes_by_id = {n["id"]: n for n in graph["nodes"]}
 
         # Relational assertions - resilient to spacing changes
-        assert nodes_by_id["input1"]["position"]["y"] == nodes_by_id["input2"]["position"]["y"], "inputs should share same layer"
-        assert nodes_by_id["dense1"]["position"]["y"] == nodes_by_id["dense2"]["position"]["y"], "denses should share same layer"
-        assert nodes_by_id["dense1"]["position"]["y"] > nodes_by_id["input1"]["position"]["y"], "dense layer should be below input layer"
-        assert nodes_by_id["output"]["position"]["y"] > nodes_by_id["dense1"]["position"]["y"], "output should be below dense layer"
+        assert nodes_by_id["input1"]["position"]["y"] == nodes_by_id["input2"]["position"]["y"], (
+            "inputs should share same layer"
+        )
+        assert nodes_by_id["dense1"]["position"]["y"] == nodes_by_id["dense2"]["position"]["y"], (
+            "denses should share same layer"
+        )
+        assert nodes_by_id["dense1"]["position"]["y"] > nodes_by_id["input1"]["position"]["y"], (
+            "dense layer should be below input layer"
+        )
+        assert nodes_by_id["output"]["position"]["y"] > nodes_by_id["dense1"]["position"]["y"], (
+            "output should be below dense layer"
+        )
 
         # Symmetry check - resilient to exact spacing value
         x_input1 = nodes_by_id["input1"]["position"]["x"]

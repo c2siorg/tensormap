@@ -18,10 +18,16 @@ class ModelBasic(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     model_name: str = Field(max_length=50, nullable=False, unique=True)
     file_id: uuid_pkg.UUID | None = Field(
-        default=None, sa_column=Column(PgUUID(as_uuid=True), ForeignKey("data_file.id"), index=True, nullable=True)
+        default=None,
+        sa_column=Column(PgUUID(as_uuid=True), ForeignKey("data_file.id"), index=True, nullable=True),
     )
     project_id: uuid_pkg.UUID | None = Field(
-        sa_column=Column(PgUUID(as_uuid=True), ForeignKey("project.id", ondelete="CASCADE"), index=True, nullable=True)
+        sa_column=Column(
+            PgUUID(as_uuid=True),
+            ForeignKey("project.id", ondelete="CASCADE"),
+            index=True,
+            nullable=True,
+        )
     )
     model_type: int | None = Field(default=None, nullable=True)
     target_field: str | None = Field(default=None, max_length=50)
@@ -38,7 +44,8 @@ class ModelBasic(SQLModel, table=True):
     graph_json: dict | None = Field(default=None, sa_column=Column(JSON, nullable=True))
     created_on: datetime | None = Field(default=None, sa_column=Column(DateTime, server_default=func.now()))
     updated_on: datetime | None = Field(
-        default=None, sa_column=Column(DateTime, server_default=func.now(), onupdate=func.now())
+        default=None,
+        sa_column=Column(DateTime, server_default=func.now(), onupdate=func.now()),
     )
 
     project: Optional["Project"] = Relationship(back_populates="models")
@@ -60,7 +67,8 @@ class ModelConfigs(SQLModel, table=True):
     model_id: int = Field(foreign_key="model_basic.id", index=True)
     created_on: datetime | None = Field(default=None, sa_column=Column(DateTime, server_default=func.now()))
     updated_on: datetime | None = Field(
-        default=None, sa_column=Column(DateTime, server_default=func.now(), onupdate=func.now())
+        default=None,
+        sa_column=Column(DateTime, server_default=func.now(), onupdate=func.now()),
     )
 
     model: ModelBasic | None = Relationship(back_populates="configs")

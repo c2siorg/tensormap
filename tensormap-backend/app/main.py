@@ -11,7 +11,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
-from app.exceptions import AppException, app_exception_handler, generic_exception_handler
+from app.exceptions import (
+    AppException,
+    app_exception_handler,
+    generic_exception_handler,
+)
 from app.middleware import RequestLoggingMiddleware
 from app.routers import data_process, data_upload, deep_learning, project
 from app.shared.logging_config import get_logger
@@ -28,7 +32,7 @@ async def lifespan(app: FastAPI):
 
     logger.info("Running Alembic migrations...")
     alembic_cfg = Config("alembic.ini")
-    command.upgrade(alembic_cfg, "head")
+    command.upgrade(alembic_cfg, "heads")
     logger.info("Alembic migrations complete")
     yield
 

@@ -12,7 +12,10 @@ import uuid
 from unittest.mock import MagicMock, mock_open, patch
 
 import pytest
+import tensorflow as tf
 from fastapi.testclient import TestClient
+
+from app.services.model_generation import model_generation
 
 # ─────────────────────────────────────────────
 # Shared fixtures / helpers
@@ -147,8 +150,6 @@ def test_generated_code_is_valid_python(client: TestClient):
 
 def test_full_pipeline_model_generation_to_json(client: TestClient):
     """model_generation output must round-trip through Keras model_from_json."""
-    import tensorflow as tf
-    from app.services.model_generation import model_generation
 
     result = model_generation(
         {"nodes": MINIMAL_GRAPH["nodes"], "edges": MINIMAL_GRAPH["edges"]}

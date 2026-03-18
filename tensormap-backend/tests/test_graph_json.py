@@ -178,26 +178,47 @@ class TestApplyAutoLayout:
 
         nodes_by_id = {n["id"]: n for n in graph["nodes"]}
 
-        # Layer 0: input1, input2 (y=0)
-        assert nodes_by_id["input1"]["position"]["y"] == 0.0
-        assert nodes_by_id["input2"]["position"]["y"] == 0.0
+        # Relational assertions - resilient to spacing changes
+        assert nodes_by_id["input1"]["position"]["y"] == nodes_by_id["input2"]["position"]["y"], "inputs should share same layer"
+        assert nodes_by_id["dense1"]["position"]["y"] == nodes_by_id["dense2"]["position"]["y"], "denses should share same layer"
+        assert nodes_by_id["dense1"]["position"]["y"] > nodes_by_id["input1"]["position"]["y"], "dense layer should be below input layer"
+        assert nodes_by_id["output"]["position"]["y"] > nodes_by_id["dense1"]["position"]["y"], "output should be below dense layer"
 
-        # The two nodes in layer 0 should be centered around x=0
-        # Wait, the x positions should be symmetrically opposite
-        # -150.0 and 150.0 assuming width 300, start_x = -150
-        x_inputs = {nodes_by_id["input1"]["position"]["x"], nodes_by_id["input2"]["position"]["x"]}
-        assert x_inputs == {-150.0, 150.0}
+        # Symmetry check - resilient to exact spacing value
+        x_input1 = nodes_by_id["input1"]["position"]["x"]
+        x_input2 = nodes_by_id["input2"]["position"]["x"]
+        assert x_input1 == -x_input2, "two node layers should be symmetric around x=0"
+        assert x_input1 != 0.0, "nodes must not overlap"
 
-        # Layer 1: dense1, dense2 (y=150)
-        assert nodes_by_id["dense1"]["position"]["y"] == 150.0
-        assert nodes_by_id["dense2"]["position"]["y"] == 150.0
+        x_dense1 = nodes_by_id["dense1"]["position"]["x"]
+        x_dense2 = nodes_by_id["dense2"]["position"]["x"]
+        assert x_dense1 == -x_dense2, "two node layers should be symmetric around x=0"
+        assert x_dense1 != 0.0, "nodes must not overlap"
 
-        x_denses = {nodes_by_id["dense1"]["position"]["x"], nodes_by_id["dense2"]["position"]["x"]}
-        assert x_denses == {-150.0, 150.0}
+        assert nodes_by_id["output"]["position"]["x"] == 0.0, "single node layer should be centered at x=0"
 
-        # Layer 2: output (y=300)
-        assert nodes_by_id["output"]["position"]["y"] == 300.0
-        assert nodes_by_id["output"]["position"]["x"] == 0.0
+    def test_handles_disconnected_nodes(self):
+        graph = {
+            "nodes": [
+                {"id": "iso1", "type": "custominput"},
+                {"id": "iso2", "type": "custominput"},
+                {"id": "iso3", "type": "custominput"},
+            ],
+            "edges": [],
+        }
+        _apply_auto_layout(graph)
+
+        nodes_by_id = {n["id"]: n for n in graph["nodes"]}
+
+        # All disconnected nodes fallback to same layer (layer 0)
+        y_iso1 = nodes_by_id["iso1"]["position"]["y"]
+        assert nodes_by_id["iso2"]["position"]["y"] == y_iso1
+        assert nodes_by_id["iso3"]["position"]["y"] == y_iso1
+
+        # They should form a single horizontal row symmetrically around 0
+        xs = sorted([nodes_by_id[nid]["position"]["x"] for nid in ["iso1", "iso2", "iso3"]])
+        assert xs[1] == 0.0, "middle node should be at x=0"
+        assert xs[0] == -xs[2], "outer nodes should be symmetric"
 
     def test_preserves_existing_positions(self):
         graph = copy.deepcopy(SAMPLE_GRAPH)

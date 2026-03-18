@@ -386,7 +386,7 @@ def _apply_auto_layout(graph: dict) -> None:
     1. Identifying input nodes (in-degree 0).
     2. Grouping nodes into layers based on the longest path from an input.
     3. Spacing layers vertically and centering nodes within each layer horizontally.
-    
+
     Note: Cyclic or disconnected nodes are assigned a default layer (0).
     """
     nodes = [n for n in graph.get("nodes", []) if n.get("id")]

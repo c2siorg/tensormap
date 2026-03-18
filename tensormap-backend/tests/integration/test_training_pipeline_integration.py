@@ -140,9 +140,7 @@ def test_generated_code_is_valid_python(client: TestClient):
     """model_generation output must be valid JSON parseable by Keras."""
     from app.services.model_generation import model_generation
 
-    result = model_generation(
-        {"nodes": MINIMAL_GRAPH["nodes"], "edges": MINIMAL_GRAPH["edges"]}
-    )
+    result = model_generation({"nodes": MINIMAL_GRAPH["nodes"], "edges": MINIMAL_GRAPH["edges"]})
     assert isinstance(result, dict)
     parsed = json.loads(json.dumps(result))
     assert "class_name" in parsed or "config" in parsed
@@ -151,9 +149,7 @@ def test_generated_code_is_valid_python(client: TestClient):
 def test_full_pipeline_model_generation_to_json(client: TestClient):
     """model_generation output must round-trip through Keras model_from_json."""
 
-    result = model_generation(
-        {"nodes": MINIMAL_GRAPH["nodes"], "edges": MINIMAL_GRAPH["edges"]}
-    )
+    result = model_generation({"nodes": MINIMAL_GRAPH["nodes"], "edges": MINIMAL_GRAPH["edges"]})
     model = tf.keras.models.model_from_json(json.dumps(result))
     assert model.input_shape == (None, 2)
     assert model.output_shape == (None, 1)

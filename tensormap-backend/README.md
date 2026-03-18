@@ -27,23 +27,23 @@ docker run -d \
 
 1. Install [uv](https://docs.astral.sh/uv/getting-started/installation/)
 2. Install dependencies:
-   ```bash
-   uv sync
-   ```
+    ```bash
+    uv sync
+    ```
 3. Copy `.env.example` to `.env` and configure:
-   ```
-   DATABASE_URL=postgresql+psycopg2://c2si:c2si@localhost:5432/c2si_db
-   SECRET_KEY=changeme
-   CORS_ALLOWED_ORIGINS=http://localhost:3300
-   ```
+    ```
+    DATABASE_URL=postgresql+psycopg2://c2si:c2si@localhost:5432/c2si_db
+    SECRET_KEY=changeme
+    CORS_ALLOWED_ORIGINS=http://localhost:3300
+    ```
 4. Run database migrations:
-   ```bash
-   uv run alembic upgrade head
-   ```
+    ```bash
+    uv run alembic upgrade head
+    ```
 5. Start the server:
-   ```bash
-   uv run uvicorn app.main:socket_app --host 0.0.0.0 --port 4300 --reload
-   ```
+    ```bash
+    uv run uvicorn app.main:socket_app --host 0.0.0.0 --port 4300 --reload
+    ```
 
 ### Application Architecture
 

@@ -21,6 +21,7 @@ from app.socketio_instance import sio
 logger = get_logger(__name__)
 
 _main_loop: asyncio.AbstractEventLoop | None = None
+_COLUMN_PREVIEW_LIMIT = 10
 
 
 class CustomProgressBar(tf.keras.callbacks.Callback):
@@ -156,17 +157,18 @@ def _run(model_name: str, db: Session) -> None:
             label_mode=label_mode,
         )
     else:
-        if model_configs.target_field is None or not str(model_configs.target_field).strip():
+        raw_target_field = model_configs.target_field
+        if raw_target_field is None or not str(raw_target_field).strip():
             raise ValueError("Training configuration incomplete: target field is required for tabular models")
 
-        target_field = str(model_configs.target_field).strip()
+        target_field = raw_target_field.strip() if isinstance(raw_target_field, str) else raw_target_field
 
         file_location = _helper_generate_file_location(db, file_id=model_configs.file_id)
         features = pd.read_csv(file_location)
         if target_field not in features.columns:
             available_columns = list(features.columns)
-            preview_columns = available_columns[:10]
-            logger.warning(
+            preview_columns = available_columns[:_COLUMN_PREVIEW_LIMIT]
+            logger.debug(
                 "Configured target field '%s' not found in dataset columns. %d columns available; preview: %s",
                 target_field,
                 len(available_columns),
@@ -174,7 +176,7 @@ def _run(model_name: str, db: Session) -> None:
             )
             raise ValueError(
                 f"Training configuration error: target field '{target_field}' not found in data file columns. "
-                f"Available columns ({len(available_columns)} total): {preview_columns}"
+                "Please check the configured target field name."
             )
         features.dropna(inplace=True)
         # Shuffle data to prevent issues with ordered datasets

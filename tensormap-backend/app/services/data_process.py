@@ -345,9 +345,6 @@ _TRANSFORMATION_HANDLERS: dict[str, Callable] = {
 _VALID_TRANSFORMATIONS = set(_TRANSFORMATION_HANDLERS.keys())
 
 
-
-
-
 def preprocess_data(db: Session, file_id: uuid_pkg.UUID, transformations: list) -> tuple:
     """Apply column transformations to a CSV, overwriting the existing file."""
     file = db.exec(select(DataFile).where(DataFile.id == file_id)).first()

@@ -68,7 +68,7 @@ function TransformationCreator({ features, onAdd }) {
       <Button onClick={handleAdd} disabled={disabledButton}>
         Add Transformation
       </Button>
-    </div >
+    </div>
   );
 }
 

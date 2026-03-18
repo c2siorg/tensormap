@@ -30,17 +30,6 @@ def _paginated_resp(data: list, pagination: dict) -> tuple:
     return body, 200
 
 
-def _paginated_resp(data: list, pagination: dict) -> tuple:
-    """Build a standard API response tuple for paginated data."""
-    body = {
-        "success": True,
-        "message": "Data sent successfully",
-        "data": data,
-        "pagination": pagination,
-    }
-    return body, 200
-
-
 def _get_file_path(file: DataFile) -> str:
     """Resolve the on-disk path for a DataFile record."""
     settings = get_settings()
@@ -281,27 +270,6 @@ def get_file_data(db: Session, file_id: uuid_pkg.UUID, page: int = 1, page_size:
         data_list, {"page": page, "page_size": page_size, "total_rows": total_rows, "total_pages": total_pages}
     )
 
-    start_idx = (page - 1) * page_size
-    skip = list(range(1, start_idx + 1)) if start_idx > 0 else None
-
-    try:
-        df_page = pd.read_csv(file_path, skiprows=skip, nrows=page_size)
-    except FileNotFoundError:
-        return _resp(500, False, f"File not found: {file_path}")
-    except pd.errors.ParserError as e:
-        logger.exception("CSV parsing error: %s", str(e))
-        return _resp(500, False, f"Error reading CSV: {e}")
-    except Exception as e:
-        logger.exception("Error reading file: %s", str(e))
-        return _resp(500, False, f"Error reading CSV: {e}")
-
-    # For empty or any dataframe slice, to_dict will convert to list of plain dict elements avoiding json strings
-    data_list = df_page.to_dict(orient="records")
-
-    return _paginated_resp(
-        data_list, {"page": page, "page_size": page_size, "total_rows": total_rows, "total_pages": total_pages}
-    )
-
 
 # Transformation handler functions
 def _handle_one_hot_encoding(df: pd.DataFrame, feature: str, params: dict = None) -> pd.DataFrame:
@@ -377,78 +345,7 @@ _TRANSFORMATION_HANDLERS: dict[str, Callable] = {
 _VALID_TRANSFORMATIONS = set(_TRANSFORMATION_HANDLERS.keys())
 
 
-# Transformation handler functions
-def _handle_one_hot_encoding(df: pd.DataFrame, feature: str, params: dict = None) -> pd.DataFrame:
-    """Apply one-hot encoding to a categorical column."""
-    return pd.get_dummies(df, columns=[feature])
 
-
-def _handle_categorical_to_numerical(df: pd.DataFrame, feature: str, params: dict = None) -> pd.DataFrame:
-    """Convert categorical values to numerical codes."""
-    df[feature] = pd.Categorical(df[feature]).codes
-    return df
-
-
-def _handle_drop_column(df: pd.DataFrame, feature: str, params: dict = None) -> pd.DataFrame:
-    """Drop a column from the dataframe."""
-    return df.drop(columns=[feature])
-
-
-def _handle_min_max_normalization(df: pd.DataFrame, feature: str, params: dict = None) -> pd.DataFrame:
-    """Apply min-max normalization to a numeric column."""
-    col_min = df[feature].min()
-    col_max = df[feature].max()
-    df[feature] = 0.0 if np.isclose(col_min, col_max) else (df[feature] - col_min) / (col_max - col_min)
-    return df
-
-
-def _handle_z_score_standardization(df: pd.DataFrame, feature: str, params: dict = None) -> pd.DataFrame:
-    """Apply z-score standardization to a numeric column."""
-    std = df[feature].std()
-    df[feature] = 0.0 if std == 0 else (df[feature] - df[feature].mean()) / std
-    return df
-
-
-def _handle_log_transform(df: pd.DataFrame, feature: str, params: dict = None) -> pd.DataFrame:
-    """Apply log transformation to a numeric column."""
-    s = df[feature]
-    if (s < -1).any():
-        logger.warning(
-            "Log Transform skipped for column '%s': %d value(s) below -1",
-            feature,
-            int((s < -1).sum()),
-        )
-    else:
-        df[feature] = np.log1p(s)
-    return df
-
-
-def _handle_fill_missing_values(df: pd.DataFrame, feature: str, params: dict = None) -> pd.DataFrame:
-    """Fill missing values in a column using specified strategy."""
-    strategy = (params or {}).get("strategy", "mean")
-    if strategy == "median":
-        df[feature] = df[feature].fillna(df[feature].median())
-    elif strategy == "mode":
-        mode_vals = df[feature].mode()
-        df[feature] = df[feature].fillna(mode_vals[0] if not mode_vals.empty else df[feature].mean())
-    else:
-        df[feature] = df[feature].fillna(df[feature].mean())
-    return df
-
-
-# Dispatch dictionary mapping transformation names to handler functions
-_TRANSFORMATION_HANDLERS: dict[str, Callable] = {
-    "One Hot Encoding": _handle_one_hot_encoding,
-    "Categorical to Numerical": _handle_categorical_to_numerical,
-    "Drop Column": _handle_drop_column,
-    "Min-Max Normalization": _handle_min_max_normalization,
-    "Z-score Standardization": _handle_z_score_standardization,
-    "Log Transform": _handle_log_transform,
-    "Fill Missing Values": _handle_fill_missing_values,
-}
-
-# Derived automatically — no manual sync needed
-_VALID_TRANSFORMATIONS = set(_TRANSFORMATION_HANDLERS.keys())
 
 
 def preprocess_data(db: Session, file_id: uuid_pkg.UUID, transformations: list) -> tuple:

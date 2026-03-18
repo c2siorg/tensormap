@@ -36,6 +36,7 @@ import ModelSummaryPanel from "./ModelSummaryPanel";
 import { getAllModels, getModelGraph, saveModel } from "../../services/ModelServices";
 import { models as allModels } from "../../shared/atoms";
 import ContextMenu from "./ContextMenu";
+import { getLayerByType } from "../../registry/layers";
 import useUndoRedo from "../../hooks/useUndoRedo";
 
 const isMac =
@@ -506,26 +507,14 @@ function Canvas() {
         y: event.clientY - reactFlowBounds.top,
       });
 
-      const defaultParams = {
-        custominput: { "dim-1": "", "dim-2": "", "dim-3": "" },
-        customdense: { units: "", activation: "" },
-        customflatten: {},
-        customconv: {
-          filter: "",
-          padding: "valid",
-          activation: "none",
-          strideX: "",
-          strideY: "",
-          kernelX: "",
-          kernelY: "",
-        },
-      };
+      const layer = getLayerByType(type);
+      const defaultParams = layer ? layer.defaultParams : {};
 
       const newNode = {
         id: crypto.randomUUID(),
         type,
         position,
-        data: { label: `${type} node`, params: defaultParams[type] || {} },
+        data: { label: `${type} node`, params: defaultParams },
       };
 
       takeSnapshotAndUpdate(nodesRef.current, edgesRef.current);

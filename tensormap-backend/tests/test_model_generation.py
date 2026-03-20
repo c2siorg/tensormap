@@ -264,6 +264,19 @@ class TestModelGeneration:
         model = tf.keras.models.model_from_json(json.dumps(result))
         assert model.input_shape == (None, 28, 28, 1)
 
+    def test_disconnected_node_raises_value_error(self):
+        """A node not reachable from any input must raise ValueError."""
+        params = {
+            "nodes": [
+                _input_node("in", [10]),
+                _dense_node("out", 1),
+                _dense_node("isolated", 1),
+            ],
+            "edges": [_edge("in", "out")],
+        }
+        with pytest.raises(ValueError, match="Disconnected nodes detected"):
+            model_generation(params)
+
 
 # ===================================================================
 # Helper Builders for New Layer Types

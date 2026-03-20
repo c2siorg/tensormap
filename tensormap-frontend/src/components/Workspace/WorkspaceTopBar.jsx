@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { ChevronRight } from "lucide-react";
-import { Separator } from "@/components/ui/separator";
+import { Separator } from "../../components/ui/separator";
 
 /**
  * Breadcrumb bar shown above the workspace content area.

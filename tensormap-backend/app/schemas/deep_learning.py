@@ -107,3 +107,11 @@ class TrainingConfigRequest(BaseModel):
     epochs: int = Field(gt=0)
     batch_size: int = Field(default=32, gt=0)
     project_id: uuid_pkg.UUID | None = None
+
+
+class TuningRequest(BaseModel):
+    model_name: str
+    strategy: str = "random"  # "grid" or "random"
+    n_trials: int = 10
+    space: dict  # e.g. {"optimizer": ["adam","sgd"], "learning_rate": [0.001, 0.01]}
+    project_id: uuid_pkg.UUID | None = None

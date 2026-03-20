@@ -7,7 +7,13 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from sqlmodel import Session
 
 from app.database import get_db
-from app.schemas.deep_learning import ModelNameRequest, ModelSaveRequest, ModelValidateRequest, TrainingConfigRequest
+from app.schemas.deep_learning import (
+    ModelNameRequest,
+    ModelSaveRequest,
+    ModelValidateRequest,
+    TrainingConfigRequest,
+    TuningRequest,
+)
 from app.services.deep_learning import (
     delete_model_service,
     get_available_model_list,
@@ -18,6 +24,18 @@ from app.services.deep_learning import (
     run_code_service,
     update_training_config_service,
 )
+from app.services.export import (
+    export_onnx_service,
+    export_savedmodel_service,
+    export_tflite_service,
+)
+from app.services.interpretability import (
+    classification_report_service,
+    confusion_matrix_service,
+    feature_importance_service,
+    prediction_explorer_service,
+)
+from app.services.tuning import run_tuning_service
 from app.shared.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -98,6 +116,130 @@ async def delete_model(
     """Delete a saved model and its associated configuration records."""
     logger.info("Deleting model id=%s", model_id)
     body, status_code = delete_model_service(db, model_id=model_id)
+    return JSONResponse(status_code=status_code, content=body)
+
+
+@router.post("/model/{model_name}/export/savedmodel")
+def export_savedmodel(
+    model_name: str,
+    project_id: uuid_pkg.UUID | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Export model as TensorFlow SavedModel zip."""
+    from fastapi.responses import FileResponse
+
+    body, status_code = export_savedmodel_service(db, model_name=model_name)
+    if status_code == 200 and body.get("data"):
+        return FileResponse(
+            path=body["data"]["file_path"],
+            filename=body["data"]["file_name"],
+            media_type="application/zip",
+        )
+    return JSONResponse(status_code=status_code, content=body)
+
+
+@router.post("/model/{model_name}/export/tflite")
+def export_tflite(
+    model_name: str,
+    project_id: uuid_pkg.UUID | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Export model as TFLite flatbuffer."""
+    from fastapi.responses import FileResponse
+
+    body, status_code = export_tflite_service(db, model_name=model_name)
+    if status_code == 200 and body.get("data"):
+        return FileResponse(
+            path=body["data"]["file_path"],
+            filename=body["data"]["file_name"],
+            media_type="application/octet-stream",
+        )
+    return JSONResponse(status_code=status_code, content=body)
+
+
+@router.post("/model/{model_name}/export/onnx")
+def export_onnx(
+    model_name: str,
+    project_id: uuid_pkg.UUID | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Export model as ONNX (requires tf2onnx)."""
+    from fastapi.responses import FileResponse
+
+    body, status_code = export_onnx_service(db, model_name=model_name)
+    if status_code == 200 and body.get("data"):
+        return FileResponse(
+            path=body["data"]["file_path"],
+            filename=body["data"]["file_name"],
+            media_type="application/octet-stream",
+        )
+    return JSONResponse(status_code=status_code, content=body)
+
+
+@router.get("/model/{model_name}/interpretability/confusion-matrix")
+def get_confusion_matrix(
+    model_name: str,
+    project_id: uuid_pkg.UUID | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Confusion matrix for a classification model."""
+    body, status_code = confusion_matrix_service(db, model_name=model_name)
+    return JSONResponse(status_code=status_code, content=body)
+
+
+@router.get("/model/{model_name}/interpretability/classification-report")
+def get_classification_report(
+    model_name: str,
+    project_id: uuid_pkg.UUID | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Per-class precision, recall, f1-score."""
+    body, status_code = classification_report_service(db, model_name=model_name)
+    return JSONResponse(status_code=status_code, content=body)
+
+
+@router.get("/model/{model_name}/interpretability/feature-importance")
+def get_feature_importance(
+    model_name: str,
+    project_id: uuid_pkg.UUID | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Permutation-based feature importance."""
+    body, status_code = feature_importance_service(db, model_name=model_name)
+    return JSONResponse(status_code=status_code, content=body)
+
+
+@router.get("/model/{model_name}/interpretability/predictions")
+def get_predictions(
+    model_name: str,
+    n_samples: int = Query(20, ge=5, le=100),
+    project_id: uuid_pkg.UUID | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Actual vs predicted sample explorer."""
+    body, status_code = prediction_explorer_service(db, model_name=model_name, n_samples=n_samples)
+    return JSONResponse(status_code=status_code, content=body)
+
+
+@router.post("/model/tune")
+async def tune_model(request: TuningRequest, db: Session = Depends(get_db)):
+    """Run grid or random hyperparameter search with real-time Socket.IO progress."""
+    logger.info(
+        "Starting %s hyperparameter search for model=%s, trials=%d",
+        request.strategy,
+        request.model_name,
+        request.n_trials,
+    )
+    loop = asyncio.get_running_loop()
+    body, status_code = await asyncio.to_thread(
+        run_tuning_service,
+        db,
+        model_name=request.model_name,
+        strategy=request.strategy,
+        space=request.space,
+        n_trials=request.n_trials,
+        loop=loop,
+    )
     return JSONResponse(status_code=status_code, content=body)
 
 

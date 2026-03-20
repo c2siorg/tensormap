@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
 from app.exceptions import AppException, app_exception_handler, generic_exception_handler
 from app.middleware import RequestLoggingMiddleware
-from app.routers import data_process, data_upload, deep_learning, project
+from app.routers import data_process, data_upload, deep_learning, export, layers, project
 from app.shared.logging_config import get_logger
 from app.socketio_instance import sio
 
@@ -52,6 +52,8 @@ app.include_router(data_upload.router, prefix=settings.api_base)
 app.include_router(data_process.router, prefix=settings.api_base)
 app.include_router(deep_learning.router, prefix=settings.api_base)
 app.include_router(project.router, prefix=settings.api_base)
+app.include_router(layers.router, prefix=settings.api_base)
+app.include_router(export.router, prefix=settings.api_base)
 
 # Wrap FastAPI with SocketIO so socket.io requests are handled,
 # and everything else passes through to FastAPI.

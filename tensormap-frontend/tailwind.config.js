@@ -42,7 +42,11 @@ export default {
         "node-dense": { DEFAULT: "rgb(43, 161, 255)", header: "rgb(50, 113, 178)" },
         "node-input": { DEFAULT: "rgb(105, 172, 61)", header: "rgb(93, 149, 34)" },
         "node-flatten": { DEFAULT: "rgb(247, 173, 20)", header: "rgb(170, 121, 24)" },
-        "node-conv": { DEFAULT: "rgb(255, 128, 43)", header: "rgb(255, 128, 43)" },
+        "node-conv":       { DEFAULT: "rgb(255, 128, 43)",  header: "rgb(255, 128, 43)"  },
+        "node-dropout":    { DEFAULT: "rgb(220, 80,  80)",   header: "rgb(180, 50,  50)"   },
+        "node-batchnorm":  { DEFAULT: "rgb(140, 90,  200)",  header: "rgb(110, 60,  170)"  },
+        "node-pooling":    { DEFAULT: "rgb(20,  180, 160)",  header: "rgb(15,  140, 120)"  },
+        "node-recurrent":  { DEFAULT: "rgb(230, 120, 30)",   header: "rgb(190, 90,  20)"   },
       },
       borderRadius: {
         lg: "var(--radius)",

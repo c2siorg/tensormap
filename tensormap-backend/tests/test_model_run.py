@@ -75,12 +75,10 @@ class TestRunCodeServiceOnFailure:
         db = MagicMock()
         with patch("app.services.deep_learning.model_run", side_effect=RuntimeError("bad config")):
             _, status_code = run_code_service(db, "my_model")
-
         assert status_code == 400
 
     def test_response_body_has_success_false(self):
         db = MagicMock()
         with patch("app.services.deep_learning.model_run", side_effect=RuntimeError("bad config")):
             result, _ = run_code_service(db, "my_model")
-
         assert result["success"] is False

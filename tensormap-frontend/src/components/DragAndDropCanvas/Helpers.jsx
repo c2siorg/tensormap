@@ -25,8 +25,22 @@ export const canSaveModel = (modelName, modelData) => {
       if (!p.filter || !p.kernelX || !p.kernelY || !p.strideX || !p.strideY) {
         return false;
       }
+    } else if (node.type === "custommaxpool2d" || node.type === "customavgpool2d") {
+      const p = node.data.params;
+      if (!p.poolX || !p.poolY || !p.strideX || !p.strideY) return false;
+    } else if (
+      node.type === "customlstm" ||
+      node.type === "customgru" ||
+      node.type === "customsimplernn"
+    ) {
+      if (!node.data.params.units || node.data.params.units === "") return false;
+    } else if (node.type === "customembedding") {
+      if (!node.data.params.input_dim || !node.data.params.output_dim) return false;
+    } else if (node.type === "customreshape") {
+      if (!node.data.params.target_shape || node.data.params.target_shape === "") return false;
     }
-    // customflatten has no params to validate
+    // customflatten, customglobalmaxpool2d, customglobalavgpool2d,
+    // custombatchnorm, customlayernorm, customdropout have no required params
   }
 
   return isGraphConnected(modelData);

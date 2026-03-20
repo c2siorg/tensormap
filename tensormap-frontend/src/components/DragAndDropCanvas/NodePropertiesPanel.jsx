@@ -1,15 +1,15 @@
 import PropTypes from "prop-types";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
+import { Input } from "../../components/ui/input";
+import { Label } from "../../components/ui/label";
+import { Button } from "../../components/ui/button";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select";
+} from "../../components/ui/select";
 
 const ACTIVATIONS = [
   { value: "none", label: "None" },
@@ -242,6 +242,244 @@ function NodePropertiesPanel({
                 ))}
               </SelectContent>
             </Select>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // ── Pooling layers ──────────────────────────────────────────────────────────
+  if (type === "custommaxpool2d" || type === "customavgpool2d") {
+    const title = type === "custommaxpool2d" ? "MaxPooling2D" : "AvgPooling2D";
+    return (
+      <Card className="h-fit">
+        <CardHeader>
+          <CardTitle className="text-sm">{title}</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {[
+            ["poolX", "Pool X"],
+            ["poolY", "Pool Y"],
+            ["strideX", "Stride X"],
+            ["strideY", "Stride Y"],
+          ].map(([k, label]) => (
+            <div key={k} className="space-y-1">
+              <Label>{label}</Label>
+              <Input
+                type="number"
+                min="1"
+                value={params[k]}
+                onChange={(e) => updateParam(k, Number(e.target.value))}
+              />
+            </div>
+          ))}
+          <div className="space-y-1">
+            <Label>Padding</Label>
+            <Select value={params.padding} onValueChange={(v) => updateParam("padding", v)}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {convPaddings.map((p) => (
+                  <SelectItem key={p.value} value={p.value}>
+                    {p.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (type === "customglobalmaxpool2d" || type === "customglobalavgpool2d") {
+    const title = type === "customglobalmaxpool2d" ? "GlobalMaxPooling2D" : "GlobalAvgPooling2D";
+    return (
+      <Card className="h-fit">
+        <CardHeader>
+          <CardTitle className="text-sm">{title}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">No configurable parameters</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // ── Regularization layers ────────────────────────────────────────────────────
+  if (type === "customdropout") {
+    return (
+      <Card className="h-fit">
+        <CardHeader>
+          <CardTitle className="text-sm">Dropout</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="space-y-1">
+            <Label>Rate (0–1)</Label>
+            <Input
+              type="number"
+              min="0"
+              max="1"
+              step="0.1"
+              value={params.rate}
+              onChange={(e) => updateParam("rate", e.target.value)}
+            />
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (type === "custombatchnorm") {
+    return (
+      <Card className="h-fit">
+        <CardHeader>
+          <CardTitle className="text-sm">BatchNormalization</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="space-y-1">
+            <Label>Momentum</Label>
+            <Input
+              type="number"
+              min="0"
+              max="1"
+              step="0.01"
+              value={params.momentum}
+              onChange={(e) => updateParam("momentum", e.target.value)}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label>Epsilon</Label>
+            <Input
+              type="number"
+              step="0.0001"
+              value={params.epsilon}
+              onChange={(e) => updateParam("epsilon", e.target.value)}
+            />
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (type === "customlayernorm") {
+    return (
+      <Card className="h-fit">
+        <CardHeader>
+          <CardTitle className="text-sm">LayerNormalization</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="space-y-1">
+            <Label>Epsilon</Label>
+            <Input
+              type="number"
+              step="0.0001"
+              value={params.epsilon}
+              onChange={(e) => updateParam("epsilon", e.target.value)}
+            />
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // ── Recurrent layers ──────────────────────────────────────────────────────────
+  if (type === "customlstm" || type === "customgru" || type === "customsimplernn") {
+    const titles = { customlstm: "LSTM", customgru: "GRU", customsimplernn: "SimpleRNN" };
+    return (
+      <Card className="h-fit">
+        <CardHeader>
+          <CardTitle className="text-sm">{titles[type]}</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="space-y-1">
+            <Label>Units</Label>
+            <Input
+              type="number"
+              min="1"
+              value={params.units}
+              onChange={(e) => updateParam("units", Number(e.target.value))}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label>Return Sequences</Label>
+            <Select
+              value={params.return_sequences}
+              onValueChange={(v) => updateParam("return_sequences", v)}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="false">False</SelectItem>
+                <SelectItem value="true">True</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          {type !== "customsimplernn" && (
+            <div className="space-y-1">
+              <Label>Dropout</Label>
+              <Input
+                type="number"
+                min="0"
+                max="1"
+                step="0.1"
+                value={params.dropout}
+                onChange={(e) => updateParam("dropout", e.target.value)}
+              />
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // ── Utility layers ────────────────────────────────────────────────────────────
+  if (type === "customreshape") {
+    return (
+      <Card className="h-fit">
+        <CardHeader>
+          <CardTitle className="text-sm">Reshape</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="space-y-1">
+            <Label>Target Shape (comma-separated)</Label>
+            <Input
+              placeholder="e.g. 7,7,64"
+              value={params.target_shape}
+              onChange={(e) => updateParam("target_shape", e.target.value)}
+            />
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (type === "customembedding") {
+    return (
+      <Card className="h-fit">
+        <CardHeader>
+          <CardTitle className="text-sm">Embedding</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="space-y-1">
+            <Label>Input Dim (vocab size)</Label>
+            <Input
+              type="number"
+              min="1"
+              value={params.input_dim}
+              onChange={(e) => updateParam("input_dim", Number(e.target.value))}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label>Output Dim (embedding size)</Label>
+            <Input
+              type="number"
+              min="1"
+              value={params.output_dim}
+              onChange={(e) => updateParam("output_dim", Number(e.target.value))}
+            />
           </div>
         </CardContent>
       </Card>

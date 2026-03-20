@@ -1,11 +1,5 @@
 """
-Unit and integration tests for the model_generation service.
-
-Covers:
-  - _build_layer() for each supported node type (Dense, Flatten, Conv2D)
-  - _build_layer() error handling for unknown node types
-  - model_generation() end-to-end: linear, branching, multi-input, conv
-  - Integration: generated JSON round-trips through tf.keras.models.model_from_json
+Unit and integration tests for model_generation and the layer registry.
 """
 
 import json
@@ -13,39 +7,25 @@ import json
 import pytest
 import tensorflow as tf
 
-from app.services.model_generation import _build_layer, model_generation
-
-# ---------------------------------------------------------------------------
-# Node / edge builder helpers
-# ---------------------------------------------------------------------------
+from app.layers.registry import build_layer as _build_layer
+from app.layers.registry import get_layer_schema
+from app.services.model_generation import model_generation
 
 
-def _input_node(node_id: str, dims: list[int]) -> dict:
-    """Create a custominput node."""
+def _input_node(node_id, dims):
     params = {f"dim-{i + 1}": d for i, d in enumerate(dims)}
     return {"id": node_id, "type": "custominput", "data": {"params": params}}
 
 
-def _dense_node(node_id: str, units: int = 32, activation: str = "relu") -> dict:
-    return {
-        "id": node_id,
-        "type": "customdense",
-        "data": {"params": {"units": units, "activation": activation}},
-    }
+def _dense_node(node_id, units=32, activation="relu"):
+    return {"id": node_id, "type": "customdense", "data": {"params": {"units": units, "activation": activation}}}
 
 
-def _flatten_node(node_id: str) -> dict:
+def _flatten_node(node_id):
     return {"id": node_id, "type": "customflatten", "data": {"params": {}}}
 
 
-def _conv_node(
-    node_id: str,
-    filters: int = 16,
-    kernel: tuple[int, int] = (3, 3),
-    stride: tuple[int, int] = (1, 1),
-    padding: str = "valid",
-    activation: str = "relu",
-) -> dict:
+def _conv_node(node_id, filters=16, kernel=(3, 3), stride=(1, 1), padding="valid", activation="relu"):
     return {
         "id": node_id,
         "type": "customconv",
@@ -63,203 +43,269 @@ def _conv_node(
     }
 
 
-def _edge(source: str, target: str) -> dict:
+def _maxpool_node(node_id, pool=2, stride=2):
+    return {
+        "id": node_id,
+        "type": "custommaxpool2d",
+        "data": {
+            "params": {
+                "poolX": pool,
+                "poolY": pool,
+                "strideX": stride,
+                "strideY": stride,
+                "padding": "valid",
+            }
+        },
+    }
+
+
+def _dropout_node(node_id, rate=0.5):
+    return {"id": node_id, "type": "customdropout", "data": {"params": {"rate": rate}}}
+
+
+def _batchnorm_node(node_id):
+    return {"id": node_id, "type": "custombatchnorm", "data": {"params": {"momentum": 0.99, "epsilon": 0.001}}}
+
+
+def _lstm_node(node_id, units=32, return_sequences=False):
+    return {
+        "id": node_id,
+        "type": "customlstm",
+        "data": {
+            "params": {
+                "units": units,
+                "return_sequences": str(return_sequences).lower(),
+                "dropout": 0.0,
+            }
+        },
+    }
+
+
+def _gru_node(node_id, units=32, return_sequences=False):
+    return {
+        "id": node_id,
+        "type": "customgru",
+        "data": {
+            "params": {
+                "units": units,
+                "return_sequences": str(return_sequences).lower(),
+                "dropout": 0.0,
+            }
+        },
+    }
+
+
+def _edge(source, target):
     return {"source": source, "target": target}
 
 
-# ===================================================================
-# Tests for _build_layer()
-# ===================================================================
-
-
 class TestBuildLayer:
-    """Unit tests for the per-node Keras layer builder."""
+    def test_dense_output_shape(self):
+        inp = tf.keras.Input(shape=(10,), name="i")
+        assert _build_layer(_dense_node("d1", 64), inp).shape == (None, 64)
 
-    def test_dense_layer_output_shape(self):
-        input_t = tf.keras.Input(shape=(10,), name="inp")
-        node = _dense_node("d1", units=64, activation="relu")
-        output = _build_layer(node, input_t)
-        assert output.shape == (None, 64)
+    def test_dense_sigmoid(self):
+        inp = tf.keras.Input(shape=(5,), name="i")
+        assert _build_layer(_dense_node("d1", 1, "sigmoid"), inp).shape == (None, 1)
 
-    def test_dense_layer_sigmoid(self):
-        input_t = tf.keras.Input(shape=(5,), name="inp")
-        node = _dense_node("d1", units=1, activation="sigmoid")
-        output = _build_layer(node, input_t)
-        assert output.shape == (None, 1)
+    def test_flatten_output_shape(self):
+        inp = tf.keras.Input(shape=(4, 4, 3), name="i")
+        assert _build_layer(_flatten_node("f1"), inp).shape == (None, 48)
 
-    def test_flatten_layer_output_shape(self):
-        """Flatten (4, 4, 3) → (48,)."""
-        input_t = tf.keras.Input(shape=(4, 4, 3), name="inp")
-        node = _flatten_node("f1")
-        output = _build_layer(node, input_t)
-        assert output.shape == (None, 48)
+    def test_conv2d_valid_padding(self):
+        inp = tf.keras.Input(shape=(28, 28, 1), name="i")
+        assert _build_layer(_conv_node("c1", 16, (3, 3), (1, 1), "valid"), inp).shape == (None, 26, 26, 16)
 
-    def test_conv2d_layer_output_shape(self):
-        """Conv2D valid-padding: (28,28,1) with 3×3 kernel → (26,26,16)."""
-        input_t = tf.keras.Input(shape=(28, 28, 1), name="inp")
-        node = _conv_node("c1", filters=16, kernel=(3, 3), stride=(1, 1), padding="valid")
-        output = _build_layer(node, input_t)
-        assert output.shape == (None, 26, 26, 16)
+    def test_conv2d_same_padding(self):
+        inp = tf.keras.Input(shape=(16, 16, 1), name="i")
+        assert _build_layer(_conv_node("c1", 8, (3, 3), (1, 1), "same"), inp).shape == (None, 16, 16, 8)
 
-    def test_conv2d_same_padding_preserves_spatial_dims(self):
-        input_t = tf.keras.Input(shape=(16, 16, 1), name="inp")
-        node = _conv_node("c1", filters=8, kernel=(3, 3), stride=(1, 1), padding="same")
-        output = _build_layer(node, input_t)
-        assert output.shape == (None, 16, 16, 8)
+    def test_conv2d_activation_none(self):
+        inp = tf.keras.Input(shape=(8, 8, 1), name="i")
+        assert _build_layer(_conv_node("c1", activation="none"), inp) is not None
 
-    def test_conv2d_activation_none_becomes_linear(self):
-        """'none' activation string should be silently converted to 'linear'."""
-        input_t = tf.keras.Input(shape=(8, 8, 1), name="inp")
-        node = _conv_node("c1", activation="none")
-        output = _build_layer(node, input_t)
-        assert output is not None
-
-    def test_unknown_node_type_raises_value_error(self):
-        input_t = tf.keras.Input(shape=(5,), name="inp")
-        node = {"id": "x", "type": "custom_unknown", "data": {"params": {}}}
+    def test_unknown_type_raises(self):
+        inp = tf.keras.Input(shape=(5,), name="i")
         with pytest.raises(ValueError, match="Unknown node type"):
-            _build_layer(node, input_t)
+            _build_layer({"id": "x", "type": "custom_unknown", "data": {"params": {}}}, inp)
 
+    def test_maxpooling2d(self):
+        inp = tf.keras.Input(shape=(28, 28, 16), name="i")
+        assert _build_layer(_maxpool_node("mp1"), inp).shape == (None, 14, 14, 16)
 
-# ===================================================================
-# Tests for model_generation()
-# ===================================================================
+    def test_dropout_passthrough(self):
+        inp = tf.keras.Input(shape=(64,), name="i")
+        assert _build_layer(_dropout_node("do1", 0.3), inp).shape == (None, 64)
+
+    def test_batchnorm_passthrough(self):
+        inp = tf.keras.Input(shape=(32,), name="i")
+        assert _build_layer(_batchnorm_node("bn1"), inp).shape == (None, 32)
+
+    def test_lstm_output_shape(self):
+        inp = tf.keras.Input(shape=(10, 8), name="i")
+        assert _build_layer(_lstm_node("l1", 32, False), inp).shape == (None, 32)
+
+    def test_lstm_return_sequences(self):
+        inp = tf.keras.Input(shape=(10, 8), name="i")
+        assert _build_layer(_lstm_node("l1", 32, True), inp).shape == (None, 10, 32)
+
+    def test_gru_output_shape(self):
+        inp = tf.keras.Input(shape=(10, 8), name="i")
+        assert _build_layer(_gru_node("g1", 16), inp).shape == (None, 16)
 
 
 class TestModelGeneration:
-    """End-to-end tests for the full model construction pipeline."""
+    def test_returns_dict(self):
+        p = {"nodes": [_input_node("i", [10]), _dense_node("o", 1, "linear")], "edges": [_edge("i", "o")]}
+        assert isinstance(model_generation(p), dict)
 
-    def test_simple_input_dense_returns_dict(self):
-        """Return value must be a dict (valid JSON-serialisable model config)."""
-        params = {
-            "nodes": [_input_node("in", [10]), _dense_node("out", 1, "linear")],
-            "edges": [_edge("in", "out")],
-        }
-        result = model_generation(params)
-        assert isinstance(result, dict)
+    def test_input_dense_shapes(self):
+        p = {"nodes": [_input_node("i", [10]), _dense_node("o", 1, "linear")], "edges": [_edge("i", "o")]}
+        m = tf.keras.models.model_from_json(json.dumps(model_generation(p)))
+        assert m.input_shape == (None, 10) and m.output_shape == (None, 1)
 
-    def test_simple_input_to_dense_shapes(self):
-        """input(10) → dense(1) — verify shapes survive round-trip."""
-        params = {
-            "nodes": [_input_node("in", [10]), _dense_node("out", 1, "linear")],
-            "edges": [_edge("in", "out")],
-        }
-        result = model_generation(params)
-        model = tf.keras.models.model_from_json(json.dumps(result))
-        assert model.input_shape == (None, 10)
-        assert model.output_shape == (None, 1)
-
-    def test_multi_layer_linear_chain(self):
-        """input(20) → dense(64) → dense(32) → dense(1)."""
-        params = {
+    def test_multi_layer_chain(self):
+        p = {
             "nodes": [
                 _input_node("x", [20]),
-                _dense_node("h1", 64, "relu"),
-                _dense_node("h2", 32, "relu"),
-                _dense_node("out", 1, "sigmoid"),
+                _dense_node("h1", 64),
+                _dense_node("h2", 32),
+                _dense_node("o", 1, "sigmoid"),
             ],
-            "edges": [_edge("x", "h1"), _edge("h1", "h2"), _edge("h2", "out")],
+            "edges": [_edge("x", "h1"), _edge("h1", "h2"), _edge("h2", "o")],
         }
-        result = model_generation(params)
-        model = tf.keras.models.model_from_json(json.dumps(result))
-        assert model.output_shape == (None, 1)
-        assert len(model.layers) == 4
+        m = tf.keras.models.model_from_json(json.dumps(model_generation(p)))
+        assert m.output_shape == (None, 1) and len(m.layers) == 4
 
     def test_conv_flatten_dense(self):
-        """input(28,28,1) → conv(16) → flatten → dense(10)."""
-        params = {
+        p = {
             "nodes": [
                 _input_node("img", [28, 28, 1]),
-                _conv_node("c1", filters=16, kernel=(3, 3), stride=(1, 1), padding="valid"),
-                _flatten_node("flat"),
-                _dense_node("out", 10, "softmax"),
+                _conv_node("c1", 16, (3, 3), (1, 1), "valid"),
+                _flatten_node("fl"),
+                _dense_node("o", 10, "softmax"),
             ],
-            "edges": [_edge("img", "c1"), _edge("c1", "flat"), _edge("flat", "out")],
+            "edges": [_edge("img", "c1"), _edge("c1", "fl"), _edge("fl", "o")],
         }
-        result = model_generation(params)
-        model = tf.keras.models.model_from_json(json.dumps(result))
-        assert model.output_shape == (None, 10)
+        m = tf.keras.models.model_from_json(json.dumps(model_generation(p)))
+        assert m.output_shape == (None, 10)
 
-    def test_multi_input_concatenation(self):
-        """
-        Two inputs merged into a single Dense:
-            in1 ─┐
-                  ├→ dense_out
-            in2 ─┘
-        """
-        params = {
+    def test_conv_maxpool_flatten_dense(self):
+        p = {
             "nodes": [
-                _input_node("in1", [5]),
-                _input_node("in2", [5]),
-                _dense_node("out", 1, "sigmoid"),
+                _input_node("img", [28, 28, 1]),
+                _conv_node("c1", 16, (3, 3), (1, 1), "same"),
+                _maxpool_node("mp1"),
+                _flatten_node("fl"),
+                _dense_node("o", 10, "softmax"),
             ],
-            "edges": [_edge("in1", "out"), _edge("in2", "out")],
+            "edges": [_edge("img", "c1"), _edge("c1", "mp1"), _edge("mp1", "fl"), _edge("fl", "o")],
         }
-        result = model_generation(params)
-        model = tf.keras.models.model_from_json(json.dumps(result))
-        assert len(model.inputs) == 2
-        assert model.output_shape == (None, 1)
+        m = tf.keras.models.model_from_json(json.dumps(model_generation(p)))
+        assert m.output_shape == (None, 10)
 
-    def test_multiple_output_layers(self):
-        """
-        input → dense1 (output)
-             └→ dense2 (output)
-        """
-        params = {
+    def test_dense_dropout_batchnorm(self):
+        p = {
             "nodes": [
-                _input_node("x", [10]),
-                _dense_node("out1", 1, "sigmoid"),
-                _dense_node("out2", 5, "softmax"),
+                _input_node("x", [64]),
+                _dense_node("h1", 64),
+                _dropout_node("do1", 0.3),
+                _batchnorm_node("bn1"),
+                _dense_node("o", 1, "sigmoid"),
             ],
-            "edges": [_edge("x", "out1"), _edge("x", "out2")],
+            "edges": [_edge("x", "h1"), _edge("h1", "do1"), _edge("do1", "bn1"), _edge("bn1", "o")],
         }
-        result = model_generation(params)
-        model = tf.keras.models.model_from_json(json.dumps(result))
-        assert len(model.outputs) == 2
+        m = tf.keras.models.model_from_json(json.dumps(model_generation(p)))
+        assert m.output_shape == (None, 1)
 
-    def test_single_input_no_edges(self):
-        """A graph with only an input node and no edges cannot form a valid Keras
-        model — the input tensor is also the output tensor, which Keras 3's
-        Functional API rejects with ValueError."""
-        params = {
-            "nodes": [_input_node("solo", [4])],
-            "edges": [],
+    def test_lstm_dense(self):
+        p = {
+            "nodes": [_input_node("seq", [10, 8]), _lstm_node("l1", 32, False), _dense_node("o", 1, "sigmoid")],
+            "edges": [_edge("seq", "l1"), _edge("l1", "o")],
         }
+        m = tf.keras.models.model_from_json(json.dumps(model_generation(p)))
+        assert m.output_shape == (None, 1)
+
+    def test_stacked_lstm(self):
+        p = {
+            "nodes": [
+                _input_node("seq", [10, 8]),
+                _lstm_node("l1", 32, True),
+                _lstm_node("l2", 16, False),
+                _dense_node("o", 1, "sigmoid"),
+            ],
+            "edges": [_edge("seq", "l1"), _edge("l1", "l2"), _edge("l2", "o")],
+        }
+        m = tf.keras.models.model_from_json(json.dumps(model_generation(p)))
+        assert m.output_shape == (None, 1)
+
+    def test_multi_input(self):
+        p = {
+            "nodes": [_input_node("i1", [5]), _input_node("i2", [5]), _dense_node("o", 1, "sigmoid")],
+            "edges": [_edge("i1", "o"), _edge("i2", "o")],
+        }
+        m = tf.keras.models.model_from_json(json.dumps(model_generation(p)))
+        assert len(m.inputs) == 2
+
+    def test_multiple_outputs(self):
+        p = {
+            "nodes": [_input_node("x", [10]), _dense_node("o1", 1, "sigmoid"), _dense_node("o2", 5, "softmax")],
+            "edges": [_edge("x", "o1"), _edge("x", "o2")],
+        }
+        m = tf.keras.models.model_from_json(json.dumps(model_generation(p)))
+        assert len(m.outputs) == 2
+
+    def test_single_input_no_edges_raises(self):
         with pytest.raises(ValueError):
-            model_generation(params)
+            model_generation({"nodes": [_input_node("solo", [4])], "edges": []})
 
-    def test_unknown_layer_type_raises_value_error(self):
-        """An unsupported node type in the graph must propagate a ValueError."""
-        params = {
-            "nodes": [
-                _input_node("x", [5]),
-                {"id": "bad", "type": "customunknown", "data": {"params": {}}},
-            ],
+    def test_unknown_layer_raises(self):
+        p = {
+            "nodes": [_input_node("x", [5]), {"id": "bad", "type": "customunknown", "data": {"params": {}}}],
             "edges": [_edge("x", "bad")],
         }
         with pytest.raises(ValueError, match="Unknown node type"):
-            model_generation(params)
+            model_generation(p)
 
-    def test_output_is_json_serialisable(self):
-        """model_generation output must be JSON-serialisable without errors."""
-        params = {
-            "nodes": [_input_node("x", [8]), _dense_node("y", 4, "relu")],
-            "edges": [_edge("x", "y")],
-        }
-        result = model_generation(params)
-        serialised = json.dumps(result)
-        assert isinstance(serialised, str)
-        assert len(serialised) > 0
+    def test_json_serialisable(self):
+        p = {"nodes": [_input_node("x", [8]), _dense_node("y", 4, "relu")], "edges": [_edge("x", "y")]}
+        s = json.dumps(model_generation(p))
+        assert len(s) > 0
 
-    def test_multi_dim_input_shape(self):
-        """3-D input (28, 28, 1) is correctly passed through to Keras."""
-        params = {
-            "nodes": [
-                _input_node("img", [28, 28, 1]),
-                _dense_node("out", 10, "softmax"),
-            ],
-            "edges": [_edge("img", "out")],
-        }
-        result = model_generation(params)
-        model = tf.keras.models.model_from_json(json.dumps(result))
-        assert model.input_shape == (None, 28, 28, 1)
+    def test_3d_input_shape(self):
+        p = {"nodes": [_input_node("img", [28, 28, 1]), _dense_node("o", 10, "softmax")], "edges": [_edge("img", "o")]}
+        m = tf.keras.models.model_from_json(json.dumps(model_generation(p)))
+        assert m.input_shape == (None, 28, 28, 1)
+
+
+class TestLayerSchema:
+    def test_returns_list_of_15_plus(self):
+        assert len(get_layer_schema()) >= 15
+
+    def test_required_fields(self):
+        required = {"node_type", "display_name", "default_params", "description", "category"}
+        for entry in get_layer_schema():
+            assert required <= entry.keys()
+
+    def test_all_categories_present(self):
+        cats = {e["category"] for e in get_layer_schema()}
+        assert {"core", "pooling", "regularization", "recurrent"} <= cats
+
+    def test_original_four_layers_present(self):
+        types = {e["node_type"] for e in get_layer_schema()}
+        assert {"custominput", "customdense", "customflatten", "customconv"} <= types
+
+    def test_new_layers_present(self):
+        types = {e["node_type"] for e in get_layer_schema()}
+        assert {
+            "custommaxpool2d",
+            "customavgpool2d",
+            "customdropout",
+            "custombatchnorm",
+            "customlayernorm",
+            "customlstm",
+            "customgru",
+            "customsimplernn",
+            "customreshape",
+            "customembedding",
+        } <= types

@@ -3,10 +3,10 @@ import { useParams } from "react-router-dom";
 import { Trash2 } from "lucide-react";
 import io from "socket.io-client";
 import { useRecoilState } from "recoil";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Button } from "../../components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
+import { Input } from "../../components/ui/input";
+import { Label } from "../../components/ui/label";
 import {
   Dialog,
   DialogContent,
@@ -21,7 +21,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select";
+} from "../../components/ui/select";
 import * as urls from "../../constants/Urls";
 import * as strings from "../../constants/Strings";
 import logger from "../../shared/logger";
@@ -33,9 +33,15 @@ import {
   getAllModels,
   updateTrainingConfig,
   deleteModel,
+  exportModel,
 } from "../../services/ModelServices";
 import { getAllFiles } from "../../services/FileServices";
 import { models as modelListAtom } from "../../shared/atoms";
+import TrainingChart from "../../components/Training/TrainingChart";
+import InterpretabilityPanel from "../../components/Training/InterpretabilityPanel";
+import TuningPanel from "../../components/Training/TuningPanel";
+import ModelExport from "../../components/Training/ModelExport";
+import ComparisonDashboard from "../../components/Training/ComparisonDashboard";
 
 const optimizerOptions = [
   { key: "opt_1", label: "Adam", value: "adam" },
@@ -61,7 +67,11 @@ export default function Training() {
 
   const [selectedModel, setSelectedModel] = useState(null);
   const [resultValues, setResultValues] = useState([]);
+  const [epochMetrics, setEpochMetrics] = useState([]);
+  const [totalEpochs, setTotalEpochs] = useState(0);
+  const [trainingRuns, setTrainingRuns] = useState([]); // [{name, metrics}]
   const [isLoading, setIsLoading] = useState(false);
+  const [exportingFormat, setExportingFormat] = useState(null);
   const [connectionError, setConnectionError] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState({ open: false, model: null });
   const [deleteFeedback, setDeleteFeedback] = useState({
@@ -112,18 +122,57 @@ export default function Training() {
 
     const dlResultListener = (resp) => {
       clearTimeout(timeoutRef.current);
-      if (resp.message && resp.message.includes("Starting")) {
-        setResultValues([]);
-        setIsLoading(true);
-      } else if (resp.message && resp.message.includes("Finish")) {
-        setIsLoading(false);
-      } else {
+
+      // Structured epoch metrics — feed the chart
+      if (resp.type === "epoch_metrics") {
+        setEpochMetrics((prev) => [
+          ...prev,
+          {
+            epoch: resp.epoch,
+            loss: resp.loss,
+            val_loss: resp.val_loss ?? null,
+            metric: resp.metric ?? null,
+            val_metric: resp.val_metric ?? null,
+            metric_name: resp.metric_name ?? null,
+          },
+        ]);
+        if (resp.total_epochs) setTotalEpochs(resp.total_epochs);
+        // Also show epoch summary in text panel
         setResultValues((prev) => {
-          let newValues = [...prev];
-          newValues[parseInt(resp.test)] = resp.message;
-          return newValues;
+          const next = [...prev];
+          next[0] = resp.message;
+          return next;
         });
+        return;
       }
+
+      // Legacy / other events
+      if (resp.type === "train_begin" || (resp.message && resp.message.includes("Starting"))) {
+        setResultValues([]);
+        setEpochMetrics([]);
+        setTotalEpochs(0);
+        setIsLoading(true);
+        return;
+      }
+      if (resp.type === "train_end" || (resp.message && resp.message.includes("Finish"))) {
+        setIsLoading(false);
+        // Save completed run for comparison
+        setEpochMetrics((metrics) => {
+          if (metrics.length > 0) {
+            setTrainingRuns((prev) => {
+              const runName = `Run ${prev.length + 1}`;
+              return [...prev, { name: runName, metrics }];
+            });
+          }
+          return metrics;
+        });
+        return;
+      }
+      setResultValues((prev) => {
+        const newValues = [...prev];
+        newValues[parseInt(resp.test)] = resp.message;
+        return newValues;
+      });
     };
 
     socket.on(strings.DL_RESULT_LISTENER, dlResultListener);
@@ -395,6 +444,18 @@ export default function Training() {
     trainingConfig.target_field &&
     !hasValidationErrors();
 
+  const handleExport = async (format) => {
+    if (!selectedModel) return;
+    setExportingFormat(format);
+    try {
+      await exportModel(selectedModel, format, projectId);
+    } catch (err) {
+      logger.error("Export failed:", err);
+    } finally {
+      setExportingFormat(null);
+    }
+  };
+
   const handleDownload = () => {
     if (selectedModel) {
       download_code(selectedModel, projectId).catch((error) => logger.error(error));
@@ -433,8 +494,21 @@ export default function Training() {
 
   const handleClear = () => {
     setResultValues([]);
+    setEpochMetrics([]);
+    setTotalEpochs(0);
+    setTrainingRuns([]);
     setIsLoading(false);
   };
+
+  const handleApplyBest = useCallback((params) => {
+    setTrainingConfig((prev) => ({
+      ...prev,
+      optimizer: params.optimizer ?? prev.optimizer,
+      epochs: params.epochs ? String(params.epochs) : prev.epochs,
+      batch_size: params.batch_size ? String(params.batch_size) : prev.batch_size,
+    }));
+    setConfigSaved(false);
+  }, []);
 
   const handleDeleteClick = (model, e) => {
     e.stopPropagation();
@@ -550,6 +624,30 @@ export default function Training() {
               variant="outline"
             >
               Download Code
+            </Button>
+            <Button
+              onClick={() => handleExport("savedmodel")}
+              disabled={!selectedModel || !configSaved || !!exportingFormat}
+              variant="outline"
+              size="sm"
+            >
+              {exportingFormat === "savedmodel" ? "Exporting..." : "SavedModel"}
+            </Button>
+            <Button
+              onClick={() => handleExport("tflite")}
+              disabled={!selectedModel || !configSaved || !!exportingFormat}
+              variant="outline"
+              size="sm"
+            >
+              {exportingFormat === "tflite" ? "Exporting..." : "TFLite"}
+            </Button>
+            <Button
+              onClick={() => handleExport("onnx")}
+              disabled={!selectedModel || !configSaved || !!exportingFormat}
+              variant="outline"
+              size="sm"
+            >
+              {exportingFormat === "onnx" ? "Exporting..." : "ONNX"}
             </Button>
             <Button
               onClick={handleRun}
@@ -789,6 +887,20 @@ export default function Training() {
           {connectionError}
         </div>
       )}
+
+      <TrainingChart epochMetrics={epochMetrics} totalEpochs={totalEpochs} isTraining={isLoading} />
+
+      <InterpretabilityPanel modelName={selectedModel} configSaved={configSaved} />
+
+      <TuningPanel
+        modelName={selectedModel}
+        configSaved={configSaved}
+        onApplyBest={handleApplyBest}
+      />
+
+      <ModelExport modelName={selectedModel} disabled={isLoading} />
+
+      <ComparisonDashboard availableRuns={trainingRuns} />
 
       {isLoading && resultValues.length === 0 && (
         <Card>

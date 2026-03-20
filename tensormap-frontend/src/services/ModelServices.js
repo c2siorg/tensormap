@@ -170,3 +170,23 @@ export const runModel = async (modelName, projectId) => {
       throw err;
     });
 };
+
+export const exportModel = async (modelName, format, projectId) => {
+  const params = projectId ? `?project_id=${projectId}` : "";
+  const response = await fetch(
+    `${import.meta.env.VITE_BACKEND_URL}/api/model/${modelName}/export/${format}${params}`,
+    { method: "POST" },
+  );
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.message || `Export failed (${response.status})`);
+  }
+  const blob = await response.blob();
+  const ext = format === "savedmodel" ? "zip" : format;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${modelName}.${ext}`;
+  a.click();
+  URL.revokeObjectURL(url);
+};

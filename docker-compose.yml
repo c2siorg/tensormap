@@ -38,7 +38,7 @@ services:
         VITE_WS_URL: http://localhost:4300/dl-result
     restart: unless-stopped
     ports:
-      - "3300:3300"
+      - "3300:80"
     depends_on:
       - backend
 

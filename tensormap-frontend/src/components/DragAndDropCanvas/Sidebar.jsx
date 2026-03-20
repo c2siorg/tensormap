@@ -11,6 +11,7 @@ function Sidebar() {
       <CardHeader className="pb-3">
         <CardTitle className="text-sm">Layers</CardTitle>
       </CardHeader>
+
       <CardContent className="space-y-2">
         <div
           className="cursor-grab rounded-md border border-l-4 border-l-node-input bg-white px-3 py-2 text-xs font-medium"
@@ -19,6 +20,7 @@ function Sidebar() {
         >
           Input
         </div>
+
         <div
           className="cursor-grab rounded-md border border-l-4 border-l-node-dense bg-white px-3 py-2 text-xs font-medium"
           onDragStart={(e) => onDragStart(e, "customdense")}
@@ -26,6 +28,7 @@ function Sidebar() {
         >
           Dense
         </div>
+
         <div
           className="cursor-grab rounded-md border border-l-4 border-l-node-flatten bg-white px-3 py-2 text-xs font-medium"
           onDragStart={(e) => onDragStart(e, "customflatten")}
@@ -33,12 +36,29 @@ function Sidebar() {
         >
           Flatten
         </div>
+
         <div
           className="cursor-grab rounded-md border border-l-4 border-l-node-conv bg-white px-3 py-2 text-xs font-medium"
           onDragStart={(e) => onDragStart(e, "customconv")}
           draggable
         >
           Conv2D
+        </div>
+
+        <div
+          className="cursor-grab rounded-md border border-l-4 border-l-node-dropout bg-white px-3 py-2 text-xs font-medium"
+          onDragStart={(e) => onDragStart(e, "customdropout")}
+          draggable
+        >
+          Dropout
+        </div>
+
+        <div
+          className="cursor-grab rounded-md border border-l-4 border-l-node-batchnorm bg-white px-3 py-2 text-xs font-medium"
+          onDragStart={(e) => onDragStart(e, "custombatchnorm")}
+          draggable
+        >
+          BatchNorm
         </div>
       </CardContent>
     </Card>

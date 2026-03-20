@@ -1,4 +1,4 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 
 function Sidebar() {
   const onDragStart = (event, nodeType) => {
@@ -39,6 +39,20 @@ function Sidebar() {
           draggable
         >
           Conv2D
+        </div>
+        <div
+          className="cursor-grab rounded-md border border-l-4 border-l-node-dropout bg-white px-3 py-2 text-xs font-medium"
+          onDragStart={(e) => onDragStart(e, "customdropout")}
+          draggable
+        >
+          Dropout
+        </div>
+        <div
+          className="cursor-grab rounded-md border border-l-4 border-l-node-batchnorm bg-white px-3 py-2 text-xs font-medium"
+          onDragStart={(e) => onDragStart(e, "custombatchnorm")}
+          draggable
+        >
+          BatchNorm
         </div>
       </CardContent>
     </Card>

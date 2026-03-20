@@ -1,8 +1,8 @@
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { useRecoilValue } from "recoil";
 import { Database, BarChart3, Layers, Play, ArrowLeft } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
+import { Button } from "../../components/ui/button";
+import { Separator } from "../../components/ui/separator";
 import { cn } from "@/lib/utils";
 import { projectFiles } from "../../shared/atoms";
 

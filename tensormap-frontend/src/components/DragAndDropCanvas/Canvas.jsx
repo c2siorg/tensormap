@@ -17,7 +17,6 @@ import ReactFlow, {
   useEdgesState,
   Controls,
   Background,
-  BackgroundVariant,
   Panel,
 } from "reactflow";
 import { useRecoilState } from "recoil";
@@ -25,10 +24,6 @@ import * as strings from "../../constants/Strings";
 import logger from "../../shared/logger";
 import FeedbackDialog from "../shared/FeedbackDialog";
 import "reactflow/dist/style.css";
-import InputNode from "./CustomNodes/InputNode/InputNode";
-import DenseNode from "./CustomNodes/DenseNode/DenseNode";
-import FlattenNode from "./CustomNodes/FlattenNode/FlattenNode";
-import ConvNode from "./CustomNodes/ConvNode/ConvNode";
 import Sidebar from "./Sidebar";
 import NodePropertiesPanel from "./NodePropertiesPanel";
 import { canSaveModel, generateModelJSON } from "./Helpers";
@@ -37,6 +32,12 @@ import { getAllModels, getModelGraph, saveModel } from "../../services/ModelServ
 import { models as allModels } from "../../shared/atoms";
 import ContextMenu from "./ContextMenu";
 import useUndoRedo from "../../hooks/useUndoRedo";
+import InputNode from "./CustomNodes/InputNode/InputNode";
+import DenseNode from "./CustomNodes/DenseNode/DenseNode";
+import FlattenNode from "./CustomNodes/FlattenNode/FlattenNode";
+import ConvNode from "./CustomNodes/ConvNode/ConvNode";
+import DropoutNode from "./CustomNodes/DropoutNode/DropoutNode";
+import BatchNormalizationNode from "./CustomNodes/BatchNormalizationNode/BatchNormalizationNode";
 
 const isMac =
   typeof navigator !== "undefined"
@@ -45,20 +46,36 @@ const isMac =
       : /Mac/i.test(navigator.platform)
     : false;
 
+const defaultViewport = { x: 10, y: 15, zoom: 0.5 };
+
 const nodeTypes = {
   custominput: InputNode,
   customdense: DenseNode,
   customflatten: FlattenNode,
   customconv: ConvNode,
+  customdropout: DropoutNode,
+  custombatchnorm: BatchNormalizationNode,
 };
 
 function Canvas() {
   const { projectId } = useParams();
-  const reactFlowWrapper = useRef(null);
   const [, setModelList] = useRecoilState(allModels);
+  const [contextMenu, setContextMenu] = useState({ nodeId: null, x: 0, y: 0 });
+
+  return (
+    <CanvasInner
+      projectId={projectId}
+      setModelList={setModelList}
+      contextMenu={contextMenu}
+      setContextMenu={setContextMenu}
+    />
+  );
+}
+
+function CanvasInner({ projectId, setModelList, contextMenu, setContextMenu }) {
+  const reactFlowWrapper = useRef(null);
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
-  const [reactFlowInstance, setReactFlowInstance] = useState(null);
   const [modelName, setModelName] = useState("");
   const [selectedNodeId, setSelectedNodeId] = useState(null);
   const [modelSummary, setModelSummary] = useState(null);
@@ -68,19 +85,12 @@ function Canvas() {
     message: "",
     detail: "",
   });
-  const [contextMenu, setContextMenu] = useState({ nodeId: null, x: 0, y: 0 });
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
-  const defaultViewport = { x: 10, y: 15, zoom: 0.5 };
+  const [reactFlowInstance, setReactFlowInstance] = useState(null);
+  const [hasDraft, setHasDraft] = useState(false);
 
   const draftKey = `tensormap_draft_${projectId || "default"}`;
   const isLoaded = useRef(false);
-  const [hasDraft, setHasDraft] = useState(() => {
-    try {
-      return !!localStorage.getItem(draftKey);
-    } catch (e) {
-      return false;
-    }
-  });
 
   const nodesRef = useRef(nodes);
   const edgesRef = useRef(edges);
@@ -100,16 +110,8 @@ function Canvas() {
     edgesRef,
   );
 
-  /**
-   * Guard flag that suppresses snapshot-taking while undo/redo is restoring
-   * state. Set synchronously before calling undo/redo and cleared in a
-   * useEffect after the React render cycle completes.
-   */
   const isRestoringRef = useRef(false);
 
-  // Reset the restoring flag after each render so that subsequent
-  // onNodesChange / onEdgesChange callbacks triggered by the state update
-  // are no longer suppressed.
   useEffect(() => {
     isRestoringRef.current = false;
   });
@@ -166,11 +168,9 @@ function Canvas() {
     return () => document.removeEventListener("keydown", handleKeyDown, true);
   }, []);
 
-  // Auto-load the project's first saved model or draft on mount
   useEffect(() => {
     let cancelled = false;
     async function loadModel() {
-      // 1. Try loading from draft first
       try {
         const draftStr = localStorage.getItem(draftKey);
         if (draftStr) {
@@ -180,8 +180,8 @@ function Canvas() {
               setNodes(draft.nodes || []);
               setEdges(draft.edges || []);
               setModelName(draft.modelName || "");
-              setHasDraft(true);
               isLoaded.current = true;
+              setHasDraft(true);
             }
             return;
           }
@@ -189,8 +189,6 @@ function Canvas() {
       } catch (e) {
         logger.error("Failed to load draft:", e);
       }
-
-      // 2. Fallback to loading from DB
       try {
         const modelObjects = await getAllModels(projectId);
         if (cancelled || !modelObjects || modelObjects.length === 0) {
@@ -203,29 +201,19 @@ function Canvas() {
           if (!cancelled) isLoaded.current = true;
           return;
         }
-
         const { graph, model_name } = result.data;
-
-        const loadedNodes = (graph.nodes || []).map((node, i) => ({
-          id: node.id,
-          type: node.type,
-          position: node.position || { x: 100, y: i * 200 },
-          data: { label: `${node.type} node`, params: node.data?.params || {} },
-        }));
-
         const loadedEdges = (graph.edges || []).map((edge) => ({
           id: edge.id || `e-${edge.source}-${edge.target}`,
           source: edge.source,
           target: edge.target,
         }));
-
+        const loadedNodes = graph.nodes || [];
         if (!cancelled) {
           setNodes(loadedNodes);
           setEdges(loadedEdges);
           setModelName(model_name);
           isLoaded.current = true;
 
-          // Populate the global model list from the fetched models
           setModelList(
             modelObjects.map((m, i) => ({
               label: m.model_name + strings.MODEL_EXTENSION,
@@ -246,43 +234,17 @@ function Canvas() {
     };
   }, [projectId, setNodes, setEdges, setModelList, draftKey]);
 
-  // Handle debounced saving of draft
   useEffect(() => {
     if (!isLoaded.current) return;
-
     const timer = setTimeout(() => {
-      if (nodes.length === 0 && edges.length === 0 && !modelName) {
-        try {
-          localStorage.removeItem(draftKey);
-        } catch (e) {
-          logger.error("Failed to remove draft:", e);
-        }
-        setHasDraft(false);
-        return;
-      }
-
       try {
         localStorage.setItem(draftKey, JSON.stringify({ nodes, edges, modelName }));
-        setHasDraft(true);
       } catch (e) {
         logger.error("Failed to save draft:", e);
       }
     }, 500);
-
     return () => clearTimeout(timer);
   }, [nodes, edges, modelName, draftKey]);
-
-  const handleDiscardDraft = useCallback(() => {
-    try {
-      localStorage.removeItem(draftKey);
-    } catch (e) {
-      logger.error("Failed to remove draft:", e);
-    }
-    setHasDraft(false);
-    setNodes([]);
-    setEdges([]);
-    setModelName("");
-  }, [draftKey, setNodes, setEdges]);
 
   const onConnect = useCallback(
     (params) => {
@@ -315,19 +277,10 @@ function Canvas() {
     [onEdgesChange, takeSnapshotAndUpdate],
   );
 
-  /**
-   * Track per-node start positions for drag operations. On the first
-   * onNodeDragStart in a gesture we capture a single snapshot of the
-   * canvas state (snapshotNodes / snapshotEdges) and begin recording
-   * each dragged node's original position. On each onNodeDragStop we
-   * remove the node from the map and, once all nodes have been dropped,
-   * commit the snapshot only if at least one node actually moved.
-   */
   const dragStartStateRef = useRef(null);
 
   const onNodeDragStart = useCallback((_event, node) => {
     if (!dragStartStateRef.current) {
-      // First node in this drag gesture — capture canvas snapshot
       dragStartStateRef.current = {
         snapshotNodes: nodesRef.current,
         snapshotEdges: edgesRef.current,
@@ -352,7 +305,6 @@ function Canvas() {
         delete state.starts[node.id];
       }
 
-      // All dragged nodes have been dropped
       if (Object.keys(state.starts).length === 0) {
         if (state.moved) {
           takeSnapshotAndUpdate(state.snapshotNodes, state.snapshotEdges);
@@ -368,10 +320,51 @@ function Canvas() {
     event.dataTransfer.dropEffect = "move";
   }, []);
 
-  const modelData =
-    reactFlowInstance === null ? { nodes: [], edges: [] } : reactFlowInstance.toObject();
+  const onDrop = useCallback(
+    (event) => {
+      event.preventDefault();
 
-  const selectedNode = selectedNodeId ? nodes.find((n) => n.id === selectedNodeId) : null;
+      const reactFlowBounds = reactFlowWrapper.current.getBoundingClientRect();
+      const type = event.dataTransfer.getData("application/reactflow");
+
+      if (typeof type === "undefined" || !type) {
+        return;
+      }
+
+      const position = reactFlowInstance.project({
+        x: event.clientX - reactFlowBounds.left,
+        y: event.clientY - reactFlowBounds.top,
+      });
+
+      const defaultParams = {
+        custominput: { "dim-1": "", "dim-2": "", "dim-3": "" },
+        customdense: { units: "", activation: "" },
+        customflatten: {},
+        customconv: {
+          filter: "",
+          padding: "valid",
+          activation: "none",
+          strideX: "",
+          strideY: "",
+          kernelX: "",
+          kernelY: "",
+        },
+        customdropout: { rate: "" },
+        custombatchnorm: {},
+      };
+
+      const newNode = {
+        id: crypto.randomUUID(),
+        type,
+        position,
+        data: { label: `${type} node`, params: defaultParams[type] || {} },
+      };
+
+      takeSnapshotAndUpdate(nodesRef.current, edgesRef.current);
+      setNodes((nds) => nds.concat(newNode));
+    },
+    [reactFlowInstance, setNodes, takeSnapshotAndUpdate],
+  );
 
   const onNodeClick = useCallback((_event, node) => {
     setSelectedNodeId(node.id);
@@ -379,17 +372,20 @@ function Canvas() {
 
   const closeContextMenu = useCallback(() => {
     setContextMenu({ nodeId: null, x: 0, y: 0 });
-  }, []);
+  }, [setContextMenu]);
 
   const onPaneClick = useCallback(() => {
     setSelectedNodeId(null);
     closeContextMenu();
   }, [closeContextMenu]);
 
-  const onNodeContextMenu = useCallback((event, node) => {
-    event.preventDefault();
-    setContextMenu({ nodeId: node.id, x: event.clientX, y: event.clientY });
-  }, []);
+  const onNodeContextMenu = useCallback(
+    (event, node) => {
+      event.preventDefault();
+      setContextMenu({ nodeId: node.id, x: event.clientX, y: event.clientY });
+    },
+    [setContextMenu],
+  );
 
   const duplicateNode = useCallback(() => {
     takeSnapshotAndUpdate(nodesRef.current, edgesRef.current);
@@ -411,12 +407,9 @@ function Canvas() {
     (nodeId, newParams) => {
       takeSnapshotAndUpdate(nodesRef.current, edgesRef.current);
       setNodes((nds) =>
-        nds.map((node) => {
-          if (node.id === nodeId) {
-            return { ...node, data: { ...node.data, params: newParams } };
-          }
-          return node;
-        }),
+        nds.map((node) =>
+          node.id === nodeId ? { ...node, data: { ...node.data, params: newParams } } : node,
+        ),
       );
     },
     [setNodes, takeSnapshotAndUpdate],
@@ -435,7 +428,20 @@ function Canvas() {
     setClearConfirmOpen(false);
   }, [setNodes, setEdges, takeSnapshotAndUpdate]);
 
+  const handleDiscardDraft = useCallback(() => {
+    try {
+      localStorage.removeItem(draftKey);
+      setHasDraft(false);
+    } catch (e) {
+      logger.error("Failed to discard draft:", e);
+    }
+    setNodes([]);
+    setEdges([]);
+    setModelName("");
+  }, [draftKey, setNodes, setEdges]);
+
   const modelSaveHandler = () => {
+    if (!canSaveModel(modelName, { nodes, edges })) return;
     const data = {
       model: {
         ...generateModelJSON(reactFlowInstance.toObject()),
@@ -455,7 +461,6 @@ function Canvas() {
           } catch (e) {
             logger.error("Failed to clear draft on save:", e);
           }
-          // Re-fetch the model list so the new entry has its DB id
           getAllModels(projectId)
             .then((modelObjects) => {
               setModelList(
@@ -490,49 +495,8 @@ function Canvas() {
       });
   };
 
-  const onDrop = useCallback(
-    (event) => {
-      event.preventDefault();
-
-      const reactFlowBounds = reactFlowWrapper.current.getBoundingClientRect();
-      const type = event.dataTransfer.getData("application/reactflow");
-
-      if (typeof type === "undefined" || !type) {
-        return;
-      }
-
-      const position = reactFlowInstance.project({
-        x: event.clientX - reactFlowBounds.left,
-        y: event.clientY - reactFlowBounds.top,
-      });
-
-      const defaultParams = {
-        custominput: { "dim-1": "", "dim-2": "", "dim-3": "" },
-        customdense: { units: "", activation: "" },
-        customflatten: {},
-        customconv: {
-          filter: "",
-          padding: "valid",
-          activation: "none",
-          strideX: "",
-          strideY: "",
-          kernelX: "",
-          kernelY: "",
-        },
-      };
-
-      const newNode = {
-        id: crypto.randomUUID(),
-        type,
-        position,
-        data: { label: `${type} node`, params: defaultParams[type] || {} },
-      };
-
-      takeSnapshotAndUpdate(nodesRef.current, edgesRef.current);
-      setNodes((nds) => nds.concat(newNode));
-    },
-    [reactFlowInstance, setNodes, takeSnapshotAndUpdate],
-  );
+  const selectedNode = selectedNodeId ? nodes.find((n) => n.id === selectedNodeId) : null;
+  const canSave = canSaveModel(modelName, { nodes, edges });
 
   return (
     <>
@@ -587,8 +551,8 @@ function Canvas() {
                 onInit={setReactFlowInstance}
                 onDrop={onDrop}
                 onDragOver={onDragOver}
-                onNodeClick={onNodeClick}
                 onPaneClick={onPaneClick}
+                onNodeClick={onNodeClick}
                 onNodeContextMenu={onNodeContextMenu}
                 onNodeDragStart={onNodeDragStart}
                 onNodeDragStop={onNodeDragStop}
@@ -630,7 +594,6 @@ function Canvas() {
                   gap={10}
                   color="#e5e5e5"
                   style={{ backgroundColor: "#fafafa" }}
-                  variant={BackgroundVariant.Dots}
                 />
               </ReactFlow>
             </div>
@@ -648,9 +611,8 @@ function Canvas() {
               selectedNode={selectedNode || null}
               modelName={modelName}
               onModelNameChange={setModelName}
-              onSave={modelSaveHandler}
-              canSave={canSaveModel(modelName, modelData)}
               onNodeUpdate={onNodeUpdate}
+              onSave={modelSaveHandler}
             />
           </div>
         </ReactFlowProvider>

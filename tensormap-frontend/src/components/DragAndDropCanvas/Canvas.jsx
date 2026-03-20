@@ -441,7 +441,7 @@ function CanvasInner({ projectId, setModelList, contextMenu, setContextMenu }) {
   }, [draftKey, setNodes, setEdges]);
 
   const modelSaveHandler = () => {
-    if (!canSaveModel(nodes, edges)) return;
+    if (!canSaveModel(modelName, { nodes, edges })) return;
     const data = {
       model: {
         ...generateModelJSON(reactFlowInstance.toObject()),
@@ -496,6 +496,7 @@ function CanvasInner({ projectId, setModelList, contextMenu, setContextMenu }) {
   };
 
   const selectedNode = selectedNodeId ? nodes.find((n) => n.id === selectedNodeId) : null;
+  const canSave = canSaveModel(modelName, { nodes, edges });
 
   return (
     <>

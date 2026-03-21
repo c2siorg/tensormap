@@ -20,6 +20,13 @@ from app.socketio_instance import sio
 
 logger = get_logger(__name__)
 
+
+class ModelRunError(Exception):
+    """Raised when model training cannot proceed due to missing data."""
+
+    pass
+
+
 _main_loop: asyncio.AbstractEventLoop | None = None
 
 
@@ -88,6 +95,8 @@ def _helper_generate_file_location(db: Session, file_id) -> str:
     """Resolve the on-disk path for a dataset file by its DB ID."""
     upload_folder = get_settings().upload_folder
     file = db.exec(select(DataFile).where(DataFile.id == file_id)).first()
+    if file is None:
+        raise ModelRunError(f"Dataset file not found (id={file_id})")
     if file.file_type == "zip":
         return upload_folder + "/" + file.file_name
     return upload_folder + "/" + file.file_name + "." + file.file_type
@@ -116,9 +125,13 @@ def model_run(model_name: str, db: Session, loop: asyncio.AbstractEventLoop | No
 
 def _run(model_name: str, db: Session) -> None:
     model_configs = db.exec(select(ModelBasic).where(ModelBasic.model_name == model_name)).first()
+    if model_configs is None:
+        raise ModelRunError(f"Model configuration not found: {model_name}")
 
     if model_configs.model_type == ProblemType.IMAGE_CLASSIFICATION:
         image_properties = db.exec(select(ImageProperties).where(ImageProperties.id == model_configs.file_id)).first()
+        if image_properties is None:
+            raise ModelRunError(f"Image properties not found for file_id={model_configs.file_id}")
         image_size = (image_properties.image_size, image_properties.image_size)
         batch_size = image_properties.batch_size
         color_mode = image_properties.color_mode

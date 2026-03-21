@@ -56,6 +56,41 @@ def _sanitize_model_name(name: str) -> str:
 _MAX_GRAPH_JSON_BYTES = 512 * 1024  # 512 KB
 
 
+def _safe_model_write(
+    db: Session, model: ModelBasic, model_name: str, model_generated: dict
+) -> tuple[bool, str | None]:
+    """
+    Internal helper to synchronize DB state with file storage.
+    """
+    try:
+        # 1. Serialize first (prevent corrupted/empty files on JSON errors)
+        json_content = json.dumps(model_generated, indent=4) + "\n"
+
+        # 2. Atomic-style Write
+        model_path = os.path.join(MODEL_GENERATION_LOCATION, model_name + MODEL_GENERATION_TYPE)
+        with open(model_path, "w") as f:
+            f.write(json_content)
+
+        # 3. Finalize DB transaction only after file success
+        db.commit()
+        return True, None
+
+    except (OSError, TypeError, ValueError) as exc:
+        logger.error("File write failed for model '%s': %s", model_name, str(exc))
+
+        # 4. Defensive Cleanup [Argus Fix: Reset session before delete]
+        try:
+            db.rollback()  # MUST reset session to handle 'dirty' state before delete
+            db.delete(model)  # Remove the orphan record
+            db.commit()  # Finalize deletion
+            logger.info("Orphaned DB record for '%s' cleaned up successfully.", model_name)
+        except Exception as cleanup_exc:
+            db.rollback()  # Fallback rollback
+            logger.error("Critical: Cleanup failed for '%s' after initial error: %s", model_name, str(cleanup_exc))
+
+        return False, "Model validated but failed to save to storage"
+
+
 def _extract_graph(payload: dict) -> dict | None:
     """Extract the graph portion (nodes + edges) from a request payload.
 
@@ -178,15 +213,13 @@ def model_validate_service(db: Session, incoming: dict, project_id: uuid_pkg.UUI
                 return _resp(400, False, errors.err_msgs[error])
         return _resp(400, False, "Model saving failed. Please recheck the model configs")
 
-    try:
-        model_path = os.path.join(MODEL_GENERATION_LOCATION, code[DL_MODEL][MODEL_NAME] + MODEL_GENERATION_TYPE)
-        with open(model_path, "w+") as f:
-            f.write(json.dumps(model_generated) + "\n")
-        db.commit()
-    except OSError:
-        db.rollback()
-        logger.exception("Error writing model file")
-        return _resp(400, False, "Model validated but failed to save")
+    # Use the safety helper to handle file write and cleanup logic
+    success, error_msg = _safe_model_write(
+        db=db, model=model, model_name=code[DL_MODEL][MODEL_NAME], model_generated=model_generated
+    )
+
+    if not success:
+        return _resp(400, False, error_msg)
 
     logger.info("Model '%s' validated and saved successfully", code[DL_MODEL][MODEL_NAME])
     return _resp(200, True, "Model Validation and saving successful", {"summary": _build_model_summary(keras_model)})
@@ -247,15 +280,11 @@ def model_save_service(db: Session, incoming: dict, model_name: str, project_id:
                 return _resp(400, False, errors.err_msgs[error])
         return _resp(400, False, "Model saving failed. Please recheck the model configs")
 
-    try:
-        model_path = os.path.join(MODEL_GENERATION_LOCATION, model_name + MODEL_GENERATION_TYPE)
-        with open(model_path, "w+") as f:
-            f.write(json.dumps(model_generated) + "\n")
-        db.commit()
-    except OSError:
-        db.rollback()
-        logger.exception("Error writing model file")
-        return _resp(400, False, "Model validated but failed to save")
+    # Use the safety helper to handle file write and cleanup logic
+    success, error_msg = _safe_model_write(db=db, model=model, model_name=model_name, model_generated=model_generated)
+
+    if not success:
+        return _resp(400, False, error_msg)
 
     logger.info("Model '%s' validated and saved successfully", model_name)
     return _resp(200, True, "Model validated and saved successfully", {"summary": _build_model_summary(keras_model)})

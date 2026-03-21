@@ -28,10 +28,20 @@ from app.shared.logging_config import get_logger
 logger = get_logger(__name__)
 
 
+class CodeGenerationError(Exception):
+    """Raised when code generation cannot proceed due to missing data."""
+
+    pass
+
+
 def generate_code(model_name: str, db: Session) -> str:
     """Generate TensorFlow Python code from a saved model configuration."""
     model_configs = db.exec(select(ModelBasic).where(ModelBasic.model_name == model_name)).first()
+    if model_configs is None:
+        raise CodeGenerationError(f"Model not found: {model_name}")
     file = db.exec(select(DataFile).where(DataFile.id == model_configs.file_id)).first()
+    if file is None:
+        raise CodeGenerationError(f"Dataset file not found (id={model_configs.file_id})")
 
     data = {
         DATASET: {
@@ -81,6 +91,8 @@ def _file_location(file_id, db: Session) -> str:
     """Resolve the on-disk path for a file referenced by its DB ID."""
     settings = get_settings()
     file = db.exec(select(DataFile).where(DataFile.id == file_id)).first()
+    if file is None:
+        raise CodeGenerationError(f"Dataset file not found (id={file_id})")
     if file.file_type == "zip":
         return f"{settings.upload_folder}/{file.file_name}"
     return f"{settings.upload_folder}/{file.file_name}.{file.file_type}"

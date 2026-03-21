@@ -370,8 +370,6 @@ function Canvas() {
     event.dataTransfer.dropEffect = "move";
   }, []);
 
-  const nodeCount = nodes.length;
-
   const modelData =
     reactFlowInstance === null ? { nodes: [], edges: [] } : reactFlowInstance.toObject();
 
@@ -436,8 +434,9 @@ function Canvas() {
     setEdges([]);
     setModelName("");
     setSelectedNodeId(null);
-    setClearConfirmOpen(false);
-  }, [setNodes, setEdges, takeSnapshotAndUpdate]);
+    closeContextMenu();
+    setClearAllOpen(false);
+  }, [setNodes, setEdges, takeSnapshotAndUpdate, closeContextMenu]);
 
   const modelSaveHandler = () => {
     const data = {
@@ -539,15 +538,6 @@ function Canvas() {
     [reactFlowInstance, setNodes, takeSnapshotAndUpdate],
   );
 
-  const handleClearAll = useCallback(() => {
-    setNodes([]);
-    setEdges([]);
-    setModelName("");
-    setSelectedNodeId(null);
-    closeContextMenu();
-    setClearAllOpen(false);
-  }, [setNodes, setEdges, setModelName, setSelectedNodeId, closeContextMenu]);
-
   return (
     <>
       <FeedbackDialog
@@ -585,7 +575,7 @@ function Canvas() {
                 variant="destructive"
                 size="sm"
                 disabled={nodes.length === 0}
-                onClick={() => setClearConfirmOpen(true)}
+                onClick={() => setClearAllOpen(true)}
               >
                 <Trash2 className="mr-2 h-4 w-4" />
                 Clear All
@@ -637,7 +627,6 @@ function Canvas() {
                     Discard Draft
                   </Button>
                 )}
-              </Panel>
               <Background
                 id="1"
                 gap={10}
@@ -646,6 +635,7 @@ function Canvas() {
                 variant={BackgroundVariant.Dots}
               />
             </ReactFlow>
+          </div>
           </div>
           {contextMenu.nodeId && (
             <ContextMenu

@@ -118,11 +118,7 @@ export default function Training() {
       } else if (resp.message && resp.message.includes("Finish")) {
         setIsLoading(false);
       } else {
-        setResultValues((prev) => {
-          let newValues = [...prev];
-          newValues[parseInt(resp.test)] = resp.message;
-          return newValues;
-        });
+        setResultValues((prev) => [...prev, resp.message]);
       }
     };
 

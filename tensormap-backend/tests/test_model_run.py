@@ -30,7 +30,6 @@ class TestModelRunEmitsErrorOnFailure:
     def test_emits_socketio_error_when_csv_read_fails(self):
         cfg = _make_model_config(ProblemType.CLASSIFICATION)
         db = _make_db(cfg)
-
         with (
             patch("app.services.model_run._model_result") as mock_emit,
             patch("app.services.model_run._helper_generate_file_location", return_value="/fake/path"),
@@ -38,14 +37,12 @@ class TestModelRunEmitsErrorOnFailure:
             pytest.raises(FileNotFoundError),
         ):
             model_run("my_model", db)
-
         error_calls = [c for c in mock_emit.call_args_list if c.args[1] == -1]
         assert len(error_calls) == 1
 
     def test_error_message_contains_exception_text(self):
         cfg = _make_model_config(ProblemType.CLASSIFICATION)
         db = _make_db(cfg)
-
         with (
             patch("app.services.model_run._model_result") as mock_emit,
             patch("app.services.model_run._helper_generate_file_location", return_value="/fake/path"),
@@ -53,14 +50,12 @@ class TestModelRunEmitsErrorOnFailure:
             pytest.raises(ValueError),
         ):
             model_run("my_model", db)
-
         error_calls = [c for c in mock_emit.call_args_list if c.args[1] == -1]
         assert "shape mismatch" in error_calls[0].args[0]
 
     def test_exception_is_reraised_after_emit(self):
         cfg = _make_model_config(ProblemType.CLASSIFICATION)
         db = _make_db(cfg)
-
         with (
             patch("app.services.model_run._model_result"),
             patch("app.services.model_run._helper_generate_file_location", return_value="/fake/path"),
@@ -75,12 +70,10 @@ class TestRunCodeServiceOnFailure:
         db = MagicMock()
         with patch("app.services.deep_learning.model_run", side_effect=RuntimeError("bad config")):
             _, status_code = run_code_service(db, "my_model")
-
         assert status_code == 400
 
     def test_response_body_has_success_false(self):
         db = MagicMock()
         with patch("app.services.deep_learning.model_run", side_effect=RuntimeError("bad config")):
             result, _ = run_code_service(db, "my_model")
-
         assert result["success"] is False

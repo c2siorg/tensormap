@@ -41,11 +41,16 @@ def model_generation(model_params: dict) -> dict:
             visited.add(node["id"])
             queue.append(node["id"])
 
+    # FIX 1: Validate that at least one input node exists
+    if not queue:
+        raise ValueError("No custominput layer found in graph. Please add an input node.")
+
     while queue:
         current_id = queue.pop(0)
         for target_id in source_to_targets.get(current_id, []):
             if target_id in visited:
                 continue
+
             # Check if all sources of this target have been visited
             all_sources = target_to_sources.get(target_id, [])
             if not all(src in visited for src in all_sources):
@@ -66,9 +71,14 @@ def model_generation(model_params: dict) -> dict:
 
     # Identify input and output tensors
     inputs = [keras_tensors[n["id"]] for n in model_params["nodes"] if n["type"] == "custominput"]
-    output_ids = [n["id"] for n in model_params["nodes"] if n["id"] not in source_to_targets]
-    outputs = [keras_tensors[oid] for oid in output_ids]
 
+    # FIX 2: Exclude input nodes from outputs (they have no entry in source_to_targets
+    # as a source, but they should never be treated as model outputs)
+    output_ids = [
+        n["id"] for n in model_params["nodes"] if n["id"] not in source_to_targets and n["type"] != "custominput"
+    ]
+
+    outputs = [keras_tensors[oid] for oid in output_ids]
     model = tf.keras.Model(inputs=inputs, outputs=outputs)
     return json.loads(model.to_json())
 

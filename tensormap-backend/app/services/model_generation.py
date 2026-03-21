@@ -1,7 +1,10 @@
 """Convert a ReactFlow graph into a Keras-compatible JSON model definition."""
+
 import json
 from collections import defaultdict
+
 import tensorflow as tf
+
 from app.shared.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -72,9 +75,7 @@ def model_generation(model_params: dict) -> dict:
     # FIX 2: Exclude input nodes from outputs (they have no entry in source_to_targets
     # as a source, but they should never be treated as model outputs)
     output_ids = [
-        n["id"]
-        for n in model_params["nodes"]
-        if n["id"] not in source_to_targets and n["type"] != "custominput"
+        n["id"] for n in model_params["nodes"] if n["id"] not in source_to_targets and n["type"] != "custominput"
     ]
 
     outputs = [keras_tensors[oid] for oid in output_ids]

@@ -65,8 +65,17 @@ def model_generation(model_params: dict) -> dict:
             keras_tensors[target_id] = _build_layer(node, input_tensor)
 
     # Identify input and output tensors
+    for n in model_params["nodes"]:
+        if n["type"] == "custominput" and n["id"] not in keras_tensors:
+            raise ValueError(
+                f"Input node '{n['id']}' was not visited during graph traversal. Check for disconnected input nodes."
+            )
     inputs = [keras_tensors[n["id"]] for n in model_params["nodes"] if n["type"] == "custominput"]
-    output_ids = [n["id"] for n in model_params["nodes"] if n["id"] not in source_to_targets]
+    output_ids = [
+        n["id"]
+        for n in model_params["nodes"]
+        if n["id"] not in source_to_targets and n["id"] in keras_tensors and n["type"] != "custominput"
+    ]
     outputs = [keras_tensors[oid] for oid in output_ids]
 
     model = tf.keras.Model(inputs=inputs, outputs=outputs)

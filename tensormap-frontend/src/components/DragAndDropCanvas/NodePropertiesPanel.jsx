@@ -302,6 +302,7 @@ function NodePropertiesPanel({
       </Card>
     );
   }
+
   return null;
 }
 

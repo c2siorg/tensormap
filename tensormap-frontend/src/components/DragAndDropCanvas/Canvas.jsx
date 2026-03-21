@@ -627,15 +627,15 @@ function Canvas() {
                     Discard Draft
                   </Button>
                 )}
-              <Background
-                id="1"
-                gap={10}
-                color="#e5e5e5"
-                style={{ backgroundColor: "#fafafa" }}
-                variant={BackgroundVariant.Dots}
-              />
-            </ReactFlow>
-          </div>
+                <Background
+                  id="1"
+                  gap={10}
+                  color="#e5e5e5"
+                  style={{ backgroundColor: "#fafafa" }}
+                  variant={BackgroundVariant.Dots}
+                />
+              </ReactFlow>
+            </div>
           </div>
           {contextMenu.nodeId && (
             <ContextMenu

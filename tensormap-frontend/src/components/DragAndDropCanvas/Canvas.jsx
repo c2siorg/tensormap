@@ -104,8 +104,16 @@ function Canvas() {
     edgesRef,
   );
 
+  /**
+   * Guard flag that suppresses snapshot-taking while undo/redo is restoring
+   * state. Set synchronously before calling undo/redo and cleared in a
+   * useEffect after the React render cycle completes.
+   */
   const isRestoringRef = useRef(false);
 
+  // Reset the restoring flag after each render so that subsequent
+  // onNodesChange / onEdgesChange callbacks triggered by the state update
+  // are no longer suppressed.
   useEffect(() => {
     isRestoringRef.current = false;
   });
@@ -162,9 +170,11 @@ function Canvas() {
     return () => document.removeEventListener("keydown", handleKeyDown, true);
   }, []);
 
+  // Auto-load the project's first saved model or draft on mount
   useEffect(() => {
     let cancelled = false;
     async function loadModel() {
+      // 1. Try loading from draft first
       try {
         const draftStr = localStorage.getItem(draftKey);
         if (draftStr) {
@@ -184,6 +194,7 @@ function Canvas() {
         logger.error("Failed to load draft:", e);
       }
 
+      // 2. Fallback to loading from DB
       try {
         const modelObjects = await getAllModels(projectId);
         if (cancelled || !modelObjects || modelObjects.length === 0) {
@@ -218,6 +229,7 @@ function Canvas() {
           setModelName(model_name);
           isLoaded.current = true;
 
+          // Populate the global model list from the fetched models
           setModelList(
             modelObjects.map((m, i) => ({
               label: m.model_name + strings.MODEL_EXTENSION,
@@ -238,6 +250,7 @@ function Canvas() {
     };
   }, [projectId, setNodes, setEdges, setModelList, draftKey]);
 
+  // Handle debounced saving of draft
   useEffect(() => {
     if (!isLoaded.current) return;
 
@@ -306,10 +319,19 @@ function Canvas() {
     [onEdgesChange, takeSnapshotAndUpdate],
   );
 
+  /**
+   * Track per-node start positions for drag operations. On the first
+   * onNodeDragStart in a gesture we capture a single snapshot of the
+   * canvas state (snapshotNodes / snapshotEdges) and begin recording
+   * each dragged node's original position. On each onNodeDragStop we
+   * remove the node from the map and, once all nodes have been dropped,
+   * commit the snapshot only if at least one node actually moved.
+   */
   const dragStartStateRef = useRef(null);
 
   const onNodeDragStart = useCallback((_event, node) => {
     if (!dragStartStateRef.current) {
+      // First node in this drag gesture — capture canvas snapshot
       dragStartStateRef.current = {
         snapshotNodes: nodesRef.current,
         snapshotEdges: edgesRef.current,
@@ -334,6 +356,7 @@ function Canvas() {
         delete state.starts[node.id];
       }
 
+      // All dragged nodes have been dropped
       if (Object.keys(state.starts).length === 0) {
         if (state.moved) {
           takeSnapshotAndUpdate(state.snapshotNodes, state.snapshotEdges);
@@ -434,6 +457,7 @@ function Canvas() {
           } catch (e) {
             logger.error("Failed to clear draft on save:", e);
           }
+          // Re-fetch the model list so the new entry has its DB id
           getAllModels(projectId)
             .then((modelObjects) => {
               setModelList(

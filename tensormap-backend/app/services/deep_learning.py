@@ -16,9 +16,9 @@ from sqlmodel import Session, select
 
 import app.shared.errors as errors
 from app.models import ModelBasic, ModelConfigs
-from app.services.code_generation import generate_code
+from app.services.code_generation import CodeGenerationError, generate_code
 from app.services.model_generation import model_generation
-from app.services.model_run import model_run
+from app.services.model_run import ModelRunError, model_run
 from app.shared.constants import (
     CODE,
     DATASET,
@@ -320,6 +320,9 @@ def get_code_service(db: Session, model_name: str, project_id: uuid_pkg.UUID | N
         python_code = generate_code(model_name, db)
     except ValueError as e:
         return _resp(400, False, str(e))
+    except CodeGenerationError as e:
+        logger.error("Code generation failed: %s", str(e))
+        return _resp(404, False, str(e))
     return {"content": python_code, "file_name": model_name + ".py"}, 200
 
 
@@ -337,6 +340,9 @@ def run_code_service(db: Session, model_name: str, project_id: uuid_pkg.UUID | N
         model_run(model_name, db, loop=loop)
         logger.info("Model '%s' training completed", model_name)
         return _resp(200, True, "Model executed successfully.")
+    except ModelRunError as e:
+        logger.error("Model run failed: %s", str(e))
+        return _resp(404, False, str(e))
     except Exception as e:
         logger.exception("Model run failed: %s", str(e))
         for error in errors.err_msgs:

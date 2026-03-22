@@ -2,6 +2,7 @@
 
 from functools import lru_cache
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -14,9 +15,37 @@ class Settings(BaseSettings):
     upload_folder: str = "./data"
     max_content_length: int = 200 * 1024 * 1024
     api_base: str = "/api/v1"
-    debug: bool = True
+    debug: bool = False
 
     model_config = {"env_file": ".env"}
+
+    @field_validator("database_url")
+    @classmethod
+    def validate_database_url(cls, v: str) -> str:
+        """Ensure the database URL uses a recognised scheme."""
+        allowed_schemes = ("postgresql", "postgresql+psycopg2", "postgresql+asyncpg", "sqlite:///")
+        if not any(v.startswith(scheme) for scheme in allowed_schemes):
+            raise ValueError(
+                f"database_url must start with one of {allowed_schemes}. Got: {v!r}"
+            )
+        return v
+
+    @field_validator("cors_allowed_origins")
+    @classmethod
+    def validate_cors_origins(cls, v: str) -> str:
+        """Ensure every CORS origin is a valid URL (or the wildcard '*')."""
+        from urllib.parse import urlparse
+
+        origins = [o.strip() for o in v.split(",") if o.strip()]
+        for origin in origins:
+            if origin == "*":
+                continue
+            parsed = urlparse(origin)
+            if parsed.scheme not in ("http", "https") or not parsed.netloc:
+                raise ValueError(
+                    f"Invalid CORS origin {origin!r}. Must be a full URL (e.g. 'https://example.com') or '*'."
+                )
+        return v
 
     @property
     def cors_allowed_origins_list(self) -> list[str]:

@@ -30,6 +30,7 @@ import DenseNode from "./CustomNodes/DenseNode/DenseNode";
 import FlattenNode from "./CustomNodes/FlattenNode/FlattenNode";
 import ConvNode from "./CustomNodes/ConvNode/ConvNode";
 import DropoutNode from "./CustomNodes/DropoutNode/DropoutNode";
+import BatchNormalizationNode from "./CustomNodes/BatchNormalizationNode/BatchNormalizationNode";
 import Sidebar from "./Sidebar";
 import NodePropertiesPanel from "./NodePropertiesPanel";
 import { canSaveModel, generateModelJSON } from "./Helpers";
@@ -52,6 +53,7 @@ const nodeTypes = {
   customflatten: FlattenNode,
   customconv: ConvNode,
   customdropout: DropoutNode,
+  custombatchnorm: BatchNormalizationNode,
 };
 
 function Canvas() {
@@ -522,6 +524,7 @@ function Canvas() {
           kernelY: "",
         },
         customdropout: { rate: "" },
+        custombatchnorm: { momentum: "0.99", epsilon: "0.001" },
       };
 
       const newNode = {

@@ -21,7 +21,8 @@ class Project(SQLModel, table=True):
     description: str | None = Field(default=None, max_length=500)
     created_on: datetime | None = Field(default=None, sa_column=Column(DateTime, server_default=func.now()))
     updated_on: datetime | None = Field(
-        default=None, sa_column=Column(DateTime, server_default=func.now(), onupdate=func.now())
+        default=None,
+        sa_column=Column(DateTime, server_default=func.now(), onupdate=func.now()),
     )
 
     files: list["DataFile"] = Relationship(

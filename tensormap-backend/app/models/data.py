@@ -22,11 +22,17 @@ class DataFile(SQLModel, table=True):
     columns: list[str] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
     row_count: int | None = Field(default=None, nullable=True)
     project_id: uuid_pkg.UUID | None = Field(
-        sa_column=Column(PgUUID(as_uuid=True), ForeignKey("project.id", ondelete="CASCADE"), index=True, nullable=True)
+        sa_column=Column(
+            PgUUID(as_uuid=True),
+            ForeignKey("project.id", ondelete="CASCADE"),
+            index=True,
+            nullable=True,
+        )
     )
     created_on: datetime | None = Field(default=None, sa_column=Column(DateTime, server_default=func.now()))
     updated_on: datetime | None = Field(
-        default=None, sa_column=Column(DateTime, server_default=func.now(), onupdate=func.now())
+        default=None,
+        sa_column=Column(DateTime, server_default=func.now(), onupdate=func.now()),
     )
 
     project: Optional["Project"] = Relationship(back_populates="files")
@@ -52,7 +58,8 @@ class DataProcess(SQLModel, table=True):
     )
     created_on: datetime | None = Field(default=None, sa_column=Column(DateTime, server_default=func.now()))
     updated_on: datetime | None = Field(
-        default=None, sa_column=Column(DateTime, server_default=func.now(), onupdate=func.now())
+        default=None,
+        sa_column=Column(DateTime, server_default=func.now(), onupdate=func.now()),
     )
 
     file: DataFile | None = Relationship(back_populates="target")

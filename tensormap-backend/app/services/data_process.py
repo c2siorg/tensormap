@@ -14,6 +14,29 @@ from app.shared.logging_config import get_logger
 logger = get_logger(__name__)
 
 
+def _update_file_columns_cache(db: Session, file: DataFile, file_path: str) -> None:
+    """Refresh the cached column list in DB after the CSV on disk has changed.
+
+    Uses nrows=0 to read only the header row, avoiding memory exhaustion
+    on large files.
+    """
+    try:
+        header_df = pd.read_csv(file_path, nrows=0)
+        file.columns = header_df.columns.tolist()
+        db.add(file)
+        db.commit()
+        logger.info(
+            "Columns cache refreshed for file_id=%s: %s",
+            file.id,
+            file.columns,
+        )
+    except Exception:
+        logger.exception(
+            "Failed to refresh columns cache for file_id=%s — cache may be stale",
+            file.id,
+        )
+
+
 def _resp(status_code: int, success: bool, message: str, data: Any = None) -> tuple:
     """Build a standard API response tuple of (body_dict, status_code)."""
     return {"success": success, "message": message, "data": data}, status_code
@@ -58,7 +81,12 @@ def get_all_targets_service(db: Session, offset: int = 0, limit: int = 50) -> tu
     total = db.exec(select(func.count()).select_from(DataProcess)).one()
 
     stmt = (
-        select(DataProcess.file_id, DataFile.file_name, DataFile.file_type, DataProcess.target)
+        select(
+            DataProcess.file_id,
+            DataFile.file_name,
+            DataFile.file_type,
+            DataProcess.target,
+        )
         .join(DataFile, DataFile.id == DataProcess.file_id)
         .offset(offset)
         .limit(limit)
@@ -73,7 +101,11 @@ def get_all_targets_service(db: Session, offset: int = 0, limit: int = 50) -> tu
         }
         for row in rows
     ]
-    body = {"success": True, "message": "Target fields of all files received successfully", "data": data}
+    body = {
+        "success": True,
+        "message": "Target fields of all files received successfully",
+        "data": data,
+    }
     body["pagination"] = {"total": total, "offset": offset, "limit": limit}
     return body, 200
 
@@ -217,7 +249,12 @@ def get_correlation_matrix(db: Session, file_id: uuid_pkg.UUID) -> tuple:
     # Convert the DataFrame to a plain list-of-lists; NaN becomes None (JSON null)
     columns = corr.columns.tolist()
     matrix = [[None if pd.isna(v) else round(float(v), 6) for v in row] for row in corr.to_numpy()]
-    return _resp(200, True, "Correlation matrix computed successfully", {"columns": columns, "matrix": matrix})
+    return _resp(
+        200,
+        True,
+        "Correlation matrix computed successfully",
+        {"columns": columns, "matrix": matrix},
+    )
 
 
 def get_file_data(db: Session, file_id: uuid_pkg.UUID, page: int = 1, page_size: int = 50) -> tuple:
@@ -391,7 +428,8 @@ def preprocess_data(db: Session, file_id: uuid_pkg.UUID, transformations: list) 
 
             # Find the matching transformation name (case-insensitive)
             actual_name = next(
-                (valid_name for valid_name in _VALID_TRANSFORMATIONS if valid_name.casefold() == name.casefold()), None
+                (valid_name for valid_name in _VALID_TRANSFORMATIONS if valid_name.casefold() == name.casefold()),
+                None,
             )
 
             if actual_name and actual_name in _TRANSFORMATION_HANDLERS:
@@ -399,6 +437,7 @@ def preprocess_data(db: Session, file_id: uuid_pkg.UUID, transformations: list) 
                 df = handler(df, feature, params)
 
         df.to_csv(file_path, index=False)
+        _update_file_columns_cache(db, file, file_path)
         return _resp(200, True, "Dataset preprocessed successfully")
     except pd.errors.ParserError as e:
         logger.exception("CSV parsing error: %s", str(e))

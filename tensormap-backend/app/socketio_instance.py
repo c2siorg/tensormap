@@ -13,5 +13,6 @@ sio = socketio.AsyncServer(
 
 @sio.on("connect", namespace=SOCKETIO_DL_NAMESPACE)
 async def dl_connect(sid, environ):
-    """Accept client connections to the training progress namespace."""
-    pass
+    """Accept and log client connections to the training progress namespace."""
+    client_ip = environ.get("REMOTE_ADDR", "unknown")
+    logger.info("Client connected to training namespace: sid=%s, ip=%s", sid, client_ip)

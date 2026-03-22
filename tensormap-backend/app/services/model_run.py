@@ -162,6 +162,12 @@ def _run(model_name: str, db: Session) -> None:
         # Shuffle data to prevent issues with ordered datasets
         features = features.sample(frac=1, random_state=42).reset_index(drop=True)
 
+        if model_configs.target_field is None:
+            raise ValueError(
+                "Training configuration incomplete: target field is required "
+                "for tabular models. Please set the target field before training."
+            )
+
         X = features.drop(model_configs.target_field, axis=1)
         y = features[model_configs.target_field]
 

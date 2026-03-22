@@ -95,18 +95,14 @@ def _helper_generate_file_location(db: Session, file_id) -> str:
 
 def _helper_generate_json_model_file_location(model_name: str) -> str:
     """Construct the path to the model's JSON file, validating against path traversal."""
-    path = os.path.realpath(
-        os.path.join(MODEL_GENERATION_LOCATION, model_name + MODEL_GENERATION_TYPE)
-    )
+    path = os.path.realpath(os.path.join(MODEL_GENERATION_LOCATION, model_name + MODEL_GENERATION_TYPE))
     base_dir = os.path.realpath(MODEL_GENERATION_LOCATION)
     if not path.startswith(base_dir + os.sep) and path != base_dir:
         raise ValueError("Invalid model path: escapes model directory")
     return path
 
 
-def model_run(
-    model_name: str, db: Session, loop: asyncio.AbstractEventLoop | None = None
-) -> None:
+def model_run(model_name: str, db: Session, loop: asyncio.AbstractEventLoop | None = None) -> None:
     """Load, compile, and train a Keras model, emitting progress via Socket.IO."""
     global _main_loop
     _main_loop = loop
@@ -119,14 +115,10 @@ def model_run(
 
 
 def _run(model_name: str, db: Session) -> None:
-    model_configs = db.exec(
-        select(ModelBasic).where(ModelBasic.model_name == model_name)
-    ).first()
+    model_configs = db.exec(select(ModelBasic).where(ModelBasic.model_name == model_name)).first()
 
     if model_configs.model_type == ProblemType.IMAGE_CLASSIFICATION:
-        image_properties = db.exec(
-            select(ImageProperties).where(ImageProperties.id == model_configs.file_id)
-        ).first()
+        image_properties = db.exec(select(ImageProperties).where(ImageProperties.id == model_configs.file_id)).first()
         image_size = (image_properties.image_size, image_properties.image_size)
         batch_size = image_properties.batch_size
         color_mode = image_properties.color_mode
@@ -164,9 +156,7 @@ def _run(model_name: str, db: Session) -> None:
             label_mode=label_mode,
         )
     else:
-        file_location = _helper_generate_file_location(
-            db, file_id=model_configs.file_id
-        )
+        file_location = _helper_generate_file_location(db, file_id=model_configs.file_id)
         features = pd.read_csv(file_location)
         features.dropna(inplace=True)
         # Shuffle data to prevent issues with ordered datasets
@@ -187,9 +177,7 @@ def _run(model_name: str, db: Session) -> None:
         x_testing = X[split_index:]
         y_testing = y[split_index:]
 
-        batch_size = (
-            model_configs.batch_size if model_configs.batch_size is not None else 32
-        )
+        batch_size = model_configs.batch_size if model_configs.batch_size is not None else 32
 
     with open(_helper_generate_json_model_file_location(model_name=model_name)) as f:
         json_string = f.read()

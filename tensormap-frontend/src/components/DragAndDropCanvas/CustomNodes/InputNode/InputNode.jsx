@@ -1,5 +1,6 @@
 import PropTypes from "prop-types";
 import { Handle, Position } from "reactflow";
+import NodeDeleteButton from "../shared/NodeDeleteButton";
 
 function InputNode({ data, id }) {
   const dims = [data.params["dim-1"], data.params["dim-2"], data.params["dim-3"]]
@@ -8,8 +9,9 @@ function InputNode({ data, id }) {
 
   return (
     <div className="w-44 rounded-lg border bg-white shadow-sm">
-      <div className="rounded-t-lg bg-node-input px-3 py-1.5 text-xs font-bold text-white">
-        Input
+      <div className="flex items-center justify-between rounded-t-lg bg-node-input px-3 py-1.5 text-xs font-bold text-white">
+        <span>Input</span>
+        <NodeDeleteButton id={id} testId="input-node-delete-button" />
       </div>
       <div className="px-3 py-2 text-xs text-muted-foreground">
         {dims ? `Dim: ${dims}` : "No dimensions set"}

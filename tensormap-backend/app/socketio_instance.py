@@ -4,6 +4,9 @@ import socketio
 
 from app.config import get_settings
 from app.shared.constants import SOCKETIO_DL_NAMESPACE
+from app.shared.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 sio = socketio.AsyncServer(
     async_mode="asgi",

@@ -9,9 +9,17 @@ from contextlib import asynccontextmanager
 import socketio
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import ValidationError
+from sqlalchemy.exc import IntegrityError
 
 from app.config import get_settings
-from app.exceptions import AppException, app_exception_handler, generic_exception_handler
+from app.exceptions import (
+    AppException,
+    app_exception_handler,
+    generic_exception_handler,
+    integrity_error_handler,
+    validation_exception_handler,
+)
 from app.middleware import RequestLoggingMiddleware
 from app.routers import data_process, data_upload, deep_learning, project
 from app.shared.logging_config import get_logger
@@ -46,6 +54,8 @@ app.add_middleware(
 app.add_middleware(RequestLoggingMiddleware)
 
 app.add_exception_handler(AppException, app_exception_handler)
+app.add_exception_handler(IntegrityError, integrity_error_handler)
+app.add_exception_handler(ValidationError, validation_exception_handler)
 app.add_exception_handler(Exception, generic_exception_handler)
 
 app.include_router(data_upload.router, prefix=settings.api_base)

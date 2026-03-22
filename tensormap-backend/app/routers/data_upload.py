@@ -1,9 +1,11 @@
+import io
 import uuid as uuid_pkg
 
 from fastapi import APIRouter, Depends, Form, Query, UploadFile
 from fastapi.responses import JSONResponse
 from sqlmodel import Session
 
+from app.config import get_settings
 from app.database import get_db
 from app.services.data_upload import (
     add_file_service,
@@ -56,6 +58,34 @@ def upload_file(
                 "data": None,
             },
         )
+
+    max_size = get_settings().max_content_length
+
+    # Reject the request early using the Content-Length header when available,
+    # avoiding reading the entire body into memory.
+    content_length = data.size
+    if content_length is not None and content_length > max_size:
+        return JSONResponse(
+            status_code=413,
+            content={
+                "success": False,
+                "message": f"File too large. Maximum allowed size is {max_size // (1024 * 1024)} MB.",
+                "data": None,
+            },
+        )
+
+    content = data.file.read()
+    if len(content) > max_size:
+        return JSONResponse(
+            status_code=413,
+            content={
+                "success": False,
+                "message": f"File too large. Maximum allowed size is {max_size // (1024 * 1024)} MB.",
+                "data": None,
+            },
+        )
+    # Rewind the file so downstream code can re-read it
+    data.file = io.BytesIO(content)  # type: ignore[assignment]
 
     wrapper = _UploadFileWrapper(data)
     body, status_code = add_file_service(db, wrapper, project_id=project_id)

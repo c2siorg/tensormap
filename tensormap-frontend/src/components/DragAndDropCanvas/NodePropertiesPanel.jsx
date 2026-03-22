@@ -270,6 +270,41 @@ function NodePropertiesPanel({
       </Card>
     );
   }
+  if (type === "custombatchnorm") {
+    return (
+      <Card className="h-fit">
+        <CardHeader>
+          <CardTitle className="text-sm">BatchNorm Layer</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="space-y-1">
+            <Label>Momentum</Label>
+            <Input
+              type="number"
+              min="0"
+              max="1"
+              step="0.01"
+              placeholder="Momentum"
+              value={params.momentum}
+              onChange={(e) => updateParam("momentum", e.target.value)}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label>Epsilon</Label>
+            <Input
+              type="number"
+              min="0"
+              step="0.0001"
+              placeholder="Epsilon"
+              value={params.epsilon}
+              onChange={(e) => updateParam("epsilon", e.target.value)}
+            />
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
   return null;
 }
 

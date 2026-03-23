@@ -24,3 +24,5 @@ IMG_SIZE = "image_size"
 BATCH_SIZE = "batch_size"
 COLOR_MODE = "color_mode"
 LABEL_MODE = "label_mode"
+
+LAYER_REGISTRY_LOCATION = TEMPLATE_ROOT + "/layer_registry.json"

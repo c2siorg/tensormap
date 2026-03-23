@@ -1,11 +1,20 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams } from "react-router-dom";
+import { Trash2 } from "lucide-react";
 import io from "socket.io-client";
 import { useRecoilState } from "recoil";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import {
   Select,
   SelectContent,
@@ -16,12 +25,14 @@ import {
 import * as urls from "../../constants/Urls";
 import * as strings from "../../constants/Strings";
 import logger from "../../shared/logger";
+import FeedbackDialog from "../../components/shared/FeedbackDialog";
 import Result from "../../components/ResultPanel/Result/Result";
 import {
   download_code,
   runModel,
   getAllModels,
   updateTrainingConfig,
+  deleteModel,
 } from "../../services/ModelServices";
 import { getAllFiles } from "../../services/FileServices";
 import { models as modelListAtom } from "../../shared/atoms";
@@ -29,6 +40,9 @@ import { models as modelListAtom } from "../../shared/atoms";
 const optimizerOptions = [
   { key: "opt_1", label: "Adam", value: "adam" },
   { key: "opt_2", label: "SGD", value: "sgd" },
+  { key: "opt_3", label: "RMSprop", value: "rmsprop" },
+  { key: "opt_4", label: "Adagrad", value: "adagrad" },
+  { key: "opt_5", label: "AdamW", value: "adamw" },
 ];
 
 const metricOptions = [
@@ -49,6 +63,12 @@ export default function Training() {
   const [resultValues, setResultValues] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [connectionError, setConnectionError] = useState(null);
+  const [deleteConfirm, setDeleteConfirm] = useState({ open: false, model: null });
+  const [deleteFeedback, setDeleteFeedback] = useState({
+    open: false,
+    success: false,
+    message: "",
+  });
   const socketRef = useRef(null);
   const timeoutRef = useRef(null);
 
@@ -61,8 +81,20 @@ export default function Training() {
     file_id: "",
     target_field: "",
     problem_type_id: "",
+    optimizer: "adam",
+    metric: "",
+    epochs: "",
+    batch_size: "",
+    training_split: "",
+  });
+  // Validation state
+  const [validationErrors, setValidationErrors] = useState({
+    model: "",
+    file_id: "",
+    problem_type_id: "",
     optimizer: "",
     metric: "",
+    target_field: "",
     epochs: "",
     batch_size: "",
     training_split: "",
@@ -113,9 +145,10 @@ export default function Training() {
 
     getAllModels(projectId)
       .then((response) => {
-        const models = response.map((file, index) => ({
-          label: file + strings.MODEL_EXTENSION,
-          value: file,
+        const models = response.map((item, index) => ({
+          label: item.model_name + strings.MODEL_EXTENSION,
+          value: item.model_name,
+          id: item.id,
           key: index,
         }));
         setModelList(models);
@@ -146,29 +179,183 @@ export default function Training() {
     };
   }, [projectId, setModelList]);
 
+  // Validation functions
+  const validateEpochs = (value) => {
+    if (!value || value.trim() === "") {
+      return "Epochs is required";
+    }
+    const trimmed = value.trim();
+    if (!/^\d+$/.test(trimmed)) {
+      return "Epochs must be a positive integer";
+    }
+    const num = Number(trimmed);
+    if (num <= 0) {
+      return "Epochs must be a positive integer";
+    }
+    return "";
+  };
+
+  const validateBatchSize = (value) => {
+    if (!value || value.trim() === "") {
+      return "Batch size is required";
+    }
+    const trimmed = value.trim();
+    if (!/^\d+$/.test(trimmed)) {
+      return "Batch size must be a positive integer";
+    }
+    const num = Number(trimmed);
+    if (num <= 0) {
+      return "Batch size must be a positive integer";
+    }
+    return "";
+  };
+
+  const validateTrainingSplit = (value) => {
+    const num = parseFloat(value);
+    if (!value || value.trim() === "") {
+      return "Training split is required";
+    }
+    if (isNaN(num) || num <= 0 || num >= 1) {
+      return "Training split must be between 0 and 1 (exclusive)";
+    }
+    return "";
+  };
+
+  const validateModel = (value) => {
+    if (!value) {
+      return "A model must be selected";
+    }
+    return "";
+  };
+
+  const validateFile = (value) => {
+    if (!value) {
+      return "A dataset file must be selected";
+    }
+    return "";
+  };
+
+  const validateProblemType = (value) => {
+    if (!value) {
+      return "Problem type must be selected";
+    }
+    return "";
+  };
+
+  const validateOptimizer = (value) => {
+    if (!value) {
+      return "Optimizer must be selected";
+    }
+    return "";
+  };
+
+  const validateMetric = (value) => {
+    if (!value) {
+      return "Result metric must be selected";
+    }
+    return "";
+  };
+
+  const validateTargetField = (value) => {
+    if (!value || value.trim() === "") {
+      return "Target field must be specified";
+    }
+    return "";
+  };
+
+  // Real-time validation handler
+  const updateValidationErrors = useCallback((field, value) => {
+    let error = "";
+    switch (field) {
+      case "epochs":
+        error = validateEpochs(value);
+        break;
+      case "batch_size":
+        error = validateBatchSize(value);
+        break;
+      case "training_split":
+        error = validateTrainingSplit(value);
+        break;
+      case "model":
+        error = validateModel(value);
+        break;
+      case "file_id":
+        error = validateFile(value);
+        break;
+      case "problem_type_id":
+        error = validateProblemType(value);
+        break;
+      case "optimizer":
+        error = validateOptimizer(value);
+        break;
+      case "metric":
+        error = validateMetric(value);
+        break;
+      case "target_field":
+        error = validateTargetField(value);
+        break;
+      default:
+        break;
+    }
+    setValidationErrors((prev) => ({ ...prev, [field]: error }));
+  }, []); // Empty deps since validation functions are stable within component
+
+  // Check if form has any validation errors
+  const hasValidationErrors = () => {
+    return Object.values(validationErrors).some((error) => error !== "");
+  };
+
+  // Validate all fields
+  const validateAllFields = () => {
+    const errors = {
+      model: validateModel(selectedModel),
+      file_id: validateFile(trainingConfig.file_id),
+      problem_type_id: validateProblemType(trainingConfig.problem_type_id),
+      optimizer: validateOptimizer(trainingConfig.optimizer),
+      metric: validateMetric(trainingConfig.metric),
+      target_field: validateTargetField(trainingConfig.target_field),
+      epochs: validateEpochs(trainingConfig.epochs),
+      batch_size: validateBatchSize(trainingConfig.batch_size),
+      training_split: validateTrainingSplit(trainingConfig.training_split),
+    };
+    setValidationErrors(errors);
+    return !Object.values(errors).some((error) => error !== "");
+  };
+
   const handleFileSelect = useCallback(
     (value) => {
-      const selected = fileDetails.find((item) => item.file_id === value);
-      if (selected) {
+      const normalizedValue = String(value);
+      const selected = fileDetails.find((item) => String(item.file_id) === normalizedValue);
+      if (selected && selected.fields && selected.fields.length > 0) {
         const fields = selected.fields.map((item, index) => ({
           label: item,
           value: item,
           key: index,
         }));
         setFieldsList(fields);
+      } else {
+        setFieldsList([]);
       }
       setTrainingConfig((prev) => ({ ...prev, file_id: value, target_field: "" }));
+      updateValidationErrors("file_id", value);
+      updateValidationErrors("target_field", "");
     },
-    [fileDetails],
+    [fileDetails, updateValidationErrors],
   );
 
   const handleModelSelect = (value) => {
     setSelectedModel(value);
     setConfigSaved(false);
+    updateValidationErrors("model", value);
   };
 
   const handleSaveConfig = () => {
     if (!selectedModel) return;
+
+    // Final validation check before submitting
+    if (!validateAllFields()) {
+      return;
+    }
 
     const data = {
       model_name: selectedModel,
@@ -179,6 +366,7 @@ export default function Training() {
       optimizer: trainingConfig.optimizer,
       metric: trainingConfig.metric,
       epochs: Number(trainingConfig.epochs),
+      batch_size: trainingConfig.batch_size ? Number(trainingConfig.batch_size) : 32,
       project_id: projectId || null,
     };
 
@@ -196,12 +384,16 @@ export default function Training() {
   };
 
   const isConfigValid =
+    selectedModel &&
     trainingConfig.file_id &&
     trainingConfig.problem_type_id &&
     trainingConfig.optimizer &&
     trainingConfig.metric &&
     trainingConfig.epochs &&
-    trainingConfig.training_split;
+    trainingConfig.batch_size &&
+    trainingConfig.training_split &&
+    trainingConfig.target_field &&
+    !hasValidationErrors();
 
   const handleDownload = () => {
     if (selectedModel) {
@@ -211,6 +403,12 @@ export default function Training() {
 
   const handleRun = () => {
     if (!selectedModel) return;
+
+    // Final validation check before training
+    if (!validateAllFields()) {
+      return;
+    }
+
     if (!socketRef.current?.connected) {
       setResultValues([
         "Cannot start training: not connected to server. Please wait and try again.",
@@ -238,26 +436,114 @@ export default function Training() {
     setIsLoading(false);
   };
 
+  const handleDeleteClick = (model, e) => {
+    e.stopPropagation();
+    setDeleteConfirm({ open: true, model });
+  };
+
+  const handleDeleteConfirm = () => {
+    const { model } = deleteConfirm;
+    setDeleteConfirm({ open: false, model: null });
+    deleteModel(model.id)
+      .then((resp) => {
+        if (resp.success) {
+          setModelList((prev) => prev.filter((m) => m.id !== model.id));
+          if (selectedModel === model.value) {
+            setSelectedModel(null);
+            setConfigSaved(false);
+          }
+        } else {
+          logger.error("Failed to delete model:", resp.message);
+          setDeleteFeedback({
+            open: true,
+            success: false,
+            message: resp.message || "Failed to delete model",
+          });
+        }
+      })
+      .catch((error) => {
+        logger.error("Error deleting model:", error);
+        setDeleteFeedback({
+          open: true,
+          success: false,
+          message: error.message || "An unexpected error occurred",
+        });
+      });
+  };
+
   return (
     <div className="space-y-6">
+      <FeedbackDialog
+        open={deleteFeedback.open}
+        onClose={() => setDeleteFeedback((prev) => ({ ...prev, open: false }))}
+        success={deleteFeedback.success}
+        message={deleteFeedback.message}
+      />
+      <Dialog
+        open={deleteConfirm.open}
+        onOpenChange={(open) => !open && setDeleteConfirm({ open: false, model: null })}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete model</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete <strong>{deleteConfirm.model?.label}</strong>? This
+              action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setDeleteConfirm({ open: false, model: null })}
+            >
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleDeleteConfirm}>
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Card>
         <CardHeader>
           <CardTitle>Model Training</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="flex flex-wrap items-center gap-4">
-            <Select onValueChange={handleModelSelect}>
-              <SelectTrigger className="w-64">
-                <SelectValue placeholder="Select a model" />
-              </SelectTrigger>
-              <SelectContent>
-                {modelList.map((model) => (
-                  <SelectItem key={model.key} value={model.value}>
-                    {model.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <div className="space-y-1">
+              <Select
+                onValueChange={handleModelSelect}
+                value={selectedModel ?? ""}
+                disabled={modelList.length === 0}
+              >
+                <SelectTrigger className={`w-64 ${validationErrors.model ? "border-red-500" : ""}`}>
+                  <SelectValue
+                    placeholder={modelList.length === 0 ? "No models created" : "Select a model"}
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {modelList.map((model) => (
+                    <SelectItem key={model.key} value={model.value}>
+                      <span className="flex items-center justify-between gap-2 w-full">
+                        <span>{model.label}</span>
+                        <button
+                          type="button"
+                          className="ml-auto text-destructive hover:text-destructive/80"
+                          onClick={(e) => handleDeleteClick(model, e)}
+                          aria-label={`Delete ${model.label}`}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {validationErrors.model && (
+                <p className="text-sm text-red-500">{validationErrors.model}</p>
+              )}
+            </div>
             <Button
               onClick={handleDownload}
               disabled={!selectedModel || !configSaved}
@@ -265,8 +551,11 @@ export default function Training() {
             >
               Download Code
             </Button>
-            <Button onClick={handleRun} disabled={!selectedModel || !configSaved || isLoading}>
-              {isLoading ? "Running..." : "Run Model"}
+            <Button
+              onClick={handleRun}
+              disabled={!selectedModel || !configSaved || isLoading || hasValidationErrors()}
+            >
+              {isLoading ? "Training..." : "Train"}
             </Button>
             <Button
               onClick={handleClear}
@@ -289,10 +578,10 @@ export default function Training() {
               <div className="space-y-1">
                 <Label>Dataset File</Label>
                 <Select onValueChange={handleFileSelect}>
-                  <SelectTrigger>
+                  <SelectTrigger className={validationErrors.file_id ? "border-red-500" : ""}>
                     <SelectValue placeholder="Select a file" />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="z-[9999] bg-white shadow-lg border backdrop-blur-sm">
                     {fileList.map((f) => (
                       <SelectItem key={f.key} value={f.value}>
                         {f.label}
@@ -300,19 +589,26 @@ export default function Training() {
                     ))}
                   </SelectContent>
                 </Select>
+                {validationErrors.file_id && (
+                  <p className="text-sm text-red-500">{validationErrors.file_id}</p>
+                )}
               </div>
 
               <div className="space-y-1">
                 <Label>Problem Type</Label>
                 <Select
-                  onValueChange={(v) =>
-                    setTrainingConfig((prev) => ({ ...prev, problem_type_id: v }))
-                  }
+                  onValueChange={(v) => {
+                    setTrainingConfig((prev) => ({ ...prev, problem_type_id: v }));
+                    updateValidationErrors("problem_type_id", v);
+                    setConfigSaved(false);
+                  }}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger
+                    className={validationErrors.problem_type_id ? "border-red-500" : ""}
+                  >
                     <SelectValue placeholder="Select problem type" />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="z-[9999] bg-white shadow-lg border backdrop-blur-sm">
                     {problemTypeOptions.map((o) => (
                       <SelectItem key={o.key} value={o.value}>
                         {o.label}
@@ -320,35 +616,67 @@ export default function Training() {
                     ))}
                   </SelectContent>
                 </Select>
+                {validationErrors.problem_type_id && (
+                  <p className="text-sm text-red-500">{validationErrors.problem_type_id}</p>
+                )}
               </div>
 
               <div className="space-y-1">
                 <Label>Target Field</Label>
-                <Select
-                  onValueChange={(v) => setTrainingConfig((prev) => ({ ...prev, target_field: v }))}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select target field" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {fieldsList.map((f) => (
-                      <SelectItem key={f.key} value={f.value}>
-                        {f.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="relative">
+                  <Input
+                    type="text"
+                    placeholder={
+                      fieldsList.length === 0 && trainingConfig.file_id
+                        ? "Enter target field name (e.g. species, class, target)"
+                        : fieldsList.length === 0
+                          ? "Select a dataset file first or enter field name"
+                          : "Select from list or enter field name"
+                    }
+                    value={trainingConfig.target_field}
+                    className={validationErrors.target_field ? "border-red-500" : ""}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setTrainingConfig((prev) => ({ ...prev, target_field: value }));
+                      updateValidationErrors("target_field", value);
+                      setConfigSaved(false);
+                    }}
+                    list={fieldsList.length > 0 ? "target-fields" : undefined}
+                  />
+                  {fieldsList.length > 0 && (
+                    <datalist id="target-fields">
+                      {fieldsList.map((f) => (
+                        <option key={f.key} value={f.value}>
+                          {f.label}
+                        </option>
+                      ))}
+                    </datalist>
+                  )}
+                </div>
+                {fieldsList.length > 0 && (
+                  <p className="text-xs text-gray-500">
+                    Available fields: {fieldsList.map((f) => f.label).join(", ")}
+                  </p>
+                )}
+                {validationErrors.target_field && (
+                  <p className="text-sm text-red-500">{validationErrors.target_field}</p>
+                )}
               </div>
 
               <div className="space-y-1">
                 <Label>Optimizer</Label>
                 <Select
-                  onValueChange={(v) => setTrainingConfig((prev) => ({ ...prev, optimizer: v }))}
+                  value={trainingConfig.optimizer}
+                  onValueChange={(v) => {
+                    setTrainingConfig((prev) => ({ ...prev, optimizer: v }));
+                    updateValidationErrors("optimizer", v);
+                    setConfigSaved(false);
+                  }}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger className={validationErrors.optimizer ? "border-red-500" : ""}>
                     <SelectValue placeholder="Select optimizer" />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="z-[9999] bg-white shadow-lg border backdrop-blur-sm">
                     {optimizerOptions.map((o) => (
                       <SelectItem key={o.key} value={o.value}>
                         {o.label}
@@ -356,17 +684,24 @@ export default function Training() {
                     ))}
                   </SelectContent>
                 </Select>
+                {validationErrors.optimizer && (
+                  <p className="text-sm text-red-500">{validationErrors.optimizer}</p>
+                )}
               </div>
 
               <div className="space-y-1">
                 <Label>Result Metrics</Label>
                 <Select
-                  onValueChange={(v) => setTrainingConfig((prev) => ({ ...prev, metric: v }))}
+                  onValueChange={(v) => {
+                    setTrainingConfig((prev) => ({ ...prev, metric: v }));
+                    updateValidationErrors("metric", v);
+                    setConfigSaved(false);
+                  }}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger className={validationErrors.metric ? "border-red-500" : ""}>
                     <SelectValue placeholder="Select metric" />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="z-[9999] bg-white shadow-lg border backdrop-blur-sm">
                     {metricOptions.map((o) => (
                       <SelectItem key={o.key} value={o.value}>
                         {o.label}
@@ -374,6 +709,9 @@ export default function Training() {
                     ))}
                   </SelectContent>
                 </Select>
+                {validationErrors.metric && (
+                  <p className="text-sm text-red-500">{validationErrors.metric}</p>
+                )}
               </div>
 
               <div className="space-y-1">
@@ -383,10 +721,17 @@ export default function Training() {
                   min="1"
                   placeholder="Number of epochs"
                   value={trainingConfig.epochs}
-                  onChange={(e) =>
-                    setTrainingConfig((prev) => ({ ...prev, epochs: e.target.value }))
-                  }
+                  className={validationErrors.epochs ? "border-red-500" : ""}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setTrainingConfig((prev) => ({ ...prev, epochs: value }));
+                    updateValidationErrors("epochs", value);
+                    setConfigSaved(false);
+                  }}
                 />
+                {validationErrors.epochs && (
+                  <p className="text-sm text-red-500">{validationErrors.epochs}</p>
+                )}
               </div>
 
               <div className="space-y-1">
@@ -396,10 +741,17 @@ export default function Training() {
                   min="1"
                   placeholder="Batch size"
                   value={trainingConfig.batch_size}
-                  onChange={(e) =>
-                    setTrainingConfig((prev) => ({ ...prev, batch_size: e.target.value }))
-                  }
+                  className={validationErrors.batch_size ? "border-red-500" : ""}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setTrainingConfig((prev) => ({ ...prev, batch_size: value }));
+                    updateValidationErrors("batch_size", value);
+                    setConfigSaved(false);
+                  }}
                 />
+                {validationErrors.batch_size && (
+                  <p className="text-sm text-red-500">{validationErrors.batch_size}</p>
+                )}
               </div>
 
               <div className="space-y-1">
@@ -411,10 +763,17 @@ export default function Training() {
                   step="0.1"
                   placeholder="e.g. 0.8"
                   value={trainingConfig.training_split}
-                  onChange={(e) =>
-                    setTrainingConfig((prev) => ({ ...prev, training_split: e.target.value }))
-                  }
+                  className={validationErrors.training_split ? "border-red-500" : ""}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setTrainingConfig((prev) => ({ ...prev, training_split: value }));
+                    updateValidationErrors("training_split", value);
+                    setConfigSaved(false);
+                  }}
                 />
+                {validationErrors.training_split && (
+                  <p className="text-sm text-red-500">{validationErrors.training_split}</p>
+                )}
               </div>
             </div>
 

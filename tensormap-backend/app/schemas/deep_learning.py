@@ -37,6 +37,9 @@ class NodeData(BaseModel):
     """Per-node parameters from the ReactFlow canvas."""
 
     params: dict[str, Any]  # varies per node type; validated downstream by model_generation + TensorFlow
+    # The client-sent layer registry contract from layer_registry.json.
+    # Enables the dynamic backend generator to resolve Keras class names safely.
+    registry: dict[str, Any] | None = None
 
 
 class GraphNode(BaseModel):
@@ -97,4 +100,5 @@ class TrainingConfigRequest(BaseModel):
     optimizer: str = Field(min_length=1)
     metric: str = Field(min_length=1)
     epochs: int = Field(gt=0)
+    batch_size: int = Field(default=32, gt=0)
     project_id: uuid_pkg.UUID | None = None

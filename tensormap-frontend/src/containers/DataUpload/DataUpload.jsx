@@ -49,7 +49,7 @@ function DataUpload() {
         setDataset(null);
       })
       .finally(() => setLoading(false));
-  }, [projectId]);
+  }, [projectId, setProjectFiles]);
 
   useEffect(() => {
     fetchDataset();

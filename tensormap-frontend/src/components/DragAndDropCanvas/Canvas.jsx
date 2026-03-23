@@ -68,7 +68,6 @@ function Canvas() {
     getLayerRegistry().then(setLayerRegistry);
   }, []);
 
-  const defaultViewport = { x: 10, y: 15, zoom: 0.5 };
   const draftKey = `tensormap_draft_${projectId || "default"}`;
   const isLoaded = useRef(false);
   const [hasDraft, setHasDraft] = useState(() => {

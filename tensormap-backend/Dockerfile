@@ -2,17 +2,25 @@ FROM python:3.12-slim AS builder
 
 WORKDIR /app
 
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+RUN pip install poetry
 
-COPY pyproject.toml uv.lock* ./
-RUN uv sync --frozen --no-dev
+RUN poetry config virtualenvs.in-project true
 
+ENV POETRY_REQUESTS_TIMEOUT=120
+ENV POETRY_RETRIES=5
+
+COPY pyproject.toml poetry.lock ./
+
+RUN poetry install --only main --no-root --no-interaction --no-ansi
+
+# --- Stage 2: Production Image ---
 FROM python:3.12-slim
 
 WORKDIR /app
 
 RUN groupadd -r appuser && useradd -r -g appuser appuser
 
+# Copy the generated virtual environment from the builder stage
 COPY --from=builder /app/.venv /app/.venv
 COPY . .
 

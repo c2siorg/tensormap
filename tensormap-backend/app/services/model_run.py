@@ -88,6 +88,8 @@ def _helper_generate_file_location(db: Session, file_id) -> str:
     """Resolve the on-disk path for a dataset file by its DB ID."""
     upload_folder = get_settings().upload_folder
     file = db.exec(select(DataFile).where(DataFile.id == file_id)).first()
+    if file is None:
+        raise ValueError(f"File with id {file_id} not found in database")
     if file.file_type == "zip":
         return upload_folder + "/" + file.file_name
     return upload_folder + "/" + file.file_name + "." + file.file_type

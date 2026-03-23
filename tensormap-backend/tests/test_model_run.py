@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from app.services.deep_learning import run_code_service
-from app.services.model_run import model_run
+from app.services.model_run import _helper_generate_file_location, model_run
 from app.shared.enums import ProblemType
 
 
@@ -24,6 +24,14 @@ def _make_db(model_config: MagicMock) -> MagicMock:
     db = MagicMock()
     db.exec.return_value.first.return_value = model_config
     return db
+
+
+def test_helper_generate_file_location_raises_when_file_missing():
+    db = MagicMock()
+    db.exec.return_value.first.return_value = None
+
+    with pytest.raises(ValueError, match="not found in database"):
+        _helper_generate_file_location(db, "missing-file-id")
 
 
 class TestModelRunEmitsErrorOnFailure:

@@ -1,4 +1,5 @@
-import { atom } from "recoil";
+import { atom, selector } from "recoil";
+import * as strings from "../constants/Strings";
 
 /**
  * Recoil atom holding the list of validated model descriptors.
@@ -28,4 +29,29 @@ export const currentProject = atom({
 export const projectFiles = atom({
   key: "projectFiles",
   default: [],
+});
+
+/**
+ * Recoil atom holding the full training history list.
+ *
+ * @type {import("recoil").RecoilState<Array>}
+ */
+export const trainingHistory = atom({
+  key: "trainingHistory",
+  default: [],
+});
+
+/**
+ * Recoil selector deriving model dropdown items from training history.
+ */
+export const modelListSelector = selector({
+  key: "modelListSelector",
+  get: ({ get }) => {
+    const history = get(trainingHistory);
+    return history.map((m) => ({
+      label: m.model_name + strings.MODEL_EXTENSION,
+      value: m.model_name,
+      id: m.id,
+    }));
+  },
 });

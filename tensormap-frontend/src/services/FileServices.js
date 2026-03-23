@@ -74,6 +74,26 @@ export const getCovMatrix = async (file_id) =>
     });
 
 /**
+ * Fetches the pairwise correlation matrix for all numeric columns in a file.
+ *
+ * @param {string} file_id - ID of the uploaded file.
+ * @returns {Promise<{columns: string[], matrix: (number|null)[][]}>}
+ */
+export const getCorrelationMatrix = async (file_id) =>
+  axios
+    .get(urls.BACKEND_GET_CORRELATION + file_id)
+    .then((resp) => {
+      if (resp.data.success === true) {
+        return resp.data.data;
+      }
+      throw new Error(resp.data.message || "Failed to fetch correlation matrix");
+    })
+    .catch((err) => {
+      logger.error(err);
+      throw err;
+    });
+
+/**
  * Fetches the raw data content of a file as a JSON string.
  *
  * @param {string} file_id - ID of the uploaded file.
@@ -117,6 +137,26 @@ export const transformData = async (file_id, transformations) => {
 };
 
 /**
+ * Fetches per-column descriptive statistics for a file.
+ *
+ * @param {string} file_id - ID of the uploaded file.
+ * @returns {Promise<Array>} Array of stat objects, one per column.
+ */
+export const getColumnStats = async (file_id) =>
+  axios
+    .get(urls.BACKEND_GET_COLUMN_STATS + file_id)
+    .then((resp) => {
+      if (resp.data.success === true) {
+        return resp.data.data;
+      }
+      return [];
+    })
+    .catch((err) => {
+      logger.error(err);
+      throw err;
+    });
+
+/**
  * Deletes an uploaded file by ID.
  *
  * @param {string} fileId
@@ -133,4 +173,3 @@ export const deleteFile = async (fileId) => {
       throw error;
     });
 };
-

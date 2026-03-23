@@ -8,27 +8,50 @@ import ReactFlow, {
   Controls,
   Background,
   BackgroundVariant,
+  Panel,
 } from "reactflow";
+import { Button } from "@/components/ui/button";
 import { useRecoilState } from "recoil";
 import * as strings from "../../constants/Strings";
 import logger from "../../shared/logger";
 import FeedbackDialog from "../shared/FeedbackDialog";
 import "reactflow/dist/style.css";
-import InputNode from "./CustomNodes/InputNode/InputNode";
-import DenseNode from "./CustomNodes/DenseNode/DenseNode";
-import FlattenNode from "./CustomNodes/FlattenNode/FlattenNode";
-import ConvNode from "./CustomNodes/ConvNode/ConvNode";
+import GenericLayerNode from "./CustomNodes/GenericLayerNode";
+import { getLayerRegistry } from "../../services/ModelServices";
 import Sidebar from "./Sidebar";
 import NodePropertiesPanel from "./NodePropertiesPanel";
 import { canSaveModel, generateModelJSON } from "./Helpers";
+import ModelSummaryPanel from "./ModelSummaryPanel";
 import { getAllModels, getModelGraph, saveModel } from "../../services/ModelServices";
 import { models as allModels } from "../../shared/atoms";
+import ContextMenu from "./ContextMenu";
 
 const nodeTypes = {
-  custominput: InputNode,
-  customdense: DenseNode,
-  customflatten: FlattenNode,
-  customconv: ConvNode,
+  genericLayer: GenericLayerNode,
+  custominput: GenericLayerNode,
+  customdense: GenericLayerNode,
+  customconv: GenericLayerNode,
+  customflatten: GenericLayerNode,
+};
+
+const TYPE_MIGRATION_MAP = {
+  custominput: "input",
+  customdense: "dense",
+  customflatten: "flatten",
+  customconv: "conv2d",
+};
+
+const migrateNode = (node, registry) => {
+  if (node.data?.registry) return node;
+  const registryKey = TYPE_MIGRATION_MAP[node.type];
+  return {
+    ...node,
+    type: "genericLayer",
+    data: {
+      ...node.data,
+      registry: registry[registryKey] || {},
+    },
+  };
 };
 
 function Canvas() {
@@ -40,24 +63,82 @@ function Canvas() {
   const [reactFlowInstance, setReactFlowInstance] = useState(null);
   const [modelName, setModelName] = useState("");
   const [selectedNodeId, setSelectedNodeId] = useState(null);
+  const [modelSummary, setModelSummary] = useState(null);
   const [feedbackDialog, setFeedbackDialog] = useState({
     open: false,
     success: false,
     message: "",
     detail: "",
   });
+  const [contextMenu, setContextMenu] = useState({ nodeId: null, x: 0, y: 0 });
+  const [layerRegistry, setLayerRegistry] = useState({});
+  const hasRegistry = Object.keys(layerRegistry).length > 0;
+  const layerRegistryRef = useRef(layerRegistry);
+  const hasRegistryRef = useRef(hasRegistry);
+
+  // Fetch the registry on mount
+  useEffect(() => {
+    getLayerRegistry().then(setLayerRegistry);
+  }, []);
+
+  useEffect(() => {
+    layerRegistryRef.current = layerRegistry;
+    hasRegistryRef.current = Object.keys(layerRegistry).length > 0;
+  }, [layerRegistry]);
+
   const defaultViewport = { x: 10, y: 15, zoom: 0.5 };
 
-  // Auto-load the project's first saved model on mount
+  const draftKey = `tensormap_draft_${projectId || "default"}`;
+  const isLoaded = useRef(false);
+  const [hasDraft, setHasDraft] = useState(() => {
+    try {
+      return !!localStorage.getItem(draftKey);
+    } catch (e) {
+      return false;
+    }
+  });
+
+  // Auto-load the project's first saved model or draft on mount
   useEffect(() => {
     let cancelled = false;
     async function loadModel() {
+      // 1. Try loading from draft first
+      try {
+        const draftStr = localStorage.getItem(draftKey);
+        if (draftStr) {
+          const draft = JSON.parse(draftStr);
+          if (draft.nodes?.length > 0 || draft.edges?.length > 0 || draft.modelName) {
+            const savedNodes = draft.nodes || [];
+            const migratedNodes = hasRegistryRef.current
+              ? savedNodes.map((node) => migrateNode(node, layerRegistryRef.current))
+              : savedNodes;
+            if (!cancelled) {
+              setNodes(migratedNodes);
+              setEdges(draft.edges || []);
+              setModelName(draft.modelName || "");
+              setHasDraft(true);
+              isLoaded.current = true;
+            }
+            return;
+          }
+        }
+      } catch (e) {
+        logger.error("Failed to load draft:", e);
+      }
+
+      // 2. Fallback to loading from DB
       try {
         const modelNames = await getAllModels(projectId);
-        if (cancelled || !modelNames || modelNames.length === 0) return;
+        if (cancelled || !modelNames || modelNames.length === 0) {
+          if (!cancelled) isLoaded.current = true;
+          return;
+        }
 
         const result = await getModelGraph(modelNames[0], projectId);
-        if (cancelled || !result.success) return;
+        if (cancelled || !result.success) {
+          if (!cancelled) isLoaded.current = true;
+          return;
+        }
 
         const { graph, model_name } = result.data;
 
@@ -67,6 +148,9 @@ function Canvas() {
           position: node.position || { x: 100, y: i * 200 },
           data: { label: `${node.type} node`, params: node.data?.params || {} },
         }));
+        const migratedNodes = hasRegistryRef.current
+          ? loadedNodes.map((node) => migrateNode(node, layerRegistryRef.current))
+          : loadedNodes;
 
         const loadedEdges = (graph.edges || []).map((edge) => ({
           id: edge.id || `e-${edge.source}-${edge.target}`,
@@ -74,18 +158,66 @@ function Canvas() {
           target: edge.target,
         }));
 
-        setNodes(loadedNodes);
-        setEdges(loadedEdges);
-        setModelName(model_name);
+        if (!cancelled) {
+          setNodes(migratedNodes);
+          setEdges(loadedEdges);
+          setModelName(model_name);
+          isLoaded.current = true;
+        }
       } catch (err) {
         logger.error("Failed to auto-load model:", err);
+        if (!cancelled) isLoaded.current = true;
       }
     }
     loadModel();
     return () => {
       cancelled = true;
     };
-  }, [projectId, setNodes, setEdges]);
+  }, [projectId, setNodes, setEdges, draftKey]);
+
+  // Migrate any already-restored legacy nodes once registry data is available.
+  useEffect(() => {
+    if (!hasRegistry) return;
+    setNodes((nds) => nds.map((node) => migrateNode(node, layerRegistry)));
+  }, [hasRegistry, layerRegistry, setNodes]);
+
+  // Handle debounced saving of draft
+  useEffect(() => {
+    if (!isLoaded.current) return;
+
+    const timer = setTimeout(() => {
+      if (nodes.length === 0 && edges.length === 0 && !modelName) {
+        try {
+          localStorage.removeItem(draftKey);
+        } catch (e) {
+          logger.error("Failed to remove draft:", e);
+        }
+        setHasDraft(false);
+        return;
+      }
+
+      try {
+        localStorage.setItem(draftKey, JSON.stringify({ nodes, edges, modelName }));
+        setHasDraft(true);
+      } catch (e) {
+        logger.error("Failed to save draft:", e);
+      }
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [nodes, edges, modelName, draftKey]);
+
+  const handleDiscardDraft = useCallback(() => {
+    try {
+      localStorage.removeItem(draftKey);
+    } catch (e) {
+      logger.error("Failed to remove draft:", e);
+    }
+    setHasDraft(false);
+    setNodes([]);
+    setEdges([]);
+    setModelName("");
+  }, [draftKey, setNodes, setEdges]);
 
   const onConnect = useCallback((params) => setEdges((eds) => addEdge(params, eds)), [setEdges]);
 
@@ -103,9 +235,34 @@ function Canvas() {
     setSelectedNodeId(node.id);
   }, []);
 
+  const closeContextMenu = useCallback(() => {
+    setContextMenu({ nodeId: null, x: 0, y: 0 });
+  }, []);
+
   const onPaneClick = useCallback(() => {
     setSelectedNodeId(null);
+    closeContextMenu();
+  }, [closeContextMenu]);
+
+  const onNodeContextMenu = useCallback((event, node) => {
+    event.preventDefault();
+    setContextMenu({ nodeId: node.id, x: event.clientX, y: event.clientY });
   }, []);
+
+  const duplicateNode = useCallback(() => {
+    setNodes((nds) => {
+      const source = nds.find((n) => n.id === contextMenu.nodeId);
+      if (!source) return nds;
+      const duplicate = {
+        id: crypto.randomUUID(),
+        type: source.type,
+        position: { x: source.position.x + 50, y: source.position.y + 50 },
+        data: { label: source.data.label, params: { ...source.data.params } },
+      };
+      return nds.concat(duplicate);
+    });
+    closeContextMenu();
+  }, [contextMenu.nodeId, setNodes, closeContextMenu]);
 
   const onNodeUpdate = useCallback(
     (nodeId, newParams) => {
@@ -138,6 +295,13 @@ function Canvas() {
     saveModel(data)
       .then((resp) => {
         if (resp.success) {
+          setModelSummary(resp.data?.summary || null);
+          try {
+            localStorage.removeItem(draftKey);
+            setHasDraft(false);
+          } catch (e) {
+            logger.error("Failed to clear draft on save:", e);
+          }
           setModelList((prevList) => [
             ...prevList,
             {
@@ -158,6 +322,7 @@ function Canvas() {
       })
       .catch((error) => {
         logger.error(error);
+        setModelSummary(null);
         setFeedbackDialog({
           open: true,
           success: false,
@@ -170,44 +335,39 @@ function Canvas() {
   const onDrop = useCallback(
     (event) => {
       event.preventDefault();
+      const layerKey = event.dataTransfer.getData("application/reactflow");
 
-      const reactFlowBounds = reactFlowWrapper.current.getBoundingClientRect();
-      const type = event.dataTransfer.getData("application/reactflow");
-
-      if (typeof type === "undefined" || !type) {
+      if (typeof layerKey === "undefined" || !layerKey || !layerRegistry[layerKey]) {
         return;
       }
 
-      const position = reactFlowInstance.project({
-        x: event.clientX - reactFlowBounds.left,
-        y: event.clientY - reactFlowBounds.top,
+      const position = reactFlowInstance.screenToFlowPosition({
+        x: event.clientX,
+        y: event.clientY,
       });
 
-      const defaultParams = {
-        custominput: { "dim-1": "", "dim-2": "", "dim-3": "" },
-        customdense: { units: "", activation: "" },
-        customflatten: {},
-        customconv: {
-          filter: "",
-          padding: "valid",
-          activation: "none",
-          strideX: "",
-          strideY: "",
-          kernelX: "",
-          kernelY: "",
-        },
-      };
+      const layerConfig = layerRegistry[layerKey];
+
+      // Dynamically generate default params from the JSON contract
+      const defaultParams = {};
+      Object.entries(layerConfig.params || {}).forEach(([key, paramConfig]) => {
+        defaultParams[key] = paramConfig.default !== undefined ? paramConfig.default : "";
+      });
 
       const newNode = {
         id: crypto.randomUUID(),
-        type,
+        type: "genericLayer",
         position,
-        data: { label: `${type} node`, params: defaultParams[type] || {} },
+        data: {
+          label: layerConfig.display_name,
+          params: defaultParams,
+          registry: layerConfig,
+        },
       };
 
       setNodes((nds) => nds.concat(newNode));
     },
-    [reactFlowInstance, setNodes],
+    [reactFlowInstance, setNodes, layerRegistry],
   );
 
   return (
@@ -221,8 +381,8 @@ function Canvas() {
       />
       <div className="flex gap-4">
         <ReactFlowProvider>
-          <Sidebar />
-          <div className="h-[62vh] flex-1" ref={reactFlowWrapper}>
+          <Sidebar registry={layerRegistry} />
+          <div className="min-w-0 h-[65vh] flex-1 rounded-md border" ref={reactFlowWrapper}>
             <ReactFlow
               nodes={nodes}
               edges={edges}
@@ -234,10 +394,18 @@ function Canvas() {
               onDragOver={onDragOver}
               onNodeClick={onNodeClick}
               onPaneClick={onPaneClick}
+              onNodeContextMenu={onNodeContextMenu}
               nodeTypes={nodeTypes}
               defaultViewport={defaultViewport}
             >
               <Controls />
+              {hasDraft && (
+                <Panel position="top-right">
+                  <Button variant="destructive" onClick={handleDiscardDraft}>
+                    Discard Draft
+                  </Button>
+                </Panel>
+              )}
               <Background
                 id="1"
                 gap={10}
@@ -247,7 +415,15 @@ function Canvas() {
               />
             </ReactFlow>
           </div>
-          <div className="w-64 shrink-0">
+          {contextMenu.nodeId && (
+            <ContextMenu
+              x={contextMenu.x}
+              y={contextMenu.y}
+              onDuplicate={duplicateNode}
+              onClose={closeContextMenu}
+            />
+          )}
+          <div className="w-72 shrink-0">
             <NodePropertiesPanel
               selectedNode={selectedNode || null}
               modelName={modelName}
@@ -259,6 +435,7 @@ function Canvas() {
           </div>
         </ReactFlowProvider>
       </div>
+      <ModelSummaryPanel summary={modelSummary} onClose={() => setModelSummary(null)} />
     </>
   );
 }

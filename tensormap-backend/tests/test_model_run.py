@@ -27,6 +27,19 @@ def _make_db(model_config: MagicMock) -> MagicMock:
 
 
 class TestModelRunEmitsErrorOnFailure:
+    def test_raises_clear_error_when_model_config_missing(self):
+        db = MagicMock()
+        db.exec.return_value.first.return_value = None
+
+        with (
+            patch("app.services.model_run._model_result"),
+            patch("app.services.model_run._helper_generate_file_location") as mock_file_location,
+            pytest.raises(ValueError, match="not found in database"),
+        ):
+            model_run("missing_model", db)
+
+        mock_file_location.assert_not_called()
+
     def test_emits_socketio_error_when_csv_read_fails(self):
         cfg = _make_model_config(ProblemType.CLASSIFICATION)
         db = _make_db(cfg)

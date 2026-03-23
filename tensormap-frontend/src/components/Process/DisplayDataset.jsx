@@ -20,23 +20,26 @@ const DisplayDataset = ({ fileId }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const fetchData = useCallback(async (nextOffset = 0) => {
-    try {
-      setLoading(true);
-      setError(null);
-      const fileData = await getFileData(fileId, { offset: nextOffset, limit: PAGE_SIZE });
-      setRows(fileData.rows || []);
-      setColumns(fileData.columns || []);
-      setPagination(fileData.pagination || { total: 0, offset: nextOffset, limit: PAGE_SIZE });
-    } catch (e) {
-      logger.error("Error fetching dataset:", e);
-      setError("Failed to load dataset");
-      setRows([]);
-      setColumns([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [fileId]);
+  const fetchData = useCallback(
+    async (nextOffset = 0) => {
+      try {
+        setLoading(true);
+        setError(null);
+        const fileData = await getFileData(fileId, { offset: nextOffset, limit: PAGE_SIZE });
+        setRows(fileData.rows || []);
+        setColumns(fileData.columns || []);
+        setPagination(fileData.pagination || { total: 0, offset: nextOffset, limit: PAGE_SIZE });
+      } catch (e) {
+        logger.error("Error fetching dataset:", e);
+        setError("Failed to load dataset");
+        setRows([]);
+        setColumns([]);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [fileId],
+  );
 
   useEffect(() => {
     if (fileId) {
@@ -57,7 +60,11 @@ const DisplayDataset = ({ fileId }) => {
   }
 
   if (!rows.length) {
-    return <div className="flex h-48 items-center justify-center text-muted-foreground">No rows found.</div>;
+    return (
+      <div className="flex h-48 items-center justify-center text-muted-foreground">
+        No rows found.
+      </div>
+    );
   }
 
   const { total, offset, limit } = pagination;
@@ -108,7 +115,12 @@ const DisplayDataset = ({ fileId }) => {
           Showing {start}-{end} of {total}
         </span>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={handlePrevious} disabled={!hasPrev || loading}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handlePrevious}
+            disabled={!hasPrev || loading}
+          >
             Previous
           </Button>
           <Button variant="outline" size="sm" onClick={handleNext} disabled={!hasNext || loading}>

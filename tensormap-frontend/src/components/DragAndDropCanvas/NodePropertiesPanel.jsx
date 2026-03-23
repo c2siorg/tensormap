@@ -248,6 +248,28 @@ function NodePropertiesPanel({
     );
   }
 
+  if (type === "customdropout") {
+    return (
+      <Card className="h-fit">
+        <CardHeader>
+          <CardTitle className="text-sm">Dropout</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="space-y-1">
+            <Label>Rate (0–1)</Label>
+            <Input
+              type="number"
+              min="0"
+              max="1"
+              step="0.1"
+              value={params.rate}
+              onChange={(e) => updateParam("rate", e.target.value)}
+            />
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
   return null;
 }
 

@@ -69,21 +69,26 @@ jobs:
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
           ref: ${{ github.event.pull_request.head.sha || '' }}
-      - uses: astral-sh/setup-uv@v4
+          
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: uv sync --frozen --extra dev
+          
+      - name: Install Poetry
+        run: pipx install poetry
+        
+      - name: Install dependencies
+        run: poetry install
 
       - name: Ruff lint
         id: ruff-lint
         continue-on-error: true
-        run: uv run ruff check .
+        run: poetry run ruff check .
 
       - name: Ruff format
         id: ruff-format
         continue-on-error: true
-        run: uv run ruff format --check .
+        run: poetry run ruff format --check .
 
       - name: Fail if checks failed
         if: steps.ruff-lint.outcome == 'failure' || steps.ruff-format.outcome == 'failure'
@@ -135,8 +140,8 @@ jobs:
           PR_COMMITS: ${{ github.event.pull_request.commits }}
         with:
           script: |
-            const marker = '<!-- ci-bot -->';
-            const oldMarkers = ['<!-- lint-frontend-bot -->', '<!-- lint-backend-bot -->', '<!-- rebase-bot -->'];
+            const marker = '';
+            const oldMarkers = ['', '', ''];
             const prNumber = context.payload.pull_request.number;
 
             const { data: comments } = await github.rest.issues.listComments({
@@ -171,8 +176,8 @@ jobs:
             const ruffFormatFailed = process.env.RUFF_FORMAT === 'failure';
             if (ruffLintFailed || ruffFormatFailed) {
               let s = '### Backend\n\n';
-              if (ruffLintFailed) s += '- **Ruff lint:** Run `uv run ruff check --fix .` in `tensormap-backend/`\n';
-              if (ruffFormatFailed) s += '- **Ruff format:** Run `uv run ruff format .` in `tensormap-backend/`\n';
+              if (ruffLintFailed) s += '- **Ruff lint:** Run `poetry run ruff check --fix .` in `tensormap-backend/`\n';
+              if (ruffFormatFailed) s += '- **Ruff format:** Run `poetry run ruff format .` in `tensormap-backend/`\n';
               sections.push(s);
             }
 

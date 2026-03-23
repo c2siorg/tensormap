@@ -1,5 +1,6 @@
 import asyncio
 import io
+import json
 import uuid as uuid_pkg
 
 from fastapi import APIRouter, Depends, Query
@@ -19,11 +20,19 @@ from app.services.deep_learning import (
     run_code_service,
     update_training_config_service,
 )
+from app.shared.constants import LAYER_REGISTRY_LOCATION
 from app.shared.logging_config import get_logger
 
 logger = get_logger(__name__)
-
 router = APIRouter(tags=["deep-learning"])
+
+# MODULE-LEVEL CACHING: Read the registry once when the server boots, not on every request.
+try:
+    with open(LAYER_REGISTRY_LOCATION) as f:
+        _LAYER_REGISTRY = json.load(f)
+except (FileNotFoundError, json.JSONDecodeError) as e:
+    logger.critical("Failed to load layer registry: %s", e)
+    raise RuntimeError(f"Cannot start server: layer registry unavailable — {e}") from e
 
 
 @router.post("/model/validate")
@@ -124,3 +133,20 @@ def get_training_history(
     """Return a paginated list of models with enriched metadata for training history view."""
     body, status_code = get_training_history_service(db, project_id=project_id, offset=offset, limit=limit)
     return JSONResponse(status_code=status_code, content=body)
+
+
+@router.get("/layers")
+def get_layer_registry():
+    """
+    Return the data-driven layer registry for dynamic UI generation.
+    NOTE: Public endpoint — no auth required by design (layer schema is non-sensitive and needed for UI rendering).
+    """
+    logger.debug("Fetching unified layer registry")
+
+    if _LAYER_REGISTRY is None:
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "message": "Unified layer registry is missing or corrupted on the server."},
+        )
+    return JSONResponse(status_code=200, content={"success": True, "layers": _LAYER_REGISTRY})
+

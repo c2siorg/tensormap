@@ -418,6 +418,7 @@ export default function Training() {
   const handleSaveConfig = useCallback(() => {
     if (!selectedModel) return;
 
+    // Final validation check before submitting
     if (!validateAllFields()) {
       return;
     }
@@ -470,6 +471,7 @@ export default function Training() {
   const handleRun = useCallback(() => {
     if (!selectedModel) return;
 
+    // Final validation check before training
     if (!validateAllFields()) {
       return;
     }
@@ -719,7 +721,7 @@ export default function Training() {
                   {fieldsList.length > 0 && (
                     <datalist id="target-fields">
                       {fieldsList.map((f) => (
-                        <option key={f.value} value={f.value}>
+                        <option key={f.key} value={f.value}>
                           {f.label}
                         </option>
                       ))}

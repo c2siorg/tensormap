@@ -19,6 +19,17 @@ def _resp(status_code: int, success: bool, message: str, data: Any = None) -> tu
     return {"success": success, "message": message, "data": data}, status_code
 
 
+def _paginated_resp(data: list, pagination: dict) -> tuple:
+    """Build a standard API response tuple for paginated data."""
+    body = {
+        "success": True,
+        "message": "Data sent successfully",
+        "data": data,
+        "pagination": pagination,
+    }
+    return body, 200
+
+
 def _get_file_path(file: DataFile) -> str:
     """Resolve the on-disk path for a DataFile record."""
     settings = get_settings()
@@ -31,6 +42,39 @@ def add_target_service(db: Session, file_id: uuid_pkg.UUID, target: str) -> tupl
         file = db.exec(select(DataFile).where(DataFile.id == file_id)).first()
         if not file:
             return _resp(400, False, "File doesn't exist in DB")
+        if file.file_type != "csv":
+            return _resp(400, False, "Only CSV files support target field assignment")
+
+        # Validate target against dataset columns.
+        columns = file.columns
+        if columns is None:
+            file_path = _get_file_path(file)
+            header_df = pd.read_csv(file_path, nrows=0)
+            columns = list(header_df.columns)
+            file.columns = columns
+            db.add(file)
+            db.commit()
+
+        if target not in (columns or []):
+            return _resp(
+                422,
+                False,
+                f"Target column '{target}' not found. Available columns: {columns or []}",
+            )
+
+        existing_rows = db.exec(select(DataProcess).where(DataProcess.file_id == file_id)).all()
+        if existing_rows:
+            target_record = existing_rows[0]
+            # Backfill cleanup in case legacy duplicates exist.
+            for duplicate in existing_rows[1:]:
+                db.delete(duplicate)
+            if target_record.target == target and len(existing_rows) == 1:
+                return _resp(200, True, "Target field already set for this file")
+            target_record.target = target
+            db.add(target_record)
+            db.commit()
+            logger.info("Target field updated to '%s' for file_id=%s", target, file_id)
+            return _resp(200, True, "Target field updated successfully")
 
         if file.file_type != "csv":
             return _resp(400, False, "Only CSV files support target field assignment")
@@ -246,40 +290,38 @@ def get_correlation_matrix(db: Session, file_id: uuid_pkg.UUID) -> tuple:
     return _resp(200, True, "Correlation matrix computed successfully", {"columns": columns, "matrix": matrix})
 
 
-def get_file_data(db: Session, file_id: uuid_pkg.UUID, offset: int = 0, limit: int = 100) -> tuple:
-    """Read and return a paginated preview of a CSV file.
-
-    The response includes:
-    - ``rows``: list of records for the current page
-    - ``columns``: ordered list of column names
-    - ``pagination``: total/offset/limit metadata
-    """
+def get_file_data(db: Session, file_id: uuid_pkg.UUID, page: int = 1, page_size: int = 50) -> tuple:
+    """Read and return the paginated contents of a CSV file as JSON."""
     file = db.exec(select(DataFile).where(DataFile.id == file_id)).first()
     if not file:
         return _resp(400, False, "Unable to open file")
-    if file.file_type != "csv":
-        return _resp(400, False, "Only CSV files support row preview")
 
     file_path = _get_file_path(file)
+
     try:
-        # Cache columns from disk if missing in DB.
-        if file.columns is None:
-            header_df = pd.read_csv(file_path, nrows=0)
-            file.columns = list(header_df.columns)
-            db.add(file)
-            db.commit()
-        columns = file.columns or []
+        with open(file_path, "rb") as f:
+            total_rows = sum(1 for _ in f) - 1
+        total_rows = max(total_rows, 0)
+    except FileNotFoundError:
+        logger.error("File not found on disk: %s", file_path)
+        return _resp(500, False, "File not found on server")
+    except Exception as e:
+        logger.exception("Error reading file count: %s", str(e))
+        return _resp(500, False, "Error reading file")
 
-        # Use cached row_count when available; otherwise count once and cache.
-        if file.row_count is None:
-            file.row_count = sum(chunk.shape[0] for chunk in pd.read_csv(file_path, chunksize=10_000))
-            db.add(file)
-            db.commit()
-        total_rows = file.row_count or 0
+    total_pages = (total_rows + page_size - 1) // page_size if page_size > 0 else 0
 
-        # Read only the requested page rows (keep header row intact).
-        skiprows = range(1, offset + 1) if offset > 0 else None
-        df = pd.read_csv(file_path, skiprows=skiprows, nrows=limit)
+    if total_rows > 0 and page > total_pages:
+        return _resp(400, False, f"Page {page} exceeds total pages ({total_pages})")
+
+    if total_rows == 0:
+        return _paginated_resp([], {"page": page, "page_size": page_size, "total_rows": 0, "total_pages": 0})
+
+    start_idx = (page - 1) * page_size
+    skip = list(range(1, start_idx + 1)) if start_idx > 0 else None
+
+    try:
+        df_page = pd.read_csv(file_path, skiprows=skip, nrows=page_size)
     except FileNotFoundError:
         logger.error("File not found on disk: %s", file_path)
         return _resp(500, False, "File not found on server")
@@ -290,13 +332,12 @@ def get_file_data(db: Session, file_id: uuid_pkg.UUID, offset: int = 0, limit: i
         logger.exception("Error reading file: %s", str(e))
         return _resp(500, False, "Error reading CSV file")
 
-    rows = df.to_dict(orient="records")
-    data = {
-        "rows": rows,
-        "columns": columns,
-        "pagination": {"total": total_rows, "offset": offset, "limit": limit},
-    }
-    return _resp(200, True, "Data sent successfully", data)
+    # For empty or any dataframe slice, to_dict will convert to list of plain dict elements avoiding json strings
+    data_list = df_page.to_dict(orient="records")
+
+    return _paginated_resp(
+        data_list, {"page": page, "page_size": page_size, "total_rows": total_rows, "total_pages": total_pages}
+    )
 
 
 # Transformation handler functions

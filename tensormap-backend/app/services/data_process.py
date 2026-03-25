@@ -76,6 +76,39 @@ def add_target_service(db: Session, file_id: uuid_pkg.UUID, target: str) -> tupl
             logger.info("Target field updated to '%s' for file_id=%s", target, file_id)
             return _resp(200, True, "Target field updated successfully")
 
+        if file.file_type != "csv":
+            return _resp(400, False, "Only CSV files support target field assignment")
+
+        columns = file.columns
+        if columns is None:
+            file_path = _get_file_path(file)
+            header_df = pd.read_csv(file_path, nrows=0)
+            columns = list(header_df.columns)
+            file.columns = columns
+            db.add(file)
+            db.commit()
+
+        if target not in columns:
+            return _resp(422, False, f"Target column '{target}' not found. Available columns: {columns}")
+
+        existing_rows = db.exec(select(DataProcess).where(DataProcess.file_id == file_id)).all()
+        if existing_rows:
+            target_record = existing_rows[0]
+            for duplicate in existing_rows[1:]:
+                db.delete(duplicate)
+
+            if target_record.target == target:
+                if len(existing_rows) > 1:
+                    db.commit()
+                    logger.info("Cleaned up duplicate target rows for file_id=%s", file_id)
+                return _resp(200, True, "Target field already set for this file")
+
+            target_record.target = target
+            db.add(target_record)
+            db.commit()
+            logger.info("Target field updated to '%s' for file_id=%s", target, file_id)
+            return _resp(200, True, "Target field updated successfully")
+
         data_process = DataProcess(file_id=file_id, target=target)
         db.add(data_process)
         db.commit()
@@ -84,7 +117,7 @@ def add_target_service(db: Session, file_id: uuid_pkg.UUID, target: str) -> tupl
     except Exception as e:
         db.rollback()
         logger.exception("Error storing record: %s", str(e))
-        return _resp(500, False, f"Error storing record: {e}")
+        return _resp(500, False, "An error occurred while storing the target field")
 
 
 def get_all_targets_service(db: Session, offset: int = 0, limit: int = 50) -> tuple:
@@ -156,13 +189,14 @@ def get_data_metrics(db: Session, file_id: uuid_pkg.UUID) -> tuple:
     try:
         df = pd.read_csv(file_path)
     except FileNotFoundError:
-        return _resp(500, False, f"File not found: {file_path}")
+        logger.error("File not found on disk: %s", file_path)
+        return _resp(500, False, "File not found on server")
     except pd.errors.ParserError as e:
         logger.exception("CSV parsing error: %s", str(e))
-        return _resp(500, False, f"Error reading CSV: {e}")
+        return _resp(500, False, "Error parsing CSV file")
     except Exception as e:
         logger.exception("Error reading file: %s", str(e))
-        return _resp(500, False, f"Error reading CSV: {e}")
+        return _resp(500, False, "Error reading CSV file")
 
     metrics = {
         "data_types": df.dtypes.apply(str).to_dict(),
@@ -182,13 +216,14 @@ def get_column_stats_service(db: Session, file_id: uuid_pkg.UUID) -> tuple:
     try:
         df = pd.read_csv(file_path)
     except FileNotFoundError:
-        return _resp(500, False, f"File not found: {file_path}")
+        logger.error("File not found on disk: %s", file_path)
+        return _resp(500, False, "File not found on server")
     except pd.errors.ParserError as e:
         logger.exception("CSV parsing error: %s", str(e))
-        return _resp(500, False, f"Error reading CSV: {e}")
+        return _resp(500, False, "Error parsing CSV file")
     except Exception as e:
         logger.exception("Error reading file: %s", str(e))
-        return _resp(500, False, f"Error reading CSV: {e}")
+        return _resp(500, False, "Error reading CSV file")
 
     total_rows = len(df)
     total_cols = len(df.columns)
@@ -235,13 +270,14 @@ def get_correlation_matrix(db: Session, file_id: uuid_pkg.UUID) -> tuple:
     try:
         df = pd.read_csv(file_path)
     except FileNotFoundError:
-        return _resp(500, False, f"File not found: {file_path}")
+        logger.error("File not found on disk: %s", file_path)
+        return _resp(500, False, "File not found on server")
     except pd.errors.ParserError as e:
         logger.exception("CSV parsing error: %s", str(e))
-        return _resp(500, False, f"Error reading CSV: {e}")
+        return _resp(500, False, "Error parsing CSV file")
     except Exception as e:
         logger.exception("Error reading file: %s", str(e))
-        return _resp(500, False, f"Error reading CSV: {e}")
+        return _resp(500, False, "Error reading CSV file")
 
     numeric_df = df.select_dtypes(include="number")
     if numeric_df.empty:
@@ -285,13 +321,14 @@ def get_file_data(db: Session, file_id: uuid_pkg.UUID, page: int = 1, page_size:
     try:
         df_page = pd.read_csv(file_path, skiprows=skip, nrows=page_size)
     except FileNotFoundError:
-        return _resp(500, False, f"File not found: {file_path}")
+        logger.error("File not found on disk: %s", file_path)
+        return _resp(500, False, "File not found on server")
     except pd.errors.ParserError as e:
         logger.exception("CSV parsing error: %s", str(e))
-        return _resp(500, False, f"Error reading CSV: {e}")
+        return _resp(500, False, "Error parsing CSV file")
     except Exception as e:
         logger.exception("Error reading file: %s", str(e))
-        return _resp(500, False, f"Error reading CSV: {e}")
+        return _resp(500, False, "Error reading CSV file")
 
     # For empty or any dataframe slice, to_dict will convert to list of plain dict elements avoiding json strings
     data_list = df_page.to_dict(orient="records")
@@ -436,7 +473,7 @@ def preprocess_data(db: Session, file_id: uuid_pkg.UUID, transformations: list) 
         return _resp(200, True, "Dataset preprocessed successfully")
     except pd.errors.ParserError as e:
         logger.exception("CSV parsing error: %s", str(e))
-        return _resp(500, False, f"Error parsing CSV data: {e}")
+        return _resp(500, False, "Error parsing CSV data")
     except Exception as e:
         logger.exception("Error preprocessing data: %s", str(e))
-        return _resp(500, False, f"Error preprocessing data: {e}")
+        return _resp(500, False, "Error preprocessing data")

@@ -30,6 +30,8 @@ import DenseNode from "./CustomNodes/DenseNode/DenseNode";
 import FlattenNode from "./CustomNodes/FlattenNode/FlattenNode";
 import ConvNode from "./CustomNodes/ConvNode/ConvNode";
 import DropoutNode from "./CustomNodes/DropoutNode/DropoutNode";
+import MaxPoolNode from "./CustomNodes/MaxPoolNode/MaxPoolNode";
+import BatchNormNode from "./CustomNodes/BatchNormNode/BatchNormNode";
 import Sidebar from "./Sidebar";
 import NodePropertiesPanel from "./NodePropertiesPanel";
 import { canSaveModel, generateModelJSON } from "./Helpers";
@@ -52,6 +54,8 @@ const nodeTypes = {
   customflatten: FlattenNode,
   customconv: ConvNode,
   customdropout: DropoutNode,
+  custommaxpool: MaxPoolNode,
+  custombatchnorm: BatchNormNode,
 };
 
 function Canvas() {
@@ -522,6 +526,8 @@ function Canvas() {
           kernelY: "",
         },
         customdropout: { rate: "" },
+        custommaxpool: { poolX: "2", poolY: "2", strideX: "", strideY: "", padding: "valid" },
+        custombatchnorm: {},
       };
 
       const newNode = {

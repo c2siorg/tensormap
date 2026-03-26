@@ -101,5 +101,24 @@ def _build_layer(node: dict, input_tensor):
             name=name,
         )(input_tensor)
 
+    elif node_type == "customdropout":
+        rate = float(params.get("rate", 0.5))
+        return tf.keras.layers.Dropout(rate=rate, name=name)(input_tensor)
+
+    elif node_type == "custommaxpool":
+        pool_x = int(params.get("poolX", 2))
+        pool_y = int(params.get("poolY", 2))
+        stride_x = int(params.get("strideX", pool_x))
+        stride_y = int(params.get("strideY", pool_y))
+        return tf.keras.layers.MaxPooling2D(
+            pool_size=(pool_x, pool_y),
+            strides=(stride_x, stride_y),
+            padding=params.get("padding", "valid"),
+            name=name,
+        )(input_tensor)
+
+    elif node_type == "custombatchnorm":
+        return tf.keras.layers.BatchNormalization(name=name)(input_tensor)
+
     else:
         raise ValueError(f"Unknown node type: {node_type}")

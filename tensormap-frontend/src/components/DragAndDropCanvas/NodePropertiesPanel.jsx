@@ -270,6 +270,89 @@ function NodePropertiesPanel({
       </Card>
     );
   }
+
+  if (type === "custommaxpool") {
+    return (
+      <Card className="h-fit">
+        <CardHeader>
+          <CardTitle className="text-sm">MaxPooling2D</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="space-y-1">
+            <Label>Pool X</Label>
+            <Input
+              type="number"
+              min="1"
+              placeholder="Pool size X"
+              value={params.poolX}
+              onChange={(e) => updateParam("poolX", Number(e.target.value))}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label>Pool Y</Label>
+            <Input
+              type="number"
+              min="1"
+              placeholder="Pool size Y"
+              value={params.poolY}
+              onChange={(e) => updateParam("poolY", Number(e.target.value))}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label>Stride X (optional)</Label>
+            <Input
+              type="number"
+              min="1"
+              placeholder="Defaults to pool X"
+              value={params.strideX}
+              onChange={(e) => updateParam("strideX", Number(e.target.value))}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label>Stride Y (optional)</Label>
+            <Input
+              type="number"
+              min="1"
+              placeholder="Defaults to pool Y"
+              value={params.strideY}
+              onChange={(e) => updateParam("strideY", Number(e.target.value))}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label>Padding</Label>
+            <Select value={params.padding} onValueChange={(v) => updateParam("padding", v)}>
+              <SelectTrigger>
+                <SelectValue placeholder="Padding" />
+              </SelectTrigger>
+              <SelectContent>
+                {convPaddings.map((p) => (
+                  <SelectItem key={p.value} value={p.value}>
+                    {p.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (type === "custombatchnorm") {
+    return (
+      <Card className="h-fit">
+        <CardHeader>
+          <CardTitle className="text-sm">Batch Normalization</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">
+            Normalizes activations of the previous layer. No configurable parameters.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
   return null;
 }
 

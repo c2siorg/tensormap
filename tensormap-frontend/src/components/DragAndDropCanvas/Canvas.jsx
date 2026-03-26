@@ -31,7 +31,7 @@ import FlattenNode from "./CustomNodes/FlattenNode/FlattenNode";
 import ConvNode from "./CustomNodes/ConvNode/ConvNode";
 import DropoutNode from "./CustomNodes/DropoutNode/DropoutNode";
 import Sidebar from "./Sidebar";
-import NodePropertiesPanel from "./NodePropertiesPanel";
+import NodeConfigPanel from "../NodeConfigPanel/NodeConfigPanel";
 import { canSaveModel, generateModelJSON } from "./Helpers";
 import ModelSummaryPanel from "./ModelSummaryPanel";
 import { getAllModels, getModelGraph, saveModel } from "../../services/ModelServices";
@@ -72,6 +72,7 @@ function Canvas() {
   });
   const [contextMenu, setContextMenu] = useState({ nodeId: null, x: 0, y: 0 });
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
+  const [isConfigPanelOpen, setIsConfigPanelOpen] = useState(false);
   const defaultViewport = { x: 10, y: 15, zoom: 0.5 };
 
   const draftKey = `tensormap_draft_${projectId || "default"}`;
@@ -377,6 +378,7 @@ function Canvas() {
 
   const onNodeClick = useCallback((_event, node) => {
     setSelectedNodeId(node.id);
+    setIsConfigPanelOpen(true);
   }, []);
 
   const closeContextMenu = useCallback(() => {
@@ -385,6 +387,7 @@ function Canvas() {
 
   const onPaneClick = useCallback(() => {
     setSelectedNodeId(null);
+    setIsConfigPanelOpen(false);
     closeContextMenu();
   }, [closeContextMenu]);
 
@@ -409,9 +412,17 @@ function Canvas() {
     closeContextMenu();
   }, [contextMenu.nodeId, setNodes, closeContextMenu, takeSnapshotAndUpdate]);
 
+  const isEditingParamsRef = useRef(false);
+  const editSnapshotRef = useRef(null);
+
   const onNodeUpdate = useCallback(
     (nodeId, newParams) => {
-      takeSnapshotAndUpdate(nodesRef.current, edgesRef.current);
+      // If we're not already in an editing session, capture the pre-edit state.
+      if (!isEditingParamsRef.current) {
+        isEditingParamsRef.current = true;
+        editSnapshotRef.current = { nodes: nodesRef.current, edges: edgesRef.current };
+      }
+
       setNodes((nds) =>
         nds.map((node) => {
           if (node.id === nodeId) {
@@ -420,6 +431,17 @@ function Canvas() {
           return node;
         }),
       );
+
+      // Debounce the snapshot commit. If the user stops typing for 1 second,
+      // we commit the pre-edit state we captured at the start.
+      if (window.editParamsTimeout) clearTimeout(window.editParamsTimeout);
+      window.editParamsTimeout = setTimeout(() => {
+        if (editSnapshotRef.current) {
+          takeSnapshotAndUpdate(editSnapshotRef.current.nodes, editSnapshotRef.current.edges);
+          editSnapshotRef.current = null;
+        }
+        isEditingParamsRef.current = false;
+      }, 1000);
     },
     [setNodes, takeSnapshotAndUpdate],
   );
@@ -646,16 +668,31 @@ function Canvas() {
               onClose={closeContextMenu}
             />
           )}
-          <div className="w-72 shrink-0">
-            <NodePropertiesPanel
-              selectedNode={selectedNode || null}
-              modelName={modelName}
-              onModelNameChange={setModelName}
-              onSave={modelSaveHandler}
-              canSave={canSaveModel(modelName, modelData)}
-              onNodeUpdate={onNodeUpdate}
-            />
+          {/* Top save bar replacing the fixed right column */}
+          <div className="absolute top-4 right-4 z-10 flex items-center gap-2 bg-background/80 p-2 backdrop-blur-sm rounded-md border shadow-sm">
+            <span className="text-sm font-medium">Model:</span>
+            <div className="w-48">
+              <input
+                className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                placeholder="Enter model name"
+                value={modelName}
+                onChange={(e) => setModelName(e.target.value)}
+              />
+            </div>
+            <Button
+              size="sm"
+              onClick={modelSaveHandler}
+              disabled={!canSaveModel(modelName, modelData)}
+            >
+              Validate &amp; Save
+            </Button>
           </div>
+          <NodeConfigPanel
+            isOpen={isConfigPanelOpen}
+            onClose={() => setIsConfigPanelOpen(false)}
+            selectedNode={selectedNode || null}
+            onNodeUpdate={onNodeUpdate}
+          />
         </ReactFlowProvider>
       </div>
       <ModelSummaryPanel summary={modelSummary} onClose={() => setModelSummary(null)} />

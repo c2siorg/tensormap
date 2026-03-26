@@ -9,7 +9,7 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U c2si -d c2si_db"]
+      test: [ "CMD-SHELL", "pg_isready -U c2si -d c2si_db" ]
       interval: 5s
       timeout: 5s
       retries: 5

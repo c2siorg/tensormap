@@ -101,5 +101,14 @@ def _build_layer(node: dict, input_tensor):
             name=name,
         )(input_tensor)
 
+    elif node_type == "custommaxpool":
+        pool_x = int(params.get("poolX", 2))
+        pool_y = int(params.get("poolY", 2))
+
+        return tf.keras.layers.MaxPooling2D(
+            pool_size=(pool_x, pool_y),
+            name=name,
+        )(input_tensor)
+
     else:
         raise ValueError(f"Unknown node type: {node_type}")

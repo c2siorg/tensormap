@@ -32,9 +32,7 @@ def generate_code(model_name: str, db: Session) -> str:
     """Generate TensorFlow Python code from a saved model configuration."""
 
     # Fetch model configuration
-    model_configs = db.exec(
-        select(ModelBasic).where(ModelBasic.model_name == model_name)
-    ).first()
+    model_configs = db.exec(select(ModelBasic).where(ModelBasic.model_name == model_name)).first()
 
     # Raise an error if model config is not found
     if model_configs is None:
@@ -50,9 +48,7 @@ def generate_code(model_name: str, db: Session) -> str:
             MODEL_TRAINING_SPLIT: model_configs.training_split,
         },
         LEARNING_MODEL: {
-            MODEL_JSON_FILE: MODEL_GENERATION_LOCATION
-            + model_name
-            + MODEL_GENERATION_TYPE,
+            MODEL_JSON_FILE: MODEL_GENERATION_LOCATION + model_name + MODEL_GENERATION_TYPE,
             MODEL_OPTIMIZER: model_configs.optimizer,
             MODEL_METRIC: model_configs.metric,
             MODEL_EPOCHS: model_configs.epochs,
@@ -61,9 +57,7 @@ def generate_code(model_name: str, db: Session) -> str:
 
     # Handle image properties if the file is a zip
     if file.file_type == "zip":
-        image_prop = db.exec(
-            select(ImageProperties).where(ImageProperties.id == model_configs.file_id)
-        ).first()
+        image_prop = db.exec(select(ImageProperties).where(ImageProperties.id == model_configs.file_id)).first()
         if image_prop:
             data[DATASET].update(
                 {
@@ -88,11 +82,9 @@ def _map_template(problem_type_id: int) -> str:
     """Map a ProblemType enum value to its Jinja2 template path."""
 
     options = {
-        ProblemType.CLASSIFICATION: CODE_TEMPLATE_FOLDER
-        + "multi-class-all-float-classification-csv.py",
+        ProblemType.CLASSIFICATION: CODE_TEMPLATE_FOLDER + "multi-class-all-float-classification-csv.py",
         ProblemType.REGRESSION: CODE_TEMPLATE_FOLDER + "linear-regression-all-float.py",
-        ProblemType.IMAGE_CLASSIFICATION: CODE_TEMPLATE_FOLDER
-        + "simple-image-classification.py",
+        ProblemType.IMAGE_CLASSIFICATION: CODE_TEMPLATE_FOLDER + "simple-image-classification.py",
     }
 
     # Use .get() to avoid KeyError for unknown problem_type ---

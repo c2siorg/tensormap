@@ -101,5 +101,33 @@ def _build_layer(node: dict, input_tensor):
             name=name,
         )(input_tensor)
 
+    elif node_type == "customdropout":
+        rate = float(params.get("rate", 0.5))
+        return tf.keras.layers.Dropout(rate=rate, name=name)(input_tensor)
+
+    elif node_type == "customlstm":
+        units = int(params.get("units", 64))
+        return_sequences = params.get("return_sequences", "false").lower() == "true"
+        activation = params.get("activation", "tanh")
+        return tf.keras.layers.LSTM(
+            units=units,
+            return_sequences=return_sequences,
+            activation=activation,
+            name=name,
+        )(input_tensor)
+
+    elif node_type == "customglobalavgpool":
+        return tf.keras.layers.GlobalAveragePooling2D(name=name)(input_tensor)
+
+    elif node_type == "customdepthwiseconv":
+        activation = params.get("activation", "relu")
+        return tf.keras.layers.DepthwiseConv2D(
+            kernel_size=(int(params.get("kernelX", 3)), int(params.get("kernelY", 3))),
+            strides=(int(params.get("strideX", 1)), int(params.get("strideY", 1))),
+            padding=params.get("padding", "same"),
+            activation="linear" if activation == "none" else activation,
+            name=name,
+        )(input_tensor)
+
     else:
         raise ValueError(f"Unknown node type: {node_type}")

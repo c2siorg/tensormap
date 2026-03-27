@@ -30,6 +30,9 @@ import DenseNode from "./CustomNodes/DenseNode/DenseNode";
 import FlattenNode from "./CustomNodes/FlattenNode/FlattenNode";
 import ConvNode from "./CustomNodes/ConvNode/ConvNode";
 import DropoutNode from "./CustomNodes/DropoutNode/DropoutNode";
+import LSTMNode from "./CustomNodes/LSTMNode/LSTMNode";
+import GlobalAvgPoolNode from "./CustomNodes/GlobalAvgPoolNode/GlobalAvgPoolNode";
+import DepthwiseConvNode from "./CustomNodes/DepthwiseConvNode/DepthwiseConvNode";
 import Sidebar from "./Sidebar";
 import NodePropertiesPanel from "./NodePropertiesPanel";
 import { canSaveModel, generateModelJSON } from "./Helpers";
@@ -52,6 +55,9 @@ const nodeTypes = {
   customflatten: FlattenNode,
   customconv: ConvNode,
   customdropout: DropoutNode,
+  customlstm: LSTMNode,
+  customglobalavgpool: GlobalAvgPoolNode,
+  customdepthwiseconv: DepthwiseConvNode,
 };
 
 function Canvas() {
@@ -522,6 +528,8 @@ function Canvas() {
           kernelY: "",
         },
         customdropout: { rate: "" },
+        custommaxpool: { poolX: "2", poolY: "2", strideX: "", strideY: "", padding: "valid" },
+        custombatchnorm: {},
       };
 
       const newNode = {

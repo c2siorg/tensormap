@@ -20,14 +20,25 @@ def _resp(status_code: int, success: bool, message: str, data: Any = None) -> tu
     return {"success": success, "message": message, "data": data}, status_code
 
 
-def add_file_service(db: Session, file_wrapper: Any, project_id: uuid_pkg.UUID | None = None) -> tuple:
+def add_file_service(
+    db: Session, file_wrapper: Any, project_id: uuid_pkg.UUID | None = None
+) -> tuple:
     """Save an uploaded file to disk and create a DataFile record."""
+
     settings = get_settings()
     upload_folder = settings.upload_folder
     os.makedirs(upload_folder, exist_ok=True)
 
     filename = secure_filename(file_wrapper.filename.lower())
     file_path = os.path.join(upload_folder, filename)
+
+    # Check for duplicate filename in DB to avoid overwriting ---
+    existing_file = db.exec(
+        select(DataFile).where(DataFile.file_name == filename.rsplit(".", 1)[0].lower())
+    ).first()
+    if existing_file:
+        return _resp(409, False, f"File '{filename}' already exists")
+
     file_wrapper.save(file_path)
 
     file_name_db = secure_filename(file_wrapper.filename.rsplit(".", 1)[0].lower())
@@ -41,7 +52,9 @@ def add_file_service(db: Session, file_wrapper: Any, project_id: uuid_pkg.UUID |
         try:
             df_header = pd.read_csv(file_path, nrows=0)
             columns_list = list(df_header.columns)
-            row_count = sum(chunk.shape[0] for chunk in pd.read_csv(file_path, chunksize=10_000))
+            row_count = sum(
+                chunk.shape[0] for chunk in pd.read_csv(file_path, chunksize=10_000)
+            )
         except (pd.errors.ParserError, OSError, UnicodeDecodeError, MemoryError):
             logger.warning("Could not extract columns/row_count from %s", file_path)
 
@@ -58,7 +71,10 @@ def add_file_service(db: Session, file_wrapper: Any, project_id: uuid_pkg.UUID |
 
 
 def get_all_files_service(
-    db: Session, project_id: uuid_pkg.UUID | None = None, offset: int = 0, limit: int = 50
+    db: Session,
+    project_id: uuid_pkg.UUID | None = None,
+    offset: int = 0,
+    limit: int = 50,
 ) -> tuple:
     """Return a paginated list of uploaded files with their CSV column names."""
     settings = get_settings()
@@ -84,13 +100,25 @@ def get_all_files_service(
                     file_path = f"{upload_folder}/{file.file_name}.{file.file_type}"
                     df_header = pd.read_csv(file_path, nrows=0)
                     fields = list(df_header.columns)
-                    row_count = sum(chunk.shape[0] for chunk in pd.read_csv(file_path, chunksize=10_000))
+                    row_count = sum(
+                        chunk.shape[0]
+                        for chunk in pd.read_csv(file_path, chunksize=10_000)
+                    )
                     file.columns = fields
                     file.row_count = row_count
                     db.add(file)
                     db.commit()
-                except (pd.errors.ParserError, OSError, UnicodeDecodeError, MemoryError):
-                    logger.warning("Failed to read CSV for file %s (id=%s)", file.file_name, file.id)
+                except (
+                    pd.errors.ParserError,
+                    OSError,
+                    UnicodeDecodeError,
+                    MemoryError,
+                ):
+                    logger.warning(
+                        "Failed to read CSV for file %s (id=%s)",
+                        file.file_name,
+                        file.id,
+                    )
                     fields = []
                     row_count = 0
             else:
@@ -107,7 +135,11 @@ def get_all_files_service(
                     "error": fields == [],
                 }
             )
-        body = {"success": True, "message": "Saved files found successfully", "data": data}
+        body = {
+            "success": True,
+            "message": "Saved files found successfully",
+            "data": data,
+        }
         body["pagination"] = {"total": total, "offset": offset, "limit": limit}
         return body, 200
     except pd.errors.ParserError:

@@ -117,6 +117,10 @@ def model_run(model_name: str, db: Session, loop: asyncio.AbstractEventLoop | No
 def _run(model_name: str, db: Session) -> None:
     model_configs = db.exec(select(ModelBasic).where(ModelBasic.model_name == model_name)).first()
 
+    #  Check if model exists to avoid AttributeError ---
+    if model_configs is None:
+        raise ValueError(f"Model '{model_name}' not found in database.")
+
     if model_configs.model_type == ProblemType.IMAGE_CLASSIFICATION:
         image_properties = db.exec(select(ImageProperties).where(ImageProperties.id == model_configs.file_id)).first()
         image_size = (image_properties.image_size, image_properties.image_size)
@@ -125,15 +129,6 @@ def _run(model_name: str, db: Session) -> None:
         label_mode = image_properties.label_mode
 
         directory = _helper_generate_file_location(db, file_id=model_configs.file_id)
-        logger.debug(
-            "Image classification params - directory: %s, image_size: %s, "
-            "batch_size: %s, color_mode: %s, label_mode: %s",
-            directory,
-            image_size,
-            batch_size,
-            color_mode,
-            label_mode,
-        )
         validation_split = 1 - (model_configs.training_split / 100)
         train_data = tf.keras.utils.image_dataset_from_directory(
             directory,
@@ -159,19 +154,21 @@ def _run(model_name: str, db: Session) -> None:
         file_location = _helper_generate_file_location(db, file_id=model_configs.file_id)
         features = pd.read_csv(file_location)
         features.dropna(inplace=True)
-        # Shuffle data to prevent issues with ordered datasets
         features = features.sample(frac=1, random_state=42).reset_index(drop=True)
+
+        # Validate target_field before drop to avoid KeyError ---
+        if not model_configs.target_field:
+            raise ValueError(f"Model '{model_name}' has no target_field defined.")
+        if model_configs.target_field not in features.columns:
+            raise ValueError(f"Target field '{model_configs.target_field}' not found in CSV '{file_location}'.")
 
         X = features.drop(model_configs.target_field, axis=1)
         y = features[model_configs.target_field]
 
         split_index = int(len(X) * model_configs.training_split / 100)
-        x_training = X[:split_index]
-        y_training = y[:split_index]
-        x_testing = X[split_index:]
-        y_testing = y[split_index:]
-
-        batch_size = model_configs.batch_size if model_configs.batch_size is not None else 32
+        x_training, y_training = X[:split_index], y[:split_index]
+        x_testing, y_testing = X[split_index:], y[split_index:]
+        batch_size = model_configs.batch_size or 32
 
     with open(_helper_generate_json_model_file_location(model_name=model_name)) as f:
         json_string = f.read()

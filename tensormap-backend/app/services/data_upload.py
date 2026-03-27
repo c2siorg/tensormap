@@ -21,8 +21,11 @@ def _resp(status_code: int, success: bool, message: str, data: Any = None) -> tu
     return {"success": success, "message": message, "data": data}, status_code
 
 
-def add_file_service(db: Session, file_wrapper: Any, project_id: uuid_pkg.UUID | None = None) -> tuple:
+def add_file_service(
+    db: Session, file_wrapper: Any, project_id: uuid_pkg.UUID | None = None
+) -> tuple:
     """Save an uploaded file to disk and create a DataFile record."""
+
     settings = get_settings()
     upload_folder = settings.upload_folder
     os.makedirs(upload_folder, exist_ok=True)
@@ -31,24 +34,39 @@ def add_file_service(db: Session, file_wrapper: Any, project_id: uuid_pkg.UUID |
     file_path = os.path.join(upload_folder, filename)
 
     # Enforce max upload size before saving to disk
-    # Primary guard: Content-Length header pre-check (fast path, before reading body)
     file_size = 0
     try:
         file_wrapper.file.seek(0, 2)
         file_size = file_wrapper.file.tell()
     except (AttributeError, OSError) as exc:
-        logger.warning("Could not determine upload size; rejecting upload. Reason: %s", exc)
+        logger.warning(
+            "Could not determine upload size; rejecting upload. Reason: %s", exc
+        )
         return _resp(413, False, "File size could not be verified. Upload rejected.")
     finally:
         with contextlib.suppress(AttributeError, OSError):
             file_wrapper.file.seek(0)
     if file_size > settings.max_content_length:
-        return _resp(413, False, "File too large. Maximum allowed size is 200MB.")
+        max_mb = settings.max_content_length // (1024 * 1024)
+        return _resp(413, False, f"File too large. Maximum allowed size is {max_mb}MB.")
+
+    # Check for duplicate filename in DB to avoid overwriting
+    file_name_db = secure_filename(file_wrapper.filename.rsplit(".", 1)[0].lower())
+    file_type_db = file_wrapper.filename.rsplit(".", 1)[1].lower()
+    existing_file = db.exec(
+        select(DataFile).where(
+            DataFile.file_name == file_name_db, DataFile.file_type == file_type_db
+        )
+    ).first()
+    if existing_file:
+        return _resp(
+            409,
+            False,
+            f"A file named '{filename}' already exists. Please rename or delete the existing one first.",
+        )
 
     file_wrapper.save(file_path)
 
-    file_name_db = secure_filename(file_wrapper.filename.rsplit(".", 1)[0].lower())
-    file_type_db = file_wrapper.filename.rsplit(".", 1)[1].lower()
     logger.info("Saving file: %s", file_name_db)
 
     # Cache column names and row count at upload time (CSV only)
@@ -58,7 +76,9 @@ def add_file_service(db: Session, file_wrapper: Any, project_id: uuid_pkg.UUID |
         try:
             df_header = pd.read_csv(file_path, nrows=0)
             columns_list = list(df_header.columns)
-            row_count = sum(chunk.shape[0] for chunk in pd.read_csv(file_path, chunksize=10_000))
+            row_count = sum(
+                chunk.shape[0] for chunk in pd.read_csv(file_path, chunksize=10_000)
+            )
         except (pd.errors.ParserError, OSError, UnicodeDecodeError, MemoryError):
             logger.warning("Could not extract columns/row_count from %s", file_path)
 
@@ -75,7 +95,10 @@ def add_file_service(db: Session, file_wrapper: Any, project_id: uuid_pkg.UUID |
 
 
 def get_all_files_service(
-    db: Session, project_id: uuid_pkg.UUID | None = None, offset: int = 0, limit: int = 50
+    db: Session,
+    project_id: uuid_pkg.UUID | None = None,
+    offset: int = 0,
+    limit: int = 50,
 ) -> tuple:
     """Return a paginated list of uploaded files with their CSV column names."""
     settings = get_settings()
@@ -101,13 +124,25 @@ def get_all_files_service(
                     file_path = f"{upload_folder}/{file.file_name}.{file.file_type}"
                     df_header = pd.read_csv(file_path, nrows=0)
                     fields = list(df_header.columns)
-                    row_count = sum(chunk.shape[0] for chunk in pd.read_csv(file_path, chunksize=10_000))
+                    row_count = sum(
+                        chunk.shape[0]
+                        for chunk in pd.read_csv(file_path, chunksize=10_000)
+                    )
                     file.columns = fields
                     file.row_count = row_count
                     db.add(file)
                     db.commit()
-                except (pd.errors.ParserError, OSError, UnicodeDecodeError, MemoryError):
-                    logger.warning("Failed to read CSV for file %s (id=%s)", file.file_name, file.id)
+                except (
+                    pd.errors.ParserError,
+                    OSError,
+                    UnicodeDecodeError,
+                    MemoryError,
+                ):
+                    logger.warning(
+                        "Failed to read CSV for file %s (id=%s)",
+                        file.file_name,
+                        file.id,
+                    )
                     fields = []
                     row_count = 0
             else:
@@ -124,7 +159,11 @@ def get_all_files_service(
                     "error": fields == [],
                 }
             )
-        body = {"success": True, "message": "Saved files found successfully", "data": data}
+        body = {
+            "success": True,
+            "message": "Saved files found successfully",
+            "data": data,
+        }
         body["pagination"] = {"total": total, "offset": offset, "limit": limit}
         return body, 200
     except pd.errors.ParserError:

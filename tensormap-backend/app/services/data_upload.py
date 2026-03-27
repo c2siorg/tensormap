@@ -20,9 +20,7 @@ def _resp(status_code: int, success: bool, message: str, data: Any = None) -> tu
     return {"success": success, "message": message, "data": data}, status_code
 
 
-def add_file_service(
-    db: Session, file_wrapper: Any, project_id: uuid_pkg.UUID | None = None
-) -> tuple:
+def add_file_service(db: Session, file_wrapper: Any, project_id: uuid_pkg.UUID | None = None) -> tuple:
     """Save an uploaded file to disk and create a DataFile record."""
 
     settings = get_settings()
@@ -33,9 +31,7 @@ def add_file_service(
     file_path = os.path.join(upload_folder, filename)
 
     # Check for duplicate filename in DB to avoid overwriting ---
-    existing_file = db.exec(
-        select(DataFile).where(DataFile.file_name == filename.rsplit(".", 1)[0].lower())
-    ).first()
+    existing_file = db.exec(select(DataFile).where(DataFile.file_name == filename.rsplit(".", 1)[0].lower())).first()
     if existing_file:
         return _resp(409, False, f"File '{filename}' already exists")
 
@@ -52,9 +48,7 @@ def add_file_service(
         try:
             df_header = pd.read_csv(file_path, nrows=0)
             columns_list = list(df_header.columns)
-            row_count = sum(
-                chunk.shape[0] for chunk in pd.read_csv(file_path, chunksize=10_000)
-            )
+            row_count = sum(chunk.shape[0] for chunk in pd.read_csv(file_path, chunksize=10_000))
         except (pd.errors.ParserError, OSError, UnicodeDecodeError, MemoryError):
             logger.warning("Could not extract columns/row_count from %s", file_path)
 
@@ -100,10 +94,7 @@ def get_all_files_service(
                     file_path = f"{upload_folder}/{file.file_name}.{file.file_type}"
                     df_header = pd.read_csv(file_path, nrows=0)
                     fields = list(df_header.columns)
-                    row_count = sum(
-                        chunk.shape[0]
-                        for chunk in pd.read_csv(file_path, chunksize=10_000)
-                    )
+                    row_count = sum(chunk.shape[0] for chunk in pd.read_csv(file_path, chunksize=10_000))
                     file.columns = fields
                     file.row_count = row_count
                     db.add(file)

@@ -14,3 +14,4 @@ venv
 .venv
 *.log
 .DS_Store
+py_test.py

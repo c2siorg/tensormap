@@ -30,8 +30,9 @@ import DenseNode from "./CustomNodes/DenseNode/DenseNode";
 import FlattenNode from "./CustomNodes/FlattenNode/FlattenNode";
 import ConvNode from "./CustomNodes/ConvNode/ConvNode";
 import DropoutNode from "./CustomNodes/DropoutNode/DropoutNode";
-import MaxPoolNode from "./CustomNodes/MaxPoolNode/MaxPoolNode";
-import BatchNormNode from "./CustomNodes/BatchNormNode/BatchNormNode";
+import LSTMNode from "./CustomNodes/LSTMNode/LSTMNode";
+import GlobalAvgPoolNode from "./CustomNodes/GlobalAvgPoolNode/GlobalAvgPoolNode";
+import DepthwiseConvNode from "./CustomNodes/DepthwiseConvNode/DepthwiseConvNode";
 import Sidebar from "./Sidebar";
 import NodePropertiesPanel from "./NodePropertiesPanel";
 import { canSaveModel, generateModelJSON } from "./Helpers";
@@ -54,8 +55,9 @@ const nodeTypes = {
   customflatten: FlattenNode,
   customconv: ConvNode,
   customdropout: DropoutNode,
-  custommaxpool: MaxPoolNode,
-  custombatchnorm: BatchNormNode,
+  customlstm: LSTMNode,
+  customglobalavgpool: GlobalAvgPoolNode,
+  customdepthwiseconv: DepthwiseConvNode,
 };
 
 function Canvas() {

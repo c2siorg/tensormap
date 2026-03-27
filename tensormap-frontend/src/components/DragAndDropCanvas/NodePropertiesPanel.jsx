@@ -271,49 +271,103 @@ function NodePropertiesPanel({
     );
   }
 
-  if (type === "custommaxpool") {
+  if (type === "customlstm") {
     return (
       <Card className="h-fit">
         <CardHeader>
-          <CardTitle className="text-sm">MaxPooling2D</CardTitle>
+          <CardTitle className="text-sm">LSTM</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="space-y-1">
-            <Label>Pool X</Label>
+            <Label>Units</Label>
             <Input
               type="number"
               min="1"
-              placeholder="Pool size X"
-              value={params.poolX}
-              onChange={(e) => updateParam("poolX", Number(e.target.value))}
+              placeholder="e.g. 64"
+              value={params.units}
+              onChange={(e) => updateParam("units", Number(e.target.value))}
             />
           </div>
           <div className="space-y-1">
-            <Label>Pool Y</Label>
+            <Label>Activation</Label>
+            <Select value={params.activation} onValueChange={(v) => updateParam("activation", v)}>
+              <SelectTrigger>
+                <SelectValue placeholder="Activation" />
+              </SelectTrigger>
+              <SelectContent>
+                {["tanh", "sigmoid", "relu", "linear"].map((a) => (
+                  <SelectItem key={a} value={a}>{a}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <Label>Return Sequences</Label>
+            <Select value={params.return_sequences ?? "false"} onValueChange={(v) => updateParam("return_sequences", v)}>
+              <SelectTrigger>
+                <SelectValue placeholder="Return sequences" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="false">false</SelectItem>
+                <SelectItem value="true">true</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (type === "customglobalavgpool") {
+    return (
+      <Card className="h-fit">
+        <CardHeader>
+          <CardTitle className="text-sm">GlobalAveragePooling2D</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">
+            Averages each feature map to a single value. No configurable parameters.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (type === "customdepthwiseconv") {
+    return (
+      <Card className="h-fit">
+        <CardHeader>
+          <CardTitle className="text-sm">DepthwiseConv2D</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="space-y-1">
+            <Label>Kernel X</Label>
             <Input
-              type="number"
-              min="1"
-              placeholder="Pool size Y"
-              value={params.poolY}
-              onChange={(e) => updateParam("poolY", Number(e.target.value))}
+              type="number" min="1" placeholder="e.g. 3"
+              value={params.kernelX}
+              onChange={(e) => updateParam("kernelX", Number(e.target.value))}
             />
           </div>
           <div className="space-y-1">
-            <Label>Stride X (optional)</Label>
+            <Label>Kernel Y</Label>
             <Input
-              type="number"
-              min="1"
-              placeholder="Defaults to pool X"
+              type="number" min="1" placeholder="e.g. 3"
+              value={params.kernelY}
+              onChange={(e) => updateParam("kernelY", Number(e.target.value))}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label>Stride X</Label>
+            <Input
+              type="number" min="1" placeholder="e.g. 1"
               value={params.strideX}
               onChange={(e) => updateParam("strideX", Number(e.target.value))}
             />
           </div>
           <div className="space-y-1">
-            <Label>Stride Y (optional)</Label>
+            <Label>Stride Y</Label>
             <Input
-              type="number"
-              min="1"
-              placeholder="Defaults to pool Y"
+              type="number" min="1" placeholder="e.g. 1"
               value={params.strideY}
               onChange={(e) => updateParam("strideY", Number(e.target.value))}
             />
@@ -326,28 +380,24 @@ function NodePropertiesPanel({
               </SelectTrigger>
               <SelectContent>
                 {convPaddings.map((p) => (
-                  <SelectItem key={p.value} value={p.value}>
-                    {p.label}
-                  </SelectItem>
+                  <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  if (type === "custombatchnorm") {
-    return (
-      <Card className="h-fit">
-        <CardHeader>
-          <CardTitle className="text-sm">Batch Normalization</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground">
-            Normalizes activations of the previous layer. No configurable parameters.
-          </p>
+          <div className="space-y-1">
+            <Label>Activation</Label>
+            <Select value={params.activation} onValueChange={(v) => updateParam("activation", v)}>
+              <SelectTrigger>
+                <SelectValue placeholder="Activation" />
+              </SelectTrigger>
+              <SelectContent>
+                {activations.map((a) => (
+                  <SelectItem key={a.value} value={a.value}>{a.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </CardContent>
       </Card>
     );

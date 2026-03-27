@@ -48,18 +48,25 @@ function Sidebar() {
           Dropout
         </div>
         <div
-          className="cursor-grab rounded-md border border-l-4 border-l-node-maxpool bg-white px-3 py-2 text-xs font-medium"
-          onDragStart={(e) => onDragStart(e, "custommaxpool")}
+          className="cursor-grab rounded-md border border-l-4 border-l-node-lstm bg-white px-3 py-2 text-xs font-medium"
+          onDragStart={(e) => onDragStart(e, "customlstm")}
           draggable
         >
-          MaxPooling2D
+          LSTM
         </div>
         <div
-          className="cursor-grab rounded-md border border-l-4 border-l-node-batchnorm bg-white px-3 py-2 text-xs font-medium"
-          onDragStart={(e) => onDragStart(e, "custombatchnorm")}
+          className="cursor-grab rounded-md border border-l-4 border-l-node-globalavgpool bg-white px-3 py-2 text-xs font-medium"
+          onDragStart={(e) => onDragStart(e, "customglobalavgpool")}
           draggable
         >
-          BatchNorm
+          GlobalAvgPool2D
+        </div>
+        <div
+          className="cursor-grab rounded-md border border-l-4 border-l-node-depthwiseconv bg-white px-3 py-2 text-xs font-medium"
+          onDragStart={(e) => onDragStart(e, "customdepthwiseconv")}
+          draggable
+        >
+          DepthwiseConv2D
         </div>
       </CardContent>
     </Card>

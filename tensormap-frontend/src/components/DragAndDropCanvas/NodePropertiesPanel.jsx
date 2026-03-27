@@ -156,6 +156,19 @@ function NodePropertiesPanel({
     );
   }
 
+  if (type === "customavgpool") {
+    return (
+      <Card className="h-fit">
+        <CardHeader>
+          <CardTitle className="text-sm">AveragePooling2D Layer</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">No configurable parameters</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
   if (type === "customconv") {
     return (
       <Card className="h-fit">

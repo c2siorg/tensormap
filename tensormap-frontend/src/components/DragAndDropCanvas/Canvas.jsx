@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { useParams } from "react-router-dom";
 import { Trash2, Undo2, Redo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import AvgPoolNode from "./CustomNodes/AvgPoolNode/AvgPoolNode";
 import {
   Dialog,
   DialogContent,
@@ -52,6 +53,7 @@ const nodeTypes = {
   customflatten: FlattenNode,
   customconv: ConvNode,
   customdropout: DropoutNode,
+  customavgpool: AvgPoolNode,
 };
 
 function Canvas() {
@@ -515,6 +517,7 @@ function Canvas() {
           kernelY: "",
         },
         customdropout: { rate: "" },
+        customavgpool: {},
       };
 
       const newNode = {

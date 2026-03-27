@@ -101,5 +101,13 @@ def _build_layer(node: dict, input_tensor):
             name=name,
         )(input_tensor)
 
+    elif node_type == "customavgpool":
+        return tf.keras.layers.AveragePooling2D(
+            pool_size=(int(params.get("poolX", 2)), int(params.get("poolY", 2))),
+            strides=(int(params.get("strideX", 2)), int(params.get("strideY", 2))),
+            padding=params.get("padding", "valid"),
+            name=name,
+        )(input_tensor)
+
     else:
         raise ValueError(f"Unknown node type: {node_type}")

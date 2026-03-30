@@ -10,9 +10,13 @@ function DepthwiseConvNode({ data, id }) {
         DepthwiseConv2D
       </div>
       <div className="px-3 py-2 text-xs text-muted-foreground space-y-0.5">
-        {kernelX !== undefined && kernelX !== ""
-          ? <div>Kernel: {kernelX}×{kernelY}</div>
-          : <div>Not configured</div>}
+        {kernelX !== undefined && kernelX !== "" ? (
+          <div>
+            Kernel: {kernelX}×{kernelY}
+          </div>
+        ) : (
+          <div>Not configured</div>
+        )}
         {activation && <div>Act: {activation}</div>}
       </div>
       <Handle type="source" position={Position.Right} isConnectable id={`${id}_out`} />

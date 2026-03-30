@@ -296,14 +296,19 @@ function NodePropertiesPanel({
               </SelectTrigger>
               <SelectContent>
                 {["tanh", "sigmoid", "relu", "linear"].map((a) => (
-                  <SelectItem key={a} value={a}>{a}</SelectItem>
+                  <SelectItem key={a} value={a}>
+                    {a}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
           <div className="space-y-1">
             <Label>Return Sequences</Label>
-            <Select value={params.return_sequences ?? "false"} onValueChange={(v) => updateParam("return_sequences", v)}>
+            <Select
+              value={params.return_sequences ?? "false"}
+              onValueChange={(v) => updateParam("return_sequences", v)}
+            >
               <SelectTrigger>
                 <SelectValue placeholder="Return sequences" />
               </SelectTrigger>
@@ -343,7 +348,9 @@ function NodePropertiesPanel({
           <div className="space-y-1">
             <Label>Kernel X</Label>
             <Input
-              type="number" min="1" placeholder="e.g. 3"
+              type="number"
+              min="1"
+              placeholder="e.g. 3"
               value={params.kernelX}
               onChange={(e) => updateParam("kernelX", Number(e.target.value))}
             />
@@ -351,7 +358,9 @@ function NodePropertiesPanel({
           <div className="space-y-1">
             <Label>Kernel Y</Label>
             <Input
-              type="number" min="1" placeholder="e.g. 3"
+              type="number"
+              min="1"
+              placeholder="e.g. 3"
               value={params.kernelY}
               onChange={(e) => updateParam("kernelY", Number(e.target.value))}
             />
@@ -359,7 +368,9 @@ function NodePropertiesPanel({
           <div className="space-y-1">
             <Label>Stride X</Label>
             <Input
-              type="number" min="1" placeholder="e.g. 1"
+              type="number"
+              min="1"
+              placeholder="e.g. 1"
               value={params.strideX}
               onChange={(e) => updateParam("strideX", Number(e.target.value))}
             />
@@ -367,7 +378,9 @@ function NodePropertiesPanel({
           <div className="space-y-1">
             <Label>Stride Y</Label>
             <Input
-              type="number" min="1" placeholder="e.g. 1"
+              type="number"
+              min="1"
+              placeholder="e.g. 1"
               value={params.strideY}
               onChange={(e) => updateParam("strideY", Number(e.target.value))}
             />
@@ -380,7 +393,9 @@ function NodePropertiesPanel({
               </SelectTrigger>
               <SelectContent>
                 {convPaddings.map((p) => (
-                  <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
+                  <SelectItem key={p.value} value={p.value}>
+                    {p.label}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -393,7 +408,9 @@ function NodePropertiesPanel({
               </SelectTrigger>
               <SelectContent>
                 {ACTIVATIONS.map((a) => (
-                  <SelectItem key={a.value} value={a.value}>{a.label}</SelectItem>
+                  <SelectItem key={a.value} value={a.value}>
+                    {a.label}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>

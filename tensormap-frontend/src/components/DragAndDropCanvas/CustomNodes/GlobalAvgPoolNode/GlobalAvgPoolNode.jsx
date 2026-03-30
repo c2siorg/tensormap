@@ -8,9 +8,7 @@ function GlobalAvgPoolNode({ id }) {
       <div className="rounded-t-lg bg-node-globalavgpool px-3 py-1.5 text-xs font-bold text-white">
         GlobalAvgPool2D
       </div>
-      <div className="px-3 py-2 text-xs text-muted-foreground">
-        No parameters
-      </div>
+      <div className="px-3 py-2 text-xs text-muted-foreground">No parameters</div>
       <Handle type="source" position={Position.Right} isConnectable id={`${id}_out`} />
     </div>
   );

@@ -1,0 +1,10 @@
+﻿
+> tensormap-frontend@0.1.0 lint
+> eslint . --ext js,jsx --report-unused-disable-directives --max-warnings 0
+
+
+E:\GSOC2026\tensormap\tensormap-frontend\src\components\DragAndDropCanvas\NodePropertiesPanel.jsx
+  395:18  error  'activations' is not defined  no-undef
+
+Γ£û 1 problem (1 error, 0 warnings)
+

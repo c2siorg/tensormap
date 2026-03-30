@@ -392,7 +392,7 @@ function NodePropertiesPanel({
                 <SelectValue placeholder="Activation" />
               </SelectTrigger>
               <SelectContent>
-                {activations.map((a) => (
+                {ACTIVATIONS.map((a) => (
                   <SelectItem key={a.value} value={a.value}>{a.label}</SelectItem>
                 ))}
               </SelectContent>

@@ -528,8 +528,6 @@ function Canvas() {
           kernelY: "",
         },
         customdropout: { rate: "" },
-        custommaxpool: { poolX: "2", poolY: "2", strideX: "", strideY: "", padding: "valid" },
-        custombatchnorm: {},
       };
 
       const newNode = {

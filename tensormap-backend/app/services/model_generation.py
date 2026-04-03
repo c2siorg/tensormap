@@ -120,5 +120,11 @@ def _build_layer(node: dict, input_tensor):
             name=name,
         )(input_tensor)
 
+    elif node_type == "customdropout":
+        rate = float(params.get("rate", 0.5))
+        if not 0.0 <= rate < 1.0:
+            raise ValueError(f"Dropout rate must be in [0, 1), got {rate!r}.")
+        return tf.keras.layers.Dropout(rate=rate, name=name)(input_tensor)
+
     else:
         raise ValueError(f"Unknown node type: {node_type}")

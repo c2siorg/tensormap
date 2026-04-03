@@ -113,7 +113,10 @@ def _build_model_summary(keras_model) -> dict:
 
 def model_validate_service(db: Session, incoming: dict, project_id: uuid_pkg.UUID | None = None) -> tuple:
     """Validate a model graph with Keras, persist the configuration, and save the JSON file."""
-    model_generated = model_generation(model_params=incoming["model"])
+    try:
+        model_generated = model_generation(model_params=incoming["model"])
+    except ValueError as e:
+        return _resp(400, False, str(e))
 
     try:
         keras_model = tf.keras.models.model_from_json(json.dumps(model_generated))
@@ -204,7 +207,10 @@ def model_validate_service(db: Session, incoming: dict, project_id: uuid_pkg.UUI
 
 def model_save_service(db: Session, incoming: dict, model_name: str, project_id: uuid_pkg.UUID | None = None) -> tuple:
     """Validate a model graph with Keras and save architecture only (no training config)."""
-    model_generated = model_generation(model_params=incoming)
+    try:
+        model_generated = model_generation(model_params=incoming)
+    except ValueError as e:
+        return _resp(400, False, str(e))
 
     try:
         keras_model = tf.keras.models.model_from_json(json.dumps(model_generated))

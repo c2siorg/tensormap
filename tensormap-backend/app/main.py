@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.exceptions import AppException, app_exception_handler, generic_exception_handler
-from app.middleware import RequestLoggingMiddleware
+from app.middleware import RequestIDMiddleware, RequestLoggingMiddleware
 from app.routers import data_process, data_upload, deep_learning, project
 from app.shared.logging_config import get_logger
 from app.socketio_instance import sio
@@ -43,6 +43,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(RequestIDMiddleware)
 app.add_middleware(RequestLoggingMiddleware)
 
 app.add_exception_handler(AppException, app_exception_handler)

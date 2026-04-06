@@ -7,12 +7,14 @@ routers, and wraps the ASGI app with Socket.IO for real-time training progress.
 from contextlib import asynccontextmanager
 
 import socketio
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.config import get_settings
 from app.exceptions import AppException, app_exception_handler, generic_exception_handler
 from app.middleware import RequestLoggingMiddleware
+from app.rate_limiter import RateLimitMiddleware, get_training_limiter
 from app.routers import data_process, data_upload, deep_learning, project
 from app.shared.logging_config import get_logger
 from app.socketio_instance import sio
@@ -45,7 +47,18 @@ app.add_middleware(
 )
 app.add_middleware(RequestLoggingMiddleware)
 
+if settings.rate_limit_enabled:
+    training_limiter = get_training_limiter()
+    app.add_middleware(RateLimitMiddleware, limiter=training_limiter, paths=["/api/v1/deep_learning/train"])
+
 app.add_exception_handler(AppException, app_exception_handler)
+app.add_exception_handler(
+    HTTPException,
+    lambda request, exc: JSONResponse(
+        status_code=exc.status_code,
+        content={"success": False, "message": exc.detail, "data": None},
+    ),
+)
 app.add_exception_handler(Exception, generic_exception_handler)
 
 app.include_router(data_upload.router, prefix=settings.api_base)

@@ -101,5 +101,15 @@ def _build_layer(node: dict, input_tensor):
             name=name,
         )(input_tensor)
 
+    elif node_type == "customdropout":
+        raw_rate = params.get("rate")
+        try:
+            rate = float(raw_rate)
+        except (TypeError, ValueError) as err:
+            raise ValueError(f"Invalid dropout rate for node '{name}': {raw_rate}") from err
+        if not 0 <= rate < 1:
+            raise ValueError(f"Dropout rate must be in [0, 1) for node '{name}', got: {rate}")
+        return tf.keras.layers.Dropout(rate=rate, name=name)(input_tensor)
+
     else:
         raise ValueError(f"Unknown node type: {node_type}")

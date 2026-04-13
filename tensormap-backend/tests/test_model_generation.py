@@ -2,7 +2,7 @@
 Unit and integration tests for the model_generation service.
 
 Covers:
-  - _build_layer() for each supported node type (Dense, Flatten, Conv2D)
+  - _build_layer() for each supported node type (Dense, Flatten, Conv2D, Dropout)
   - _build_layer() error handling for unknown node types
   - model_generation() end-to-end: linear, branching, multi-input, conv
   - Integration: generated JSON round-trips through tf.keras.models.model_from_json
@@ -63,6 +63,14 @@ def _conv_node(
     }
 
 
+def _dropout_node(node_id: str, rate: float = 0.5) -> dict:
+    return {
+        "id": node_id,
+        "type": "customdropout",
+        "data": {"params": {"rate": rate}},
+    }
+
+
 def _edge(source: str, target: str) -> dict:
     return {"source": source, "target": target}
 
@@ -118,6 +126,19 @@ class TestBuildLayer:
         input_t = tf.keras.Input(shape=(5,), name="inp")
         node = {"id": "x", "type": "custom_unknown", "data": {"params": {}}}
         with pytest.raises(ValueError, match="Unknown node type"):
+            _build_layer(node, input_t)
+
+    def test_dropout_layer_accepts_valid_rate(self):
+        input_t = tf.keras.Input(shape=(12,), name="inp")
+        node = _dropout_node("do1", rate=0.3)
+        output = _build_layer(node, input_t)
+        assert output.shape == (None, 12)
+
+    @pytest.mark.parametrize("rate", [-0.2, 1.0, 2.0, "abc"])
+    def test_dropout_layer_rejects_invalid_rate(self, rate):
+        input_t = tf.keras.Input(shape=(12,), name="inp")
+        node = _dropout_node("do1", rate=rate)
+        with pytest.raises(ValueError, match="dropout rate|Dropout rate"):
             _build_layer(node, input_t)
 
 
@@ -179,6 +200,21 @@ class TestModelGeneration:
         result = model_generation(params)
         model = tf.keras.models.model_from_json(json.dumps(result))
         assert model.output_shape == (None, 10)
+
+    def test_dense_dropout_dense_chain(self):
+        """input(20) -> dense(64) -> dropout(0.25) -> dense(1)."""
+        params = {
+            "nodes": [
+                _input_node("x", [20]),
+                _dense_node("h1", 64, "relu"),
+                _dropout_node("do1", 0.25),
+                _dense_node("out", 1, "sigmoid"),
+            ],
+            "edges": [_edge("x", "h1"), _edge("h1", "do1"), _edge("do1", "out")],
+        }
+        result = model_generation(params)
+        model = tf.keras.models.model_from_json(json.dumps(result))
+        assert model.output_shape == (None, 1)
 
     def test_multi_input_concatenation(self):
         """

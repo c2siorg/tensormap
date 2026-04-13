@@ -18,6 +18,7 @@ concurrency:
 permissions:
   contents: read
   pull-requests: write
+  # issues: write  # Only add if a workflow step explicitly manages issues
 
 jobs:
   frontend-lint:

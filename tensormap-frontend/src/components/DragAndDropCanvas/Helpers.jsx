@@ -29,12 +29,16 @@ export const canSaveModel = (modelName, modelData) => {
       if (!p.pool_size || !p.stride) {
         return false;
       }
+    } else if (node.type === "custombatchnorm") {
+      const p = node.data.params;
+      if (!p.momentum || !p.epsilon) {
+        return false;
+      }
     }
     // customflatten and customdropout have no required params to validate
   }
   return isGraphConnected(modelData);
 };
-
 const isGraphConnected = (graph) => {
   if (!graph.nodes || graph.nodes.length === 0) return false;
   const visited = new Set();
@@ -55,7 +59,6 @@ const isGraphConnected = (graph) => {
   }
   return visited.size === graph.nodes.length;
 };
-
 /**
  * Strips visual-only properties from a ReactFlow graph snapshot using
  * immutable operations (no destructive delete mutations).

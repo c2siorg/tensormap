@@ -95,11 +95,19 @@ def _build_layer(node: dict, input_tensor):
             rate=float(params.get("rate", 0.5)),
             name=name,
         )(input_tensor)
+
     elif node_type == "custommaxpool":
         return tf.keras.layers.MaxPooling2D(
             pool_size=int(params.get("pool_size", 2)),
             strides=int(params.get("stride", 2)),
             padding=params.get("padding", "valid"),
+            name=name,
+        )(input_tensor)
+
+    elif node_type == "custombatchnorm":
+        return tf.keras.layers.BatchNormalization(
+            momentum=float(params.get("momentum", 0.99)),
+            epsilon=float(params.get("epsilon", 0.001)),
             name=name,
         )(input_tensor)
     elif node_type == "customconv":

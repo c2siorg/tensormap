@@ -32,6 +32,7 @@ import FlattenNode from "./CustomNodes/FlattenNode/FlattenNode";
 import ConvNode from "./CustomNodes/ConvNode/ConvNode";
 import DropoutNode from "./CustomNodes/DropoutNode/DropoutNode";
 import MaxPoolingNode from "./CustomNodes/MaxPoolingNode/MaxPoolingNode";
+import BatchNormalizationNode from "./CustomNodes/BatchNormalizationNode/BatchNormalizationNode";
 import Sidebar from "./Sidebar";
 import NodePropertiesPanel from "./NodePropertiesPanel";
 import { canSaveModel, generateModelJSON } from "./Helpers";
@@ -57,6 +58,7 @@ const nodeTypes = {
   customdropout: DropoutNode,
   custommaxpool: MaxPoolingNode,
   customglobalavgpool: GlobalAvgPoolNode,
+  custombatchnorm: BatchNormalizationNode,
 };
 
 // Keys MUST match nodeTypes above. Add a description when adding a node type.
@@ -604,6 +606,7 @@ function Canvas() {
         customdropout: { rate: "" },
         custommaxpool: { pool_size: "", stride: "", padding: "valid" },
         customglobalavgpool: {},
+        custombatchnorm: { momentum: "0.99", epsilon: "0.001" },
       };
 
       const newNode = {

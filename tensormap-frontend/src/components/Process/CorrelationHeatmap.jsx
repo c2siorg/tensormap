@@ -41,7 +41,7 @@ function correlationColour(value) {
  * @param {{ fileId: string }} props
  */
 const CorrelationHeatmap = ({ fileId }) => {
-  const [data, setData] = useState(null);   // { columns, matrix }
+  const [data, setData] = useState(null); // { columns, matrix }
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [tooltip, setTooltip] = useState(null); // { x, y, row, col, value }
@@ -84,9 +84,7 @@ const CorrelationHeatmap = ({ fileId }) => {
         </button>
       )}
 
-      {error && (
-        <p className="text-sm text-destructive">{error}</p>
-      )}
+      {error && <p className="text-sm text-destructive">{error}</p>}
 
       {visible && data && (
         <div className="space-y-2">
@@ -124,7 +122,10 @@ const CorrelationHeatmap = ({ fileId }) => {
                 </div>
               )}
 
-              <table className="border-collapse text-xs" style={{ minWidth: (data.columns.length + 1) * CELL }}>
+              <table
+                className="border-collapse text-xs"
+                style={{ minWidth: (data.columns.length + 1) * CELL }}
+              >
                 <thead>
                   <tr>
                     {/* top-left empty corner */}

@@ -9,6 +9,7 @@
 export const base_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:4300/api/v1";
 export const BACKEND_GET_ALL_FILES = "/data/upload/file";
 export const BACKEND_GET_ALL_MODELS = "/model/model-list";
+export const BACKEND_GET_TRAINING_HISTORY = "/model/training-history";
 export const BACKEND_DOWNLOAD_CODE = "/model/code";
 export const BACKEND_RUN_MODEL = "/model/run";
 export const BACKEND_FILE_UPLOAD = "/data/upload/file";
@@ -22,5 +23,6 @@ export const BACKEND_DELETE_FILE = "/data/upload/file/";
 export const BACKEND_GET_MODEL_GRAPH = "/model";
 export const BACKEND_SAVE_MODEL = "/model/save";
 export const BACKEND_UPDATE_TRAINING_CONFIG = "/model/training-config";
+export const BACKEND_DELETE_MODEL = "/model";
 export const BACKEND_PROJECT = "/project";
 export const BACKEND_GET_COLUMN_STATS = "/data/process/stats/";

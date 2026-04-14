@@ -1,11 +1,20 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams } from "react-router-dom";
+import { Trash2 } from "lucide-react";
 import io from "socket.io-client";
-import { useRecoilState } from "recoil";
+import { useRecoilState, useRecoilValue } from "recoil";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import {
   Select,
   SelectContent,
@@ -16,15 +25,21 @@ import {
 import * as urls from "../../constants/Urls";
 import * as strings from "../../constants/Strings";
 import logger from "../../shared/logger";
+import FeedbackDialog from "../../components/shared/FeedbackDialog";
 import Result from "../../components/ResultPanel/Result/Result";
 import {
   download_code,
   runModel,
-  getAllModels,
+  getTrainingHistory,
   updateTrainingConfig,
+  deleteModel,
 } from "../../services/ModelServices";
 import { getAllFiles } from "../../services/FileServices";
-import { models as modelListAtom } from "../../shared/atoms";
+import {
+  models as modelListAtom,
+  trainingHistory as trainingHistoryAtom,
+  modelListSelector,
+} from "../../shared/atoms";
 
 const optimizerOptions = [
   { key: "opt_1", label: "Adam", value: "adam" },
@@ -46,14 +61,25 @@ const problemTypeOptions = [
 
 export default function Training() {
   const { projectId } = useParams();
-  const [modelList, setModelList] = useRecoilState(modelListAtom);
+  const [, setModelList] = useRecoilState(modelListAtom);
 
   const [selectedModel, setSelectedModel] = useState(null);
   const [resultValues, setResultValues] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isHistoryLoading, setIsHistoryLoading] = useState(true);
   const [connectionError, setConnectionError] = useState(null);
+  const [deleteConfirm, setDeleteConfirm] = useState({ open: false, model: null });
+  const [deleteFeedback, setDeleteFeedback] = useState({
+    open: false,
+    success: false,
+    message: "",
+  });
   const socketRef = useRef(null);
   const timeoutRef = useRef(null);
+  const fetchModelsRef = useRef(null);
+  const fetchIdRef = useRef(0);
+  const fetchFilesIdRef = useRef(0);
+  const [trainingHistory, setTrainingHistory] = useRecoilState(trainingHistoryAtom);
 
   // Training config state
   const [fileList, setFileList] = useState([]);
@@ -83,6 +109,59 @@ export default function Training() {
     training_split: "",
   });
 
+  // Derived model list for the dropdown
+  const modelList = useRecoilValue(modelListSelector);
+
+  // Sync with global model list atom
+  useEffect(() => {
+    setModelList(modelList);
+  }, [modelList, setModelList]);
+
+  const fetchModels = useCallback(() => {
+    const fetchId = ++fetchIdRef.current;
+
+    // Fetch enriched training history
+    setIsHistoryLoading(true);
+    getTrainingHistory(projectId)
+      .then((response) => {
+        if (fetchId !== fetchIdRef.current) return;
+        setTrainingHistory(response);
+      })
+      .catch((error) => {
+        if (fetchId !== fetchIdRef.current) return;
+        logger.error("Error loading training history:", error);
+        setTrainingHistory([]);
+      })
+      .finally(() => {
+        if (fetchId === fetchIdRef.current) {
+          setIsHistoryLoading(false);
+        }
+      });
+  }, [projectId, setTrainingHistory, setIsHistoryLoading]);
+
+  const fetchFiles = useCallback(() => {
+    const fetchId = ++fetchFilesIdRef.current;
+    getAllFiles(projectId)
+      .then((response) => {
+        if (fetchId !== fetchFilesIdRef.current) return;
+        const files = response.map((file) => ({
+          label: `${file.file_name}.${file.file_type}`,
+          value: String(file.file_id),
+        }));
+        setFileList(files);
+        setFileDetails(response);
+      })
+      .catch((error) => {
+        if (fetchId !== fetchFilesIdRef.current) return;
+        logger.error("Error loading files:", error);
+      });
+  }, [projectId, setFileList, setFileDetails]);
+
+  // Keep ref up to date to avoid stale closures in socket listener
+  useEffect(() => {
+    fetchModelsRef.current = fetchModels;
+  }, [fetchModels]);
+
   useEffect(() => {
     const socket = io(urls.WS_DL_RESULTS, {
       reconnection: true,
@@ -100,6 +179,9 @@ export default function Training() {
         setIsLoading(true);
       } else if (resp.message && resp.message.includes("Finish")) {
         setIsLoading(false);
+        if (fetchModelsRef.current) {
+          fetchModelsRef.current();
+        }
       } else {
         setResultValues((prev) => {
           let newValues = [...prev];
@@ -126,43 +208,18 @@ export default function Training() {
       }
     });
 
-    getAllModels(projectId)
-      .then((response) => {
-        const models = response.map((file, index) => ({
-          label: file + strings.MODEL_EXTENSION,
-          value: file,
-          key: index,
-        }));
-        setModelList(models);
-      })
-      .catch((error) => {
-        logger.error("Error loading models:", error);
-        setModelList([]);
-      });
-
-    getAllFiles(projectId)
-      .then((response) => {
-        const files = response.map((file, index) => ({
-          label: `${file.file_name}.${file.file_type}`,
-          value: String(file.file_id),
-          key: index,
-        }));
-        setFileList(files);
-        setFileDetails(response);
-      })
-      .catch((error) => {
-        logger.error("Error loading files:", error);
-      });
+    fetchModels();
+    fetchFiles();
 
     return () => {
       clearTimeout(timeoutRef.current);
       socket.off(strings.DL_RESULT_LISTENER, dlResultListener);
       socket.disconnect();
     };
-  }, [projectId, setModelList]);
+  }, [projectId, fetchModels, fetchFiles, setModelList]);
 
   // Validation functions
-  const validateEpochs = (value) => {
+  const validateEpochs = useCallback((value) => {
     if (!value || value.trim() === "") {
       return "Epochs is required";
     }
@@ -175,9 +232,9 @@ export default function Training() {
       return "Epochs must be a positive integer";
     }
     return "";
-  };
+  }, []);
 
-  const validateBatchSize = (value) => {
+  const validateBatchSize = useCallback((value) => {
     if (!value || value.trim() === "") {
       return "Batch size is required";
     }
@@ -190,9 +247,9 @@ export default function Training() {
       return "Batch size must be a positive integer";
     }
     return "";
-  };
+  }, []);
 
-  const validateTrainingSplit = (value) => {
+  const validateTrainingSplit = useCallback((value) => {
     const num = parseFloat(value);
     if (!value || value.trim() === "") {
       return "Training split is required";
@@ -201,86 +258,100 @@ export default function Training() {
       return "Training split must be between 0 and 1 (exclusive)";
     }
     return "";
-  };
+  }, []);
 
-  const validateModel = (value) => {
+  const validateModel = useCallback((value) => {
     if (!value) {
       return "A model must be selected";
     }
     return "";
-  };
+  }, []);
 
-  const validateFile = (value) => {
+  const validateFile = useCallback((value) => {
     if (!value) {
       return "A dataset file must be selected";
     }
     return "";
-  };
+  }, []);
 
-  const validateProblemType = (value) => {
+  const validateProblemType = useCallback((value) => {
     if (!value) {
       return "Problem type must be selected";
     }
     return "";
-  };
+  }, []);
 
-  const validateOptimizer = (value) => {
+  const validateOptimizer = useCallback((value) => {
     if (!value) {
       return "Optimizer must be selected";
     }
     return "";
-  };
+  }, []);
 
-  const validateMetric = (value) => {
+  const validateMetric = useCallback((value) => {
     if (!value) {
       return "Result metric must be selected";
     }
     return "";
-  };
+  }, []);
 
-  const validateTargetField = (value) => {
+  const validateTargetField = useCallback((value) => {
     if (!value || value.trim() === "") {
       return "Target field must be specified";
     }
     return "";
-  };
+  }, []);
 
   // Real-time validation handler
-  const updateValidationErrors = useCallback((field, value) => {
-    let error = "";
-    switch (field) {
-      case "epochs":
-        error = validateEpochs(value);
-        break;
-      case "batch_size":
-        error = validateBatchSize(value);
-        break;
-      case "training_split":
-        error = validateTrainingSplit(value);
-        break;
-      case "model":
-        error = validateModel(value);
-        break;
-      case "file_id":
-        error = validateFile(value);
-        break;
-      case "problem_type_id":
-        error = validateProblemType(value);
-        break;
-      case "optimizer":
-        error = validateOptimizer(value);
-        break;
-      case "metric":
-        error = validateMetric(value);
-        break;
-      case "target_field":
-        error = validateTargetField(value);
-        break;
-      default:
-        break;
-    }
-    setValidationErrors((prev) => ({ ...prev, [field]: error }));
-  }, []); // Empty deps since validation functions are stable within component
+  const updateValidationErrors = useCallback(
+    (field, value) => {
+      let error = "";
+      switch (field) {
+        case "epochs":
+          error = validateEpochs(value);
+          break;
+        case "batch_size":
+          error = validateBatchSize(value);
+          break;
+        case "training_split":
+          error = validateTrainingSplit(value);
+          break;
+        case "model":
+          error = validateModel(value);
+          break;
+        case "file_id":
+          error = validateFile(value);
+          break;
+        case "problem_type_id":
+          error = validateProblemType(value);
+          break;
+        case "optimizer":
+          error = validateOptimizer(value);
+          break;
+        case "metric":
+          error = validateMetric(value);
+          break;
+        case "target_field":
+          error = validateTargetField(value);
+          break;
+        default:
+          break;
+      }
+      setValidationErrors((prev) => ({ ...prev, [field]: error }));
+    },
+    [
+      validateEpochs,
+      validateBatchSize,
+      validateTrainingSplit,
+      validateModel,
+      validateFile,
+      validateProblemType,
+      validateOptimizer,
+      validateMetric,
+      validateTargetField,
+      setValidationErrors,
+    ],
+  );
 
   // Check if form has any validation errors
   const hasValidationErrors = () => {
@@ -288,7 +359,7 @@ export default function Training() {
   };
 
   // Validate all fields
-  const validateAllFields = () => {
+  const validateAllFields = useCallback(() => {
     const errors = {
       model: validateModel(selectedModel),
       file_id: validateFile(trainingConfig.file_id),
@@ -302,7 +373,20 @@ export default function Training() {
     };
     setValidationErrors(errors);
     return !Object.values(errors).some((error) => error !== "");
-  };
+  }, [
+    selectedModel,
+    trainingConfig,
+    validateModel,
+    validateFile,
+    validateProblemType,
+    validateOptimizer,
+    validateMetric,
+    validateTargetField,
+    validateEpochs,
+    validateBatchSize,
+    validateTrainingSplit,
+    setValidationErrors,
+  ]);
 
   const handleFileSelect = useCallback(
     (value) => {
@@ -322,7 +406,7 @@ export default function Training() {
       updateValidationErrors("file_id", value);
       updateValidationErrors("target_field", "");
     },
-    [fileDetails, updateValidationErrors],
+    [fileDetails, updateValidationErrors, setFieldsList, setTrainingConfig],
   );
 
   const handleModelSelect = (value) => {
@@ -331,10 +415,9 @@ export default function Training() {
     updateValidationErrors("model", value);
   };
 
-  const handleSaveConfig = () => {
+  const handleSaveConfig = useCallback(() => {
     if (!selectedModel) return;
 
-    // Final validation check before submitting
     if (!validateAllFields()) {
       return;
     }
@@ -348,6 +431,7 @@ export default function Training() {
       optimizer: trainingConfig.optimizer,
       metric: trainingConfig.metric,
       epochs: Number(trainingConfig.epochs),
+      batch_size: trainingConfig.batch_size ? Number(trainingConfig.batch_size) : 32,
       project_id: projectId || null,
     };
 
@@ -355,6 +439,7 @@ export default function Training() {
       .then((resp) => {
         if (resp.success) {
           setConfigSaved(true);
+          fetchModels();
         } else {
           logger.error("Failed to save training config:", resp.message);
         }
@@ -362,7 +447,7 @@ export default function Training() {
       .catch((error) => {
         logger.error("Error saving training config:", error);
       });
-  };
+  }, [selectedModel, trainingConfig, projectId, fetchModels, validateAllFields]);
 
   const isConfigValid =
     selectedModel &&
@@ -376,16 +461,15 @@ export default function Training() {
     trainingConfig.target_field &&
     !hasValidationErrors();
 
-  const handleDownload = () => {
+  const handleDownload = useCallback(() => {
     if (selectedModel) {
       download_code(selectedModel, projectId).catch((error) => logger.error(error));
     }
-  };
+  }, [selectedModel, projectId]);
 
-  const handleRun = () => {
+  const handleRun = useCallback(() => {
     if (!selectedModel) return;
 
-    // Final validation check before training
     if (!validateAllFields()) {
       return;
     }
@@ -410,15 +494,90 @@ export default function Training() {
         setResultValues([error.response?.data?.message ?? "An error occurred"]);
         setIsLoading(false);
       });
-  };
+  }, [selectedModel, projectId, validateAllFields]);
 
   const handleClear = () => {
     setResultValues([]);
     setIsLoading(false);
   };
 
+  const handleDeleteClick = (model, e) => {
+    e.stopPropagation();
+    setDeleteConfirm({ open: true, model });
+  };
+
+  const handleDeleteConfirm = useCallback(() => {
+    const { model } = deleteConfirm;
+    setDeleteConfirm({ open: false, model: null });
+    deleteModel(model.id)
+      .then((resp) => {
+        if (resp.success) {
+          setTrainingHistory((prev) => prev.filter((m) => m.id !== model.id));
+          if (selectedModel === model.value) {
+            setSelectedModel(null);
+            setConfigSaved(false);
+          }
+        } else {
+          logger.error("Failed to delete model:", resp.message);
+          setDeleteFeedback({
+            open: true,
+            success: false,
+            message: resp.message || "Failed to delete model",
+          });
+        }
+      })
+      .catch((error) => {
+        logger.error("Error deleting model:", error);
+        setDeleteFeedback({
+          open: true,
+          success: false,
+          message: error.message || "An unexpected error occurred",
+        });
+      });
+  }, [
+    deleteConfirm,
+    selectedModel,
+    setTrainingHistory,
+    setDeleteConfirm,
+    setSelectedModel,
+    setConfigSaved,
+    setDeleteFeedback,
+  ]);
+
   return (
     <div className="space-y-6">
+      <FeedbackDialog
+        open={deleteFeedback.open}
+        onClose={() => setDeleteFeedback((prev) => ({ ...prev, open: false }))}
+        success={deleteFeedback.success}
+        message={deleteFeedback.message}
+      />
+      <Dialog
+        open={deleteConfirm.open}
+        onOpenChange={(open) => !open && setDeleteConfirm({ open: false, model: null })}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete model</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete <strong>{deleteConfirm.model?.label}</strong>? This
+              action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setDeleteConfirm({ open: false, model: null })}
+            >
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleDeleteConfirm}>
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Card>
         <CardHeader>
           <CardTitle>Model Training</CardTitle>
@@ -426,14 +585,30 @@ export default function Training() {
         <CardContent>
           <div className="flex flex-wrap items-center gap-4">
             <div className="space-y-1">
-              <Select onValueChange={handleModelSelect}>
+              <Select
+                onValueChange={handleModelSelect}
+                value={selectedModel ?? ""}
+                disabled={modelList.length === 0}
+              >
                 <SelectTrigger className={`w-64 ${validationErrors.model ? "border-red-500" : ""}`}>
-                  <SelectValue placeholder="Select a model" />
+                  <SelectValue
+                    placeholder={modelList.length === 0 ? "No models created" : "Select a model"}
+                  />
                 </SelectTrigger>
                 <SelectContent>
                   {modelList.map((model) => (
-                    <SelectItem key={model.key} value={model.value}>
-                      {model.label}
+                    <SelectItem key={model.id} value={model.value}>
+                      <span className="flex items-center justify-between gap-2 w-full">
+                        <span>{model.label}</span>
+                        <button
+                          type="button"
+                          className="ml-auto text-destructive hover:text-destructive/80"
+                          onClick={(e) => handleDeleteClick(model, e)}
+                          aria-label={`Delete ${model.label}`}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </span>
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -481,7 +656,7 @@ export default function Training() {
                   </SelectTrigger>
                   <SelectContent className="z-[9999] bg-white shadow-lg border backdrop-blur-sm">
                     {fileList.map((f) => (
-                      <SelectItem key={f.key} value={f.value}>
+                      <SelectItem key={f.value} value={f.value}>
                         {f.label}
                       </SelectItem>
                     ))}
@@ -544,7 +719,7 @@ export default function Training() {
                   {fieldsList.length > 0 && (
                     <datalist id="target-fields">
                       {fieldsList.map((f) => (
-                        <option key={f.key} value={f.value}>
+                        <option key={f.value} value={f.value}>
                           {f.label}
                         </option>
                       ))}
@@ -703,6 +878,81 @@ export default function Training() {
           ))}
         </div>
       )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Training History</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {isHistoryLoading ? (
+            <div className="text-center text-muted-foreground py-8">Loading history...</div>
+          ) : trainingHistory.length === 0 ? (
+            <div className="text-center text-muted-foreground py-8">
+              No training history available.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table
+                className="w-full text-sm text-left border-collapse"
+                aria-label="Training history"
+              >
+                <caption className="sr-only">
+                  Training history table showing model info, epochs, optimizer, and metrics
+                </caption>
+                <thead className="bg-muted text-muted-foreground">
+                  <tr>
+                    <th scope="col" className="px-4 py-3 font-medium border-b">
+                      Model Name
+                    </th>
+                    <th scope="col" className="px-4 py-3 font-medium border-b">
+                      Date
+                    </th>
+                    <th scope="col" className="px-4 py-3 font-medium border-b">
+                      Epochs
+                    </th>
+                    <th scope="col" className="px-4 py-3 font-medium border-b">
+                      Optimizer
+                    </th>
+                    <th scope="col" className="px-4 py-3 font-medium border-b">
+                      Metric
+                    </th>
+                    <th scope="col" className="px-4 py-3 font-medium border-b">
+                      Loss
+                    </th>
+                    <th scope="col" className="px-4 py-3 font-medium border-b">
+                      Training Split
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {trainingHistory.map((model) => (
+                    <tr key={model.id} className="hover:bg-muted/50">
+                      <td className="px-4 py-3 font-medium">{model.model_name}</td>
+                      <td className="px-4 py-3 text-muted-foreground">
+                        {model.created_on
+                          ? new Date(model.created_on).toLocaleString(undefined, {
+                              timeZone: "UTC",
+                              timeZoneName: "short",
+                            })
+                          : "-"}
+                      </td>
+                      <td className="px-4 py-3">{model.epochs ?? "-"}</td>
+                      <td className="px-4 py-3 capitalize">{model.optimizer || "-"}</td>
+                      <td className="px-4 py-3 capitalize">{model.metric || "-"}</td>
+                      <td className="px-4 py-3 capitalize">{model.loss || "-"}</td>
+                      <td className="px-4 py-3">
+                        {model.training_split != null
+                          ? `${(model.training_split > 1 ? model.training_split : model.training_split * 100).toFixed(0)}%`
+                          : "-"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

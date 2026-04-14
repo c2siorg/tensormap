@@ -79,6 +79,7 @@ export default function Training() {
   const fetchModelsRef = useRef(null);
   const fetchIdRef = useRef(0);
   const fetchFilesIdRef = useRef(0);
+  const activeRunIdRef = useRef(null);
   const [trainingHistory, setTrainingHistory] = useRecoilState(trainingHistoryAtom);
 
   // Training config state
@@ -173,6 +174,9 @@ export default function Training() {
     socketRef.current = socket;
 
     const dlResultListener = (resp) => {
+      if (resp?.run_id && activeRunIdRef.current && resp.run_id !== activeRunIdRef.current) {
+        return;
+      }
       clearTimeout(timeoutRef.current);
       if (resp.message && resp.message.includes("Starting")) {
         setResultValues([]);
@@ -191,7 +195,74 @@ export default function Training() {
       }
     };
 
+    const trainingStartedListener = (payload) => {
+      if (payload?.run_id && activeRunIdRef.current && payload.run_id !== activeRunIdRef.current) {
+        return;
+      }
+      clearTimeout(timeoutRef.current);
+      setResultValues([]);
+      setIsLoading(true);
+      if (payload?.message) {
+        setResultValues([payload.message]);
+      }
+    };
+
+    const trainingUpdateListener = (payload) => {
+      if (payload?.run_id && activeRunIdRef.current && payload.run_id !== activeRunIdRef.current) {
+        return;
+      }
+      clearTimeout(timeoutRef.current);
+      const metrics = payload?.metrics || {};
+      const metricParts = Object.entries(metrics)
+        .filter(([, value]) => typeof value === "number" && Number.isFinite(value))
+        .map(([key, value]) => `${key}: ${value.toFixed(4)}`);
+      const line = [
+        payload?.phase ? `[${payload.phase}]` : "",
+        payload?.epoch ? `epoch ${payload.epoch}` : "",
+        payload?.batch ? `batch ${payload.batch}` : "",
+        payload?.message || "",
+        metricParts.length ? `(${metricParts.join(", ")})` : "",
+      ]
+        .filter(Boolean)
+        .join(" ");
+      if (line) {
+        setResultValues((prev) => [...prev, line]);
+      }
+      setIsLoading(true);
+    };
+
+    const trainingCompleteListener = (payload) => {
+      if (payload?.run_id && activeRunIdRef.current && payload.run_id !== activeRunIdRef.current) {
+        return;
+      }
+      clearTimeout(timeoutRef.current);
+      const metrics = payload?.metrics || {};
+      const metricParts = Object.entries(metrics)
+        .filter(([, value]) => typeof value === "number" && Number.isFinite(value))
+        .map(([key, value]) => `${key}: ${value.toFixed(4)}`);
+      const line =
+        payload?.message ||
+        (metricParts.length
+          ? `Training complete (${metricParts.join(", ")})`
+          : "Training complete");
+      setResultValues((prev) => [...prev, line]);
+      setIsLoading(false);
+    };
+
+    const trainingErrorListener = (payload) => {
+      if (payload?.run_id && activeRunIdRef.current && payload.run_id !== activeRunIdRef.current) {
+        return;
+      }
+      clearTimeout(timeoutRef.current);
+      setResultValues((prev) => [...prev, payload?.message || "Training failed"]);
+      setIsLoading(false);
+    };
+
     socket.on(strings.DL_RESULT_LISTENER, dlResultListener);
+    socket.on(strings.DL_TRAINING_STARTED, trainingStartedListener);
+    socket.on(strings.DL_TRAINING_UPDATE, trainingUpdateListener);
+    socket.on(strings.DL_TRAINING_COMPLETE, trainingCompleteListener);
+    socket.on(strings.DL_TRAINING_ERROR, trainingErrorListener);
 
     socket.on("connect_error", (err) => {
       logger.warn("Socket connection error:", err);
@@ -214,6 +285,10 @@ export default function Training() {
     return () => {
       clearTimeout(timeoutRef.current);
       socket.off(strings.DL_RESULT_LISTENER, dlResultListener);
+      socket.off(strings.DL_TRAINING_STARTED, trainingStartedListener);
+      socket.off(strings.DL_TRAINING_UPDATE, trainingUpdateListener);
+      socket.off(strings.DL_TRAINING_COMPLETE, trainingCompleteListener);
+      socket.off(strings.DL_TRAINING_ERROR, trainingErrorListener);
       socket.disconnect();
     };
   }, [projectId, fetchModels, fetchFiles, setModelList]);
@@ -480,6 +555,7 @@ export default function Training() {
       ]);
       return;
     }
+    activeRunIdRef.current = null;
     setResultValues([]);
     setIsLoading(true);
     timeoutRef.current = setTimeout(() => {
@@ -487,7 +563,9 @@ export default function Training() {
       setResultValues(["Training timed out. The model may still be running on the server."]);
     }, 300000);
     runModel(selectedModel, projectId)
-      .then(() => {})
+      .then((resp) => {
+        activeRunIdRef.current = resp?.run_id || null;
+      })
       .catch((error) => {
         clearTimeout(timeoutRef.current);
         logger.error(error.response?.data);
@@ -497,6 +575,7 @@ export default function Training() {
   }, [selectedModel, projectId, validateAllFields]);
 
   const handleClear = () => {
+    activeRunIdRef.current = null;
     setResultValues([]);
     setIsLoading(false);
   };

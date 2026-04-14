@@ -184,7 +184,10 @@ export const runModel = async (modelName, projectId) => {
     .post(urls.BACKEND_RUN_MODEL, data)
     .then((resp) => {
       if (resp.data.success === true) {
-        return resp.data.message;
+        return {
+          message: resp.data.message,
+          run_id: resp.data.data?.run_id || null,
+        };
       }
       throw new Error(resp.data);
     })

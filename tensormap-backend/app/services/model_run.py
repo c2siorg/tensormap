@@ -1,5 +1,6 @@
 import asyncio
 import os
+from datetime import UTC, datetime
 
 import pandas as pd
 import tensorflow as tf
@@ -13,6 +14,10 @@ from app.shared.constants import (
     MODEL_GENERATION_TYPE,
     SOCKETIO_DL_NAMESPACE,
     SOCKETIO_LISTENER,
+    SOCKETIO_TRAINING_COMPLETE,
+    SOCKETIO_TRAINING_ERROR,
+    SOCKETIO_TRAINING_STARTED,
+    SOCKETIO_TRAINING_UPDATE,
 )
 from app.shared.enums import ProblemType
 from app.shared.logging_config import get_logger
@@ -26,12 +31,28 @@ _main_loop: asyncio.AbstractEventLoop | None = None
 class CustomProgressBar(tf.keras.callbacks.Callback):
     """Keras callback that emits training progress to the frontend via Socket.IO."""
 
-    def __init__(self) -> None:
+    def __init__(self, run_id: str) -> None:
         super().__init__()
+        self.run_id = run_id
+        self.current_epoch = 0
 
     def on_epoch_begin(self, epoch: int, logs: dict = None) -> None:
         """Emit the start of a new epoch."""
+        self.current_epoch = epoch + 1
         _model_result(f"Epoch {epoch + 1}/{self.params['epochs']}", 0)
+        _emit_training_event(
+            SOCKETIO_TRAINING_UPDATE,
+            {
+                "run_id": self.run_id,
+                "phase": "train",
+                "epoch": self.current_epoch,
+                "batch": 0,
+                "steps": self.params.get("steps"),
+                "metrics": {},
+                "message": f"Epoch {self.current_epoch}/{self.params.get('epochs')}",
+                "timestamp": _utc_ts(),
+            },
+        )
 
     def on_batch_end(self, batch: int, logs: dict = None) -> None:
         """Emit batch-level progress with loss and metric values."""
@@ -51,10 +72,41 @@ class CustomProgressBar(tf.keras.callbacks.Callback):
             f"{int(progress * 100)}% - Loss: {logs['loss']:.4f} - {metric}",
             1,
         )
+        payload_metrics = {}
+        if logs:
+            for k, v in logs.items():
+                if isinstance(v, (int, float)):
+                    payload_metrics[k] = float(v)
+        _emit_training_event(
+            SOCKETIO_TRAINING_UPDATE,
+            {
+                "run_id": self.run_id,
+                "phase": "train",
+                "epoch": self.current_epoch,
+                "batch": batch + 1,
+                "steps": self.params.get("steps"),
+                "metrics": payload_metrics,
+                "message": f"Batch {batch + 1}/{self.params.get('steps')}",
+                "timestamp": _utc_ts(),
+            },
+        )
 
     def on_test_begin(self, logs: dict = None) -> None:
         """Emit the start of model evaluation."""
         _model_result("Evaluating...", 2)
+        _emit_training_event(
+            SOCKETIO_TRAINING_UPDATE,
+            {
+                "run_id": self.run_id,
+                "phase": "eval",
+                "epoch": self.current_epoch,
+                "batch": None,
+                "steps": None,
+                "metrics": {},
+                "message": "Evaluating...",
+                "timestamp": _utc_ts(),
+            },
+        )
 
     def on_test_end(self, logs: dict = None) -> None:
         """Emit final evaluation metrics."""
@@ -66,6 +118,43 @@ class CustomProgressBar(tf.keras.callbacks.Callback):
             metric = ""
         _model_result(f"Evaluation Results: {metric} Loss - {logs['loss']:.4f}", 3)
         _model_result("Finish", 4)
+        payload_metrics = {}
+        if logs:
+            for k, v in logs.items():
+                if isinstance(v, (int, float)):
+                    payload_metrics[k] = float(v)
+        _emit_training_event(
+            SOCKETIO_TRAINING_COMPLETE,
+            {
+                "run_id": self.run_id,
+                "phase": "eval",
+                "epoch": self.current_epoch,
+                "batch": None,
+                "steps": None,
+                "metrics": payload_metrics,
+                "message": "Finish",
+                "timestamp": _utc_ts(),
+            },
+        )
+
+
+def _utc_ts() -> str:
+    return datetime.now(UTC).isoformat()
+
+
+def _emit_training_event(event_name: str, payload: dict) -> None:
+    """Emit structured training events via Socket.IO."""
+    if _main_loop is not None and _main_loop.is_running():
+        future = asyncio.run_coroutine_threadsafe(
+            sio.emit(event_name, payload, namespace=SOCKETIO_DL_NAMESPACE),
+            _main_loop,
+        )
+        try:
+            future.result(timeout=5)
+        except Exception:
+            logger.warning("Failed to emit Socket.IO event '%s'", event_name)
+    else:
+        logger.warning("No running event loop for Socket.IO event '%s'", event_name)
 
 
 def _model_result(message: str, test: int) -> None:
@@ -102,19 +191,47 @@ def _helper_generate_json_model_file_location(model_name: str) -> str:
     return path
 
 
-def model_run(model_name: str, db: Session, loop: asyncio.AbstractEventLoop | None = None) -> None:
+def model_run(model_name: str, db: Session, run_id: str, loop: asyncio.AbstractEventLoop | None = None) -> None:
     """Load, compile, and train a Keras model, emitting progress via Socket.IO."""
     global _main_loop
     _main_loop = loop
+    _emit_training_event(
+        SOCKETIO_TRAINING_STARTED,
+        {
+            "run_id": run_id,
+            "model_name": model_name,
+            "phase": "train",
+            "epoch": 0,
+            "batch": 0,
+            "steps": None,
+            "metrics": {},
+            "message": "Starting training",
+            "timestamp": _utc_ts(),
+        },
+    )
     try:
-        _run(model_name, db)
+        _run(model_name, db, run_id)
     except Exception as e:
         logger.exception("Training failed for model '%s': %s", model_name, str(e))
         _model_result(f"Training failed: {e}", -1)
+        _emit_training_event(
+            SOCKETIO_TRAINING_ERROR,
+            {
+                "run_id": run_id,
+                "model_name": model_name,
+                "phase": "train",
+                "epoch": None,
+                "batch": None,
+                "steps": None,
+                "metrics": {},
+                "message": f"Training failed: {e}",
+                "timestamp": _utc_ts(),
+            },
+        )
         raise
 
 
-def _run(model_name: str, db: Session) -> None:
+def _run(model_name: str, db: Session, run_id: str) -> None:
     model_configs = db.exec(select(ModelBasic).where(ModelBasic.model_name == model_name)).first()
 
     if model_configs.model_type == ProblemType.IMAGE_CLASSIFICATION:
@@ -192,17 +309,17 @@ def _run(model_name: str, db: Session) -> None:
             train_data,
             validation_data=test_data,
             epochs=model_configs.epochs,
-            callbacks=[CustomProgressBar()],
+            callbacks=[CustomProgressBar(run_id=run_id)],
             verbose=0,
         )
-        model.evaluate(test_data, callbacks=[CustomProgressBar()], verbose=0)
+        model.evaluate(test_data, callbacks=[CustomProgressBar(run_id=run_id)], verbose=0)
     else:
         model.fit(
             x_training,
             y_training,
             epochs=model_configs.epochs,
             batch_size=batch_size,
-            callbacks=[CustomProgressBar()],
+            callbacks=[CustomProgressBar(run_id=run_id)],
             verbose=0,
         )
-        model.evaluate(x_testing, y_testing, callbacks=[CustomProgressBar()], verbose=0)
+        model.evaluate(x_testing, y_testing, callbacks=[CustomProgressBar(run_id=run_id)], verbose=0)

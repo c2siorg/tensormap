@@ -7,7 +7,13 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from sqlmodel import Session
 
 from app.database import get_db
-from app.schemas.deep_learning import ModelNameRequest, ModelSaveRequest, ModelValidateRequest, TrainingConfigRequest
+from app.schemas.deep_learning import (
+    LayerSchemaItem,
+    ModelNameRequest,
+    ModelSaveRequest,
+    ModelValidateRequest,
+    TrainingConfigRequest,
+)
 from app.services.deep_learning import (
     delete_model_service,
     get_available_model_list,
@@ -19,6 +25,7 @@ from app.services.deep_learning import (
     run_code_service,
     update_training_config_service,
 )
+from app.services.layer_registry import get_layer_schema
 from app.shared.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -124,3 +131,9 @@ def get_training_history(
     """Return a paginated list of models with enriched metadata for training history view."""
     body, status_code = get_training_history_service(db, project_id=project_id, offset=offset, limit=limit)
     return JSONResponse(status_code=status_code, content=body)
+
+
+@router.get("/model/layers/schema", response_model=list[LayerSchemaItem])
+def get_layers_schema():
+    """Return backend-driven layer schema for frontend canvas and validation."""
+    return get_layer_schema()

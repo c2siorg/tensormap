@@ -107,3 +107,25 @@ class TrainingConfigRequest(BaseModel):
     epochs: int = Field(gt=0)
     batch_size: int = Field(default=32, gt=0)
     project_id: uuid_pkg.UUID | None = None
+
+
+class LayerParamSchema(BaseModel):
+    """A single layer parameter definition shared with API clients."""
+
+    name: str
+    type: str
+    required: bool
+    default: Any | None = None
+    min: float | int | None = None
+    max: float | int | None = None
+    options: list[str] | None = None
+
+
+class LayerSchemaItem(BaseModel):
+    """Metadata contract for one visual layer type."""
+
+    type: str
+    label: str
+    category: str
+    compiler_supported: bool = True
+    params: list[LayerParamSchema]

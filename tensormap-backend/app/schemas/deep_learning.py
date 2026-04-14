@@ -39,12 +39,20 @@ class NodeData(BaseModel):
     params: dict[str, Any]  # varies per node type; validated downstream by model_generation + TensorFlow
 
 
+class NodePosition(BaseModel):
+    """X/Y canvas coordinates for a ReactFlow node."""
+
+    x: float
+    y: float
+
+
 class GraphNode(BaseModel):
     """A single node in the ReactFlow model graph."""
 
     id: str
     type: str
     data: NodeData
+    position: NodePosition | None = None
 
 
 class GraphEdge(BaseModel):
@@ -97,4 +105,5 @@ class TrainingConfigRequest(BaseModel):
     optimizer: str = Field(min_length=1)
     metric: str = Field(min_length=1)
     epochs: int = Field(gt=0)
+    batch_size: int = Field(default=32, gt=0)
     project_id: uuid_pkg.UUID | None = None

@@ -11,17 +11,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-const denseActivations = [
-  { value: "relu", label: "ReLU" },
-  { value: "linear", label: "Linear" },
-  { value: "sigmoid", label: "Sigmoid" },
-  { value: "softmax", label: "Softmax" },
-  { value: "tanh", label: "Tanh" },
-];
-
-const convActivations = [
+const ACTIVATIONS = [
   { value: "none", label: "None" },
   { value: "relu", label: "ReLU" },
+  { value: "sigmoid", label: "Sigmoid" },
+  { value: "tanh", label: "Tanh" },
+  { value: "softmax", label: "Softmax" },
+  { value: "elu", label: "ELU" },
+  { value: "selu", label: "SELU" },
 ];
 
 const convPaddings = [
@@ -133,7 +130,7 @@ function NodePropertiesPanel({
                 <SelectValue placeholder="Select activation" />
               </SelectTrigger>
               <SelectContent>
-                {denseActivations.map((a) => (
+                {ACTIVATIONS.map((a) => (
                   <SelectItem key={a.value} value={a.value}>
                     {a.label}
                   </SelectItem>
@@ -238,7 +235,7 @@ function NodePropertiesPanel({
                 <SelectValue placeholder="Activation" />
               </SelectTrigger>
               <SelectContent>
-                {convActivations.map((a) => (
+                {ACTIVATIONS.map((a) => (
                   <SelectItem key={a.value} value={a.value}>
                     {a.label}
                   </SelectItem>
@@ -251,6 +248,28 @@ function NodePropertiesPanel({
     );
   }
 
+  if (type === "customdropout") {
+    return (
+      <Card className="h-fit">
+        <CardHeader>
+          <CardTitle className="text-sm">Dropout</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="space-y-1">
+            <Label>Rate (0–1)</Label>
+            <Input
+              type="number"
+              min="0"
+              max="1"
+              step="0.1"
+              value={params.rate}
+              onChange={(e) => updateParam("rate", e.target.value)}
+            />
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
   return null;
 }
 

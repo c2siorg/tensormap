@@ -2,21 +2,31 @@ FROM python:3.12-slim AS builder
 
 WORKDIR /app
 
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+RUN pip install poetry
 
-COPY pyproject.toml uv.lock* ./
-RUN uv sync --frozen --no-dev
+RUN poetry config virtualenvs.in-project true
 
+ENV POETRY_REQUESTS_TIMEOUT=120
+ENV POETRY_RETRIES=5
+
+COPY pyproject.toml poetry.lock ./
+
+RUN poetry install --only main --no-root --no-interaction --no-ansi
+
+# --- Stage 2: Production Image ---
 FROM python:3.12-slim
 
 WORKDIR /app
 
 RUN groupadd -r appuser && useradd -r -g appuser appuser
 
+# Copy the generated virtual environment from the builder stage
 COPY --from=builder /app/.venv /app/.venv
 COPY . .
 
-RUN chown -R appuser:appuser /app
+RUN chown -R appuser:appuser /app \
+    # chmod ensures appuser can write Keras JSON during seed migration (f4a8c2e91b37)
+    && chmod u+w /app/templates/json-model
 
 ENV PATH="/app/.venv/bin:$PATH"
 

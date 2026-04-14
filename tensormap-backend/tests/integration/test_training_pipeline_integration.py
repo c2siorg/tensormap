@@ -239,11 +239,9 @@ def test_nonexistent_file_id_returns_error(client: TestClient):
         patch("app.services.deep_learning.open", mock_open()),
     ):
         mock_tf.keras.models.model_from_json.return_value = MagicMock()
-        try:
-            resp = client.post("/api/v1/model/validate", json=payload)
-            assert resp.status_code in (400, 404, 422, 500)
-        except Exception:
-            pass
+
+        resp = client.post("/api/v1/model/validate", json=payload)
+        assert resp.status_code in (400, 404, 422, 500)
 
 
 def test_empty_graph_returns_error(client: TestClient):

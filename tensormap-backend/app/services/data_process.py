@@ -251,15 +251,13 @@ def preprocess_data(db: Session, file_id: uuid_pkg.UUID, transformations: list) 
                 return _resp(
                     422,
                     False,
-                    f"Unknown transformation '{t.transformation}'. "
-                    f"Valid options: {sorted(_VALID_TRANSFORMATIONS)}",
+                    f"Unknown transformation '{t.transformation}'. Valid options: {sorted(_VALID_TRANSFORMATIONS)}",
                 )
             if t.feature not in df.columns:
                 return _resp(
                     422,
                     False,
-                    f"Column '{t.feature}' not found. "
-                    f"Available columns: {list(df.columns)}",
+                    f"Column '{t.feature}' not found. Available columns: {list(df.columns)}",
                 )
 
         for t in transformations:

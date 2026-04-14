@@ -20,6 +20,10 @@ module.exports = {
   },
   overrides: [
     {
+      files: ["*.config.js"],
+      env: { node: true },
+    },
+    {
       files: ["**/*.test.js", "**/*.test.jsx", "**/*.spec.js", "**/*.spec.jsx"],
       env: { jest: true },
     },

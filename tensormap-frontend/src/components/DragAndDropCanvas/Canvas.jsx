@@ -201,7 +201,10 @@ function Canvas() {
         }
 
         const result = await getModelGraph(modelObjects[0].model_name, projectId);
+<<<<<<< HEAD
 
+=======
+>>>>>>> dd01368 (feat(fullstack): add grouped loss functions with auto-select)
         if (cancelled || !result.success) {
           if (!cancelled) isLoaded.current = true;
           return;

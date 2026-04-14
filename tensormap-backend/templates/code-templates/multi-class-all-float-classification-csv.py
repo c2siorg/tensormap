@@ -1,9 +1,6 @@
-import json
-
 import numpy as np
 import pandas as pd
 import tensorflow as tf
-import yaml
 
 
 def deep_learning_model():
@@ -25,7 +22,8 @@ def deep_learning_model():
     x_training = x_training / np.linalg.norm(x_training)
     x_testing = x_testing / np.linalg.norm(x_testing)
 
-    json_string = json.dumps(yaml.safe_load(open("{{data.dl_model.json_file}}")))
+    with open("{{data.dl_model.json_file}}") as f:
+        json_string = f.read()
     model = tf.keras.models.model_from_json(json_string, custom_objects=None)
 
     model.compile(

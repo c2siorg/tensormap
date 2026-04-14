@@ -14,7 +14,6 @@ dependencies = [
     "numpy>=1.24",
     "pandas>=2.1",
     "tensorflow>=2.16",
-    "pyyaml>=6.0",
     "flatten-json>=0.1.13",
     "Jinja2>=3.1",
     "python-multipart>=0.0.9",
@@ -41,7 +40,7 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 "app/routers/*.py" = ["B008"]
 
 [tool.ruff.lint.extend-per-file-ignores]
-"templates/**/*.py" = ["F821", "SIM115"]
+"templates/**/*.py" = ["F821"]
 
 [tool.ruff.format]
 quote-style = "double"

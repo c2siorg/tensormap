@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     max_content_length: int = 200 * 1024 * 1024
     api_base: str = "/api/v1"
     debug: bool = True
+    run_migrations: bool = True
 
     model_config = {"env_file": ".env"}
 

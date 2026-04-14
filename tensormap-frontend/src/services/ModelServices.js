@@ -47,28 +47,6 @@ export const getAllModels = async (projectId) => {
 };
 
 /**
- * Fetches the enriched training history for models, optionally scoped to a project.
- *
- * @param {string} [projectId]
- * @returns {Promise<Array<object>>} Array of enriched model objects.
- */
-export const getTrainingHistory = async (projectId) => {
-  const params = projectId ? { project_id: projectId } : {};
-  return axios
-    .get(urls.BACKEND_GET_TRAINING_HISTORY, { params })
-    .then((resp) => {
-      if (resp.data.success === true) {
-        return resp.data.data;
-      }
-      return [];
-    })
-    .catch((err) => {
-      logger.error(err);
-      throw err;
-    });
-};
-
-/**
  * Deletes a saved model by its database ID.
  *
  * @param {number} modelId

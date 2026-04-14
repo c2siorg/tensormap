@@ -13,7 +13,6 @@ from app.services.deep_learning import (
     get_available_model_list,
     get_code_service,
     get_model_graph_service,
-    get_training_history_service,
     model_save_service,
     model_validate_service,
     run_code_service,
@@ -109,18 +108,6 @@ def get_model_list(
     limit: int = Query(50, ge=1, le=100),
     db: Session = Depends(get_db),
 ):
-    """Return a paginated list of saved model names (backward compatible)."""
+    """Return a paginated list of saved model names, optionally filtered by project."""
     body, status_code = get_available_model_list(db, project_id=project_id, offset=offset, limit=limit)
-    return JSONResponse(status_code=status_code, content=body)
-
-
-@router.get("/model/training-history")
-def get_training_history(
-    project_id: uuid_pkg.UUID | None = Query(None),
-    offset: int = Query(0, ge=0),
-    limit: int = Query(50, ge=1, le=100),
-    db: Session = Depends(get_db),
-):
-    """Return a paginated list of models with enriched metadata for training history view."""
-    body, status_code = get_training_history_service(db, project_id=project_id, offset=offset, limit=limit)
     return JSONResponse(status_code=status_code, content=body)

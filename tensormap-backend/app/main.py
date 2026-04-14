@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
 from app.exceptions import AppException, app_exception_handler, generic_exception_handler
 from app.middleware import RequestLoggingMiddleware
-from app.routers import data_process, data_upload, deep_learning, project
+from app.routers import data_process, data_upload, deep_learning, health, project
 from app.shared.logging_config import get_logger
 from app.socketio_instance import sio
 
@@ -22,14 +22,17 @@ logger = get_logger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Run Alembic migrations on startup, then yield control to the app."""
-    from alembic import command
-    from alembic.config import Config
+    """Run Alembic migrations on startup if enabled, then yield control to the app."""
+    if settings.run_migrations:
+        from alembic import command
+        from alembic.config import Config
 
-    logger.info("Running Alembic migrations...")
-    alembic_cfg = Config("alembic.ini")
-    command.upgrade(alembic_cfg, "head")
-    logger.info("Alembic migrations complete")
+        logger.info("Running Alembic migrations...")
+        alembic_cfg = Config("alembic.ini")
+        command.upgrade(alembic_cfg, "head")
+        logger.info("Alembic migrations complete")
+    else:
+        logger.info("Skipping migrations (RUN_MIGRATIONS=false)")
     yield
 
 
@@ -48,6 +51,7 @@ app.add_middleware(RequestLoggingMiddleware)
 app.add_exception_handler(AppException, app_exception_handler)
 app.add_exception_handler(Exception, generic_exception_handler)
 
+app.include_router(health.router, tags=["health"])
 app.include_router(data_upload.router, prefix=settings.api_base)
 app.include_router(data_process.router, prefix=settings.api_base)
 app.include_router(deep_learning.router, prefix=settings.api_base)

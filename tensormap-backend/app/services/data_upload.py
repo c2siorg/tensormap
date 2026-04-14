@@ -21,9 +21,7 @@ def _resp(status_code: int, success: bool, message: str, data: Any = None) -> tu
     return {"success": success, "message": message, "data": data}, status_code
 
 
-def add_file_service(
-    db: Session, file_wrapper: Any, project_id: uuid_pkg.UUID | None = None
-) -> tuple:
+def add_file_service(db: Session, file_wrapper: Any, project_id: uuid_pkg.UUID | None = None) -> tuple:
     """Save an uploaded file to disk and create a DataFile record."""
 
     settings = get_settings()
@@ -36,9 +34,7 @@ def add_file_service(
         file_wrapper.file.seek(0, 2)
         file_size = file_wrapper.file.tell()
     except (AttributeError, OSError) as exc:
-        logger.warning(
-            "Could not determine upload size; rejecting upload. Reason: %s", exc
-        )
+        logger.warning("Could not determine upload size; rejecting upload. Reason: %s", exc)
         return _resp(413, False, "File size could not be verified. Upload rejected.")
     finally:
         with contextlib.suppress(AttributeError, OSError):
@@ -51,15 +47,14 @@ def add_file_service(
     file_name_db = secure_filename(file_wrapper.filename.rsplit(".", 1)[0].lower())
     file_type_db = file_wrapper.filename.rsplit(".", 1)[1].lower()
     existing_file = db.exec(
-        select(DataFile).where(
-            DataFile.file_name == file_name_db, DataFile.file_type == file_type_db
-        )
+        select(DataFile).where(DataFile.file_name == file_name_db, DataFile.file_type == file_type_db)
     ).first()
     if existing_file:
         return _resp(
             409,
             False,
-            f"A file named '{filename}' already exists. Please rename or delete the existing one first.",
+            f"A file named '{file_name_db}.{file_type_db}' already exists. "
+            "Please rename or delete the existing one first.",
         )
 
     # Generate unique filename to prevent collisions
@@ -82,9 +77,7 @@ def add_file_service(
         try:
             df_header = pd.read_csv(file_path, nrows=0)
             columns_list = list(df_header.columns)
-            row_count = sum(
-                chunk.shape[0] for chunk in pd.read_csv(file_path, chunksize=10_000)
-            )
+            row_count = sum(chunk.shape[0] for chunk in pd.read_csv(file_path, chunksize=10_000))
         except (pd.errors.ParserError, OSError, UnicodeDecodeError, MemoryError):
             logger.warning("Could not extract columns/row_count from %s", file_path)
 
@@ -131,10 +124,7 @@ def get_all_files_service(
                     file_path = f"{upload_folder}/{file.disk_name}"
                     df_header = pd.read_csv(file_path, nrows=0)
                     fields = list(df_header.columns)
-                    row_count = sum(
-                        chunk.shape[0]
-                        for chunk in pd.read_csv(file_path, chunksize=10_000)
-                    )
+                    row_count = sum(chunk.shape[0] for chunk in pd.read_csv(file_path, chunksize=10_000))
                     file.columns = fields
                     file.row_count = row_count
                     db.add(file)

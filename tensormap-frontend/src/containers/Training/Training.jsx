@@ -53,8 +53,7 @@ const DEFAULT_LOSS_BY_PROBLEM_TYPE = {
   [PROBLEM_TYPE.REGRESSION]: "mean_squared_error",
 };
 
-// Cleaned up options (removed opaque 'key' property)
-const lossOptions = [
+const LOSS_OPTIONS = [
   {
     type: "classification",
     label: "Sparse Categorical Crossentropy",
@@ -122,6 +121,14 @@ export default function Training() {
     batch_size: "",
     training_split: "",
   });
+
+  const visibleLossOptions = useMemo(() => {
+    const isRegression = trainingConfig.problem_type_id === PROBLEM_TYPE.REGRESSION;
+    const targetType = isRegression ? "regression" : "classification";
+
+    return LOSS_OPTIONS.filter((option) => option.type === targetType);
+  }, [trainingConfig.problem_type_id]);
+
   // Validation state
   const [validationErrors, setValidationErrors] = useState({
     model: "",
@@ -413,149 +420,6 @@ export default function Training() {
     validateTrainingSplit,
     setValidationErrors,
   ]);
-
-  // Validation functions
-  const validateEpochs = (value) => {
-    if (!value || value.trim() === "") {
-      return "Epochs is required";
-    }
-    const trimmed = value.trim();
-    if (!/^\d+$/.test(trimmed)) {
-      return "Epochs must be a positive integer";
-    }
-    const num = Number(trimmed);
-    if (num <= 0) {
-      return "Epochs must be a positive integer";
-    }
-    return "";
-  };
-
-  const validateBatchSize = (value) => {
-    if (!value || value.trim() === "") {
-      return "Batch size is required";
-    }
-    const trimmed = value.trim();
-    if (!/^\d+$/.test(trimmed)) {
-      return "Batch size must be a positive integer";
-    }
-    const num = Number(trimmed);
-    if (num <= 0) {
-      return "Batch size must be a positive integer";
-    }
-    return "";
-  };
-
-  const validateTrainingSplit = (value) => {
-    const num = parseFloat(value);
-    if (!value || value.trim() === "") {
-      return "Training split is required";
-    }
-    if (isNaN(num) || num <= 0 || num >= 1) {
-      return "Training split must be between 0 and 1 (exclusive)";
-    }
-    return "";
-  };
-
-  const validateModel = (value) => {
-    if (!value) {
-      return "A model must be selected";
-    }
-    return "";
-  };
-
-  const validateFile = (value) => {
-    if (!value) {
-      return "A dataset file must be selected";
-    }
-    return "";
-  };
-
-  const validateProblemType = (value) => {
-    if (!value) {
-      return "Problem type must be selected";
-    }
-    return "";
-  };
-
-  const validateOptimizer = (value) => {
-    if (!value) {
-      return "Optimizer must be selected";
-    }
-    return "";
-  };
-
-  const validateMetric = (value) => {
-    if (!value) {
-      return "Result metric must be selected";
-    }
-    return "";
-  };
-
-  const validateTargetField = (value) => {
-    if (!value || value.trim() === "") {
-      return "Target field must be specified";
-    }
-    return "";
-  };
-
-  // Real-time validation handler
-  const updateValidationErrors = useCallback((field, value) => {
-    let error = "";
-    switch (field) {
-      case "epochs":
-        error = validateEpochs(value);
-        break;
-      case "batch_size":
-        error = validateBatchSize(value);
-        break;
-      case "training_split":
-        error = validateTrainingSplit(value);
-        break;
-      case "model":
-        error = validateModel(value);
-        break;
-      case "file_id":
-        error = validateFile(value);
-        break;
-      case "problem_type_id":
-        error = validateProblemType(value);
-        break;
-      case "optimizer":
-        error = validateOptimizer(value);
-        break;
-      case "metric":
-        error = validateMetric(value);
-        break;
-      case "target_field":
-        error = validateTargetField(value);
-        break;
-      default:
-        break;
-    }
-    setValidationErrors((prev) => ({ ...prev, [field]: error }));
-  }, []); // Empty deps since validation functions are stable within component
-
-  // Check if form has any validation errors
-  const hasValidationErrors = () => {
-    return Object.values(validationErrors).some((error) => error !== "");
-  };
-
-  // Validate all fields
-  const validateAllFields = () => {
-    const errors = {
-      model: validateModel(selectedModel),
-      file_id: validateFile(trainingConfig.file_id),
-      problem_type_id: validateProblemType(trainingConfig.problem_type_id),
-      optimizer: validateOptimizer(trainingConfig.optimizer),
-      metric: validateMetric(trainingConfig.metric),
-      target_field: validateTargetField(trainingConfig.target_field),
-      epochs: validateEpochs(trainingConfig.epochs),
-      batch_size: validateBatchSize(trainingConfig.batch_size),
-      training_split: validateTrainingSplit(trainingConfig.training_split),
-    };
-    setValidationErrors(errors);
-    return !Object.values(errors).some((error) => error !== "");
-  };
 
   const handleFileSelect = useCallback(
     (value) => {

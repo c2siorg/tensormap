@@ -357,7 +357,7 @@ def preprocess_data(db: Session, file_id: uuid_pkg.UUID, transformations: list) 
 
         # Validate all transformations before applying any, so the request either
         # fully succeeds or fully fails — no partial mutations.
-        
+
         for t in transformations:
             # Handle both dict-like and object attribute access
             if hasattr(t, "transformation"):
@@ -401,7 +401,7 @@ def preprocess_data(db: Session, file_id: uuid_pkg.UUID, transformations: list) 
             if actual_name and actual_name in _TRANSFORMATION_HANDLERS:
                 handler = _TRANSFORMATION_HANDLERS[actual_name]
                 df = handler(df, feature, params)
-        
+
         df.to_csv(file_path, index=False)
         return _resp(200, True, "Dataset preprocessed successfully")
     except pd.errors.ParserError as e:

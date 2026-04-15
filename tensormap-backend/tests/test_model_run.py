@@ -30,6 +30,7 @@ def test_invalid_loss_raises_validation_error():
             loss="invalid_made_up_loss_function",
         )
 
+
 def _make_model_config(problem_type: int = ProblemType.CLASSIFICATION) -> MagicMock:
     cfg = MagicMock()
     cfg.model_type = problem_type

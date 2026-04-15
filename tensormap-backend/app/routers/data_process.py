@@ -83,7 +83,6 @@ async def get_correlation(file_id: uuid_pkg.UUID, db: Session = Depends(get_db))
 
 
 @router.get("/data/process/file/{file_id}")
-
 async def get_file(
     file_id: uuid_pkg.UUID,
     page: int = Query(1, ge=1),
@@ -93,6 +92,7 @@ async def get_file(
     """Return a paginated slice of a CSV file's contents with pagination metadata."""
     body, status_code = get_file_data(db, file_id=file_id, page=page, page_size=page_size)
     return JSONResponse(status_code=status_code, content=body)
+
 
 @router.post("/data/process/preprocess/{file_id}")
 def preprocess(file_id: uuid_pkg.UUID, request: PreprocessRequest, db: Session = Depends(get_db)):

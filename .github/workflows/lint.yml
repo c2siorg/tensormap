@@ -5,12 +5,16 @@ on:
     branches: [main]
   push:
     branches: [main]
+  issue_comment:
+    types: [created]
 
 concurrency:
   group: >-
     ci-${{
       github.event_name == 'pull_request_target'
         && format('pr-{0}', github.event.pull_request.number)
+        || github.event_name == 'issue_comment'
+        && format('pr-{0}', github.event.issue.number)
         || github.ref
     }}
   cancel-in-progress: true
@@ -23,6 +27,13 @@ permissions:
 jobs:
   frontend-lint:
     name: Frontend Lint
+    if: >-
+      github.event_name != 'issue_comment'
+      || (
+        github.event.issue.pull_request
+        && contains(github.event.comment.body, '/lint')
+        && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
+      )
     runs-on: ubuntu-latest
     outputs:
       eslint: ${{ steps.eslint.outcome }}
@@ -34,7 +45,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
-          ref: ${{ github.event.pull_request.head.sha || '' }}
+          ref: ${{ github.event_name == 'issue_comment' && format('refs/pull/{0}/head', github.event.issue.number) || github.event.pull_request.head.sha || '' }}
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -57,19 +68,27 @@ jobs:
         run: exit 1
 
   backend-lint:
-    name: Backend Lint
-    runs-on: ubuntu-latest
-    outputs:
-      ruff-lint: ${{ steps.ruff-lint.outcome }}
-      ruff-format: ${{ steps.ruff-format.outcome }}
-    defaults:
-      run:
-        working-directory: tensormap-backend
-    steps:
+      name: Backend Lint
+      if: >-
+        github.event_name != 'issue_comment'
+        || (
+          github.event.issue.pull_request
+          && contains(github.event.comment.body, '/lint')
+          && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
+        )
+      runs-on: ubuntu-latest
+      outputs:
+        ruff-lint: ${{ steps.ruff-lint.outcome }}
+        ruff-format: ${{ steps.ruff-format.outcome }}
+      defaults:
+        run:
+          working-directory: tensormap-backend
+      steps:
       - uses: actions/checkout@v4
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
-          ref: ${{ github.event.pull_request.head.sha || '' }}
+          ref: ${{ github.event_name == 'issue_comment' && format('refs/pull/{0}/head', github.event.issue.number) || github.event.pull_request.head.sha || '' }}
+     
       - uses: astral-sh/setup-uv@v4
       - uses: actions/setup-python@v5
         with:
@@ -92,7 +111,14 @@ jobs:
 
   rebase-check:
     name: Rebase Check
-    if: github.event_name == 'pull_request_target'
+    if: >-
+      github.event_name == 'pull_request_target'
+      || (
+        github.event_name == 'issue_comment'
+        && github.event.issue.pull_request
+        && contains(github.event.comment.body, '/lint')
+        && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
+      )
     runs-on: ubuntu-latest
     outputs:
       behind_count: ${{ steps.rebase.outputs.behind_count }}
@@ -101,10 +127,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ github.event_name == 'issue_comment' && format('refs/pull/{0}/head', github.event.issue.number) || '' }}
 
       - name: Fetch PR head
         env:
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_NUMBER: ${{ github.event_name == 'issue_comment' && github.event.issue.number || github.event.pull_request.number }}
         run: git fetch origin "+refs/pull/${PR_NUMBER}/head:refs/remotes/origin/pr-head"
 
       - name: Check rebase status
@@ -121,7 +148,7 @@ jobs:
   pr-comment:
     name: PR Comment
     needs: [frontend-lint, backend-lint, rebase-check]
-    if: always() && github.event_name == 'pull_request_target'
+    if: always() && (github.event_name == 'pull_request_target' || github.event_name == 'issue_comment')
     runs-on: ubuntu-latest
     steps:
       - name: Post or delete combined comment
@@ -133,12 +160,12 @@ jobs:
           RUFF_FORMAT: ${{ needs.backend-lint.outputs.ruff-format }}
           BEHIND_COUNT: ${{ needs.rebase-check.outputs.behind_count }}
           MERGE_COMMITS: ${{ needs.rebase-check.outputs.merge_commits }}
-          PR_COMMITS: ${{ github.event.pull_request.commits }}
+          PR_COMMITS: ${{ github.event.pull_request.commits || '1' }}
         with:
           script: |
-            const marker = '<!-- ci-bot -->';
-            const oldMarkers = ['<!-- lint-frontend-bot -->', '<!-- lint-backend-bot -->', '<!-- rebase-bot -->'];
-            const prNumber = context.payload.pull_request.number;
+            const marker = '';
+            const oldMarkers = ['', '', ''];
+            const prNumber = context.payload.issue ? context.payload.issue.number : context.payload.pull_request.number;
 
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner, repo: context.repo.repo,
@@ -207,10 +234,10 @@ jobs:
             body += sections.join('\n');
 
             if (behind > 0 || mergeCommits || prCommits > 1) {
-              body += '\n### How to fix\n```bash\ngit fetch origin\ngit rebase -i origin/main   # mark all but first commit as "squash"\ngit push --force-with-lease\n```\n';
+              body += '\n### How to fix\n```bash\ngit fetch origin\ngit rebase origin/main\ngit push --force-with-lease\n```\n';
             }
 
-            body += '\n---\n*This comment updates automatically on each push.*\n';
+            body += '\n---\n*This comment updates automatically on each push or `/lint` command.*\n';
 
             if (existing) {
               await github.rest.issues.updateComment({

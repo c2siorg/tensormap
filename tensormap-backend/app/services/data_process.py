@@ -341,6 +341,9 @@ _TRANSFORMATION_HANDLERS: dict[str, Callable] = {
 _VALID_TRANSFORMATIONS = set(_TRANSFORMATION_HANDLERS.keys())
 
 
+_VALID_TRANSFORMATIONS = {"One Hot Encoding", "Categorical to Numerical", "Drop Column"}
+
+
 def preprocess_data(db: Session, file_id: uuid_pkg.UUID, transformations: list) -> tuple:
     """Apply column transformations to a CSV, overwriting the existing file."""
     file = db.exec(select(DataFile).where(DataFile.id == file_id)).first()
@@ -354,6 +357,7 @@ def preprocess_data(db: Session, file_id: uuid_pkg.UUID, transformations: list) 
 
         # Validate all transformations before applying any, so the request either
         # fully succeeds or fully fails — no partial mutations.
+
         for t in transformations:
             # Handle both dict-like and object attribute access
             if hasattr(t, "transformation"):

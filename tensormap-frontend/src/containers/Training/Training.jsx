@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useParams } from "react-router-dom";
 import { Trash2 } from "lucide-react";
 import io from "socket.io-client";
@@ -40,6 +40,31 @@ import {
   trainingHistory as trainingHistoryAtom,
   modelListSelector,
 } from "../../shared/atoms";
+
+const PROBLEM_TYPE = Object.freeze({
+  BINARY_CLASSIFICATION: "1",
+  REGRESSION: "2",
+  MULTI_CLASS_CLASSIFICATION: "3",
+});
+
+const DEFAULT_LOSS_BY_PROBLEM_TYPE = {
+  [PROBLEM_TYPE.BINARY_CLASSIFICATION]: "sparse_categorical_crossentropy",
+  [PROBLEM_TYPE.MULTI_CLASS_CLASSIFICATION]: "sparse_categorical_crossentropy",
+  [PROBLEM_TYPE.REGRESSION]: "mean_squared_error",
+};
+
+const LOSS_OPTIONS = [
+  {
+    type: "classification",
+    label: "Sparse Categorical Crossentropy",
+    value: "sparse_categorical_crossentropy",
+  },
+  { type: "classification", label: "Categorical Crossentropy", value: "categorical_crossentropy" },
+  { type: "classification", label: "Binary Crossentropy", value: "binary_crossentropy" },
+  { type: "regression", label: "Mean Squared Error", value: "mean_squared_error" },
+  { type: "regression", label: "Mean Absolute Error", value: "mean_absolute_error" },
+  { type: "regression", label: "Huber", value: "huber" },
+];
 
 const optimizerOptions = [
   { key: "opt_1", label: "Adam", value: "adam" },
@@ -96,6 +121,14 @@ export default function Training() {
     batch_size: "",
     training_split: "",
   });
+
+  const visibleLossOptions = useMemo(() => {
+    const isRegression = trainingConfig.problem_type_id === PROBLEM_TYPE.REGRESSION;
+    const targetType = isRegression ? "regression" : "classification";
+
+    return LOSS_OPTIONS.filter((option) => option.type === targetType);
+  }, [trainingConfig.problem_type_id]);
+
   // Validation state
   const [validationErrors, setValidationErrors] = useState({
     model: "",
@@ -418,6 +451,7 @@ export default function Training() {
   const handleSaveConfig = useCallback(() => {
     if (!selectedModel) return;
 
+    // Final validation check before submitting
     if (!validateAllFields()) {
       return;
     }
@@ -431,6 +465,7 @@ export default function Training() {
       optimizer: trainingConfig.optimizer,
       metric: trainingConfig.metric,
       epochs: Number(trainingConfig.epochs),
+      loss: trainingConfig.loss,
       batch_size: trainingConfig.batch_size ? Number(trainingConfig.batch_size) : 32,
       project_id: projectId || null,
     };
@@ -456,6 +491,7 @@ export default function Training() {
     trainingConfig.optimizer &&
     trainingConfig.metric &&
     trainingConfig.epochs &&
+    trainingConfig.loss &&
     trainingConfig.batch_size &&
     trainingConfig.training_split &&
     trainingConfig.target_field &&
@@ -470,6 +506,7 @@ export default function Training() {
   const handleRun = useCallback(() => {
     if (!selectedModel) return;
 
+    // Final validation check before training
     if (!validateAllFields()) {
       return;
     }
@@ -671,7 +708,12 @@ export default function Training() {
                 <Label>Problem Type</Label>
                 <Select
                   onValueChange={(v) => {
-                    setTrainingConfig((prev) => ({ ...prev, problem_type_id: v }));
+                    const defaultLoss = DEFAULT_LOSS_BY_PROBLEM_TYPE[v] ?? "";
+                    setTrainingConfig((prev) => ({
+                      ...prev,
+                      problem_type_id: v,
+                      loss: defaultLoss,
+                    }));
                     updateValidationErrors("problem_type_id", v);
                     setConfigSaved(false);
                   }}
@@ -719,7 +761,7 @@ export default function Training() {
                   {fieldsList.length > 0 && (
                     <datalist id="target-fields">
                       {fieldsList.map((f) => (
-                        <option key={f.value} value={f.value}>
+                        <option key={f.key} value={f.value}>
                           {f.label}
                         </option>
                       ))}
@@ -734,6 +776,25 @@ export default function Training() {
                 {validationErrors.target_field && (
                   <p className="text-sm text-red-500">{validationErrors.target_field}</p>
                 )}
+              </div>
+
+              <div className="space-y-1">
+                <Label>Loss Function</Label>
+                <Select
+                  value={trainingConfig.loss}
+                  onValueChange={(v) => setTrainingConfig((prev) => ({ ...prev, loss: v }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select loss function" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {visibleLossOptions.map((o) => (
+                      <SelectItem key={o.value} value={o.value}>
+                        {o.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
 
               <div className="space-y-1">

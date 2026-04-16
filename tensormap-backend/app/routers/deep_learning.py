@@ -149,4 +149,3 @@ def get_layer_registry():
             content={"success": False, "message": "Unified layer registry is missing or corrupted on the server."},
         )
     return JSONResponse(status_code=200, content={"success": True, "layers": _LAYER_REGISTRY})
-

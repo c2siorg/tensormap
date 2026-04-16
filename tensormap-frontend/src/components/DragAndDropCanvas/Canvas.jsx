@@ -239,7 +239,7 @@ function Canvas() {
     return () => {
       cancelled = true;
     };
-  }, [projectId, setNodes, setEdges, draftKey]);
+  }, [projectId, setNodes, setEdges, draftKey, setTrainingHistory]);
 
   // Handle debounced saving of draft
   useEffect(() => {
@@ -304,18 +304,6 @@ function Canvas() {
 
     return () => clearTimeout(timer);
   }, [nodes, edges, modelName, draftKey]);
-
-  const handleDiscardDraft = useCallback(() => {
-    try {
-      localStorage.removeItem(draftKey);
-    } catch (e) {
-      logger.error("Failed to remove draft:", e);
-    }
-    setHasDraft(false);
-    setNodes([]);
-    setEdges([]);
-    setModelName("");
-  }, [draftKey, setNodes, setEdges]);
 
   const onConnect = useCallback(
     (params) => {

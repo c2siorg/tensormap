@@ -113,5 +113,24 @@ def _build_layer(node: dict, input_tensor):
             name=name,
         )(input_tensor)
 
+    elif node_type == "customlstm":
+        try:
+            units = int(params.get("units", 0) or 0)
+            if units <= 0:
+                raise ValueError("LSTM units must be a positive integer")
+        except (ValueError, TypeError) as exc:
+            raise ValueError(f"Invalid LSTM units parameter: {exc}") from exc
+        return tf.keras.layers.LSTM(
+            units=units,
+            return_sequences=params.get("returnSequences") in (True, "true", 1),
+            name=name,
+        )(input_tensor)
+
+    elif node_type == "customdropout":
+        return tf.keras.layers.Dropout(
+            rate=float(params.get("rate", 0.5)),
+            name=name,
+        )(input_tensor)
+
     else:
         raise ValueError(f"Unknown node type: {node_type}")

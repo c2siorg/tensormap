@@ -29,6 +29,11 @@ export const canSaveModel = (modelName, modelData) => {
       if (!p.pool_size || !p.stride) {
         return false;
       }
+    } else if (node.type === "customlstm") {
+      const units = Number(node.data.params.units);
+      if (!units || units <= 0 || isNaN(units)) {
+        return false;
+      }
     }
     // customflatten and customdropout have no required params to validate
   }

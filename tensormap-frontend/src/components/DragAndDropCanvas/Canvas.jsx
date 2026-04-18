@@ -30,6 +30,7 @@ import DenseNode from "./CustomNodes/DenseNode/DenseNode";
 import FlattenNode from "./CustomNodes/FlattenNode/FlattenNode";
 import ConvNode from "./CustomNodes/ConvNode/ConvNode";
 import DropoutNode from "./CustomNodes/DropoutNode/DropoutNode";
+import LSTMNode from "./CustomNodes/LSTMNode/LSTMNode";
 import MaxPoolingNode from "./CustomNodes/MaxPoolingNode/MaxPoolingNode";
 import Sidebar from "./Sidebar";
 import NodePropertiesPanel from "./NodePropertiesPanel";
@@ -54,6 +55,7 @@ const nodeTypes = {
   customconv: ConvNode,
   customdropout: DropoutNode,
   custommaxpool: MaxPoolingNode,
+  customlstm: LSTMNode,
 };
 
 function Canvas() {
@@ -518,6 +520,7 @@ function Canvas() {
         },
         customdropout: { rate: "" },
         custommaxpool: { pool_size: "", stride: "", padding: "valid" },
+        customlstm: { units: "", returnSequences: "false" }, // returnSequences stored as "true"/"false" string to match Select values
       };
 
       const newNode = {

@@ -316,7 +316,10 @@ def get_code_service(db: Session, model_name: str, project_id: uuid_pkg.UUID | N
     err = _verify_model_project(db, model_name, project_id)
     if err:
         return err
-    python_code = generate_code(model_name, db)
+    try:
+        python_code = generate_code(model_name, db)
+    except ValueError as e:
+        return _resp(400, False, str(e))
     return {"content": python_code, "file_name": model_name + ".py"}, 200
 
 

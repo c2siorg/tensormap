@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Form, Query, UploadFile
 from fastapi.responses import JSONResponse
 from sqlmodel import Session
 
+from app.config import get_settings
 from app.database import get_db
 from app.services.data_upload import (
     add_file_service,
@@ -26,6 +27,10 @@ class _UploadFileWrapper:
         self._file = upload_file
         self.filename = upload_file.filename
 
+    @property
+    def file(self):
+        return self._file
+
     def save(self, path: str) -> None:
         content = self._file.file.read()
         with open(path, "wb") as f:
@@ -33,7 +38,7 @@ class _UploadFileWrapper:
 
 
 @router.post("/data/upload/file")
-def upload_file(
+async def upload_file(
     data: UploadFile,
     project_id: uuid_pkg.UUID | None = Form(None),
     db: Session = Depends(get_db),
@@ -56,6 +61,27 @@ def upload_file(
                 "data": None,
             },
         )
+
+    max_size = get_settings().max_content_length
+    total_read = 0
+    chunk_size = 1024 * 1024  # 1 MB
+
+    while True:
+        chunk = data.file.read(chunk_size)
+        if not chunk:
+            break
+        total_read += len(chunk)
+        if total_read > max_size:
+            return JSONResponse(
+                status_code=413,
+                content={
+                    "success": False,
+                    "message": f"File too large. Maximum allowed size is {max_size // (1024 * 1024)} MB.",
+                    "data": None,
+                },
+            )
+
+    data.file.seek(0)
 
     wrapper = _UploadFileWrapper(data)
     body, status_code = add_file_service(db, wrapper, project_id=project_id)

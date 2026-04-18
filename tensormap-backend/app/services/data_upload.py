@@ -1,4 +1,3 @@
-import contextlib
 import os
 import uuid as uuid_pkg
 from typing import Any
@@ -29,21 +28,6 @@ def add_file_service(db: Session, file_wrapper: Any, project_id: uuid_pkg.UUID |
 
     filename = secure_filename(file_wrapper.filename.lower())
     file_path = os.path.join(upload_folder, filename)
-
-    # Enforce max upload size before saving to disk
-    # Primary guard: Content-Length header pre-check (fast path, before reading body)
-    file_size = 0
-    try:
-        file_wrapper.file.seek(0, 2)
-        file_size = file_wrapper.file.tell()
-    except (AttributeError, OSError) as exc:
-        logger.warning("Could not determine upload size; rejecting upload. Reason: %s", exc)
-        return _resp(413, False, "File size could not be verified. Upload rejected.")
-    finally:
-        with contextlib.suppress(AttributeError, OSError):
-            file_wrapper.file.seek(0)
-    if file_size > settings.max_content_length:
-        return _resp(413, False, "File too large. Maximum allowed size is 200MB.")
 
     file_wrapper.save(file_path)
 

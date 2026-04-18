@@ -270,6 +270,53 @@ function NodePropertiesPanel({
       </Card>
     );
   }
+  if (type === "custommaxpool") {
+    return (
+      <Card className="h-fit">
+        <CardHeader>
+          <CardTitle className="text-sm">MaxPooling2D Layer</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="space-y-1">
+            <Label>Pool Size</Label>
+            <Input
+              type="number"
+              min="1"
+              placeholder="Pool size"
+              value={params.pool_size}
+              onChange={(e) => updateParam("pool_size", Number(e.target.value))}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label>Stride</Label>
+            <Input
+              type="number"
+              min="1"
+              placeholder="Stride"
+              value={params.stride}
+              onChange={(e) => updateParam("stride", Number(e.target.value))}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label>Padding</Label>
+            <Select value={params.padding} onValueChange={(v) => updateParam("padding", v)}>
+              <SelectTrigger>
+                <SelectValue placeholder="Padding" />
+              </SelectTrigger>
+              <SelectContent>
+                {convPaddings.map((p) => (
+                  <SelectItem key={p.value} value={p.value}>
+                    {p.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
   return null;
 }
 

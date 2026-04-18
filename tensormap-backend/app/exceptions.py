@@ -2,6 +2,8 @@
 
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
+from pydantic import ValidationError
+from sqlalchemy.exc import IntegrityError
 
 from app.shared.logging_config import get_logger
 
@@ -24,10 +26,37 @@ async def app_exception_handler(request: Request, exc: AppException) -> JSONResp
     )
 
 
+async def integrity_error_handler(request: Request, exc: IntegrityError) -> JSONResponse:
+    """Handle SQLAlchemy IntegrityError (e.g. unique constraint violations) with a 409 response."""
+    logger.warning(
+        "Database integrity error on %s %s: %s",
+        request.method,
+        request.url.path,
+        exc.orig,
+    )
+    return JSONResponse(
+        status_code=409,
+        content={"success": False, "message": "A conflicting record already exists.", "data": None},
+    )
+
+
+async def validation_exception_handler(request: Request, exc: ValidationError) -> JSONResponse:
+    """Handle Pydantic ValidationError and return a 422 response with field-level details."""
+    logger.warning("Validation error on %s %s: %s", request.method, request.url.path, exc.errors())
+    return JSONResponse(
+        status_code=422,
+        content={
+            "success": False,
+            "message": "Validation failed.",
+            "data": exc.errors(),
+        },
+    )
+
+
 async def generic_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """Catch-all handler for unhandled exceptions, returning a 500 response."""
     logger.exception("Unhandled exception on %s %s", request.method, request.url.path)
     return JSONResponse(
         status_code=500,
-        content={"success": False, "message": "Internal server error", "data": None},
+        content={"success": False, "message": "Internal server error.", "data": None},
     )

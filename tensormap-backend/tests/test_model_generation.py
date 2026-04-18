@@ -303,3 +303,48 @@ class TestModelGeneration:
         result = model_generation(params)
         model = tf.keras.models.model_from_json(json.dumps(result))
         assert model.input_shape == (None, 28, 28, 1)
+
+
+def _maxpool_node(node_id: str, pool_size: int = 2, stride: int = 2, padding: str = "valid") -> dict:
+    return {
+        "id": node_id,
+        "type": "custommaxpool",
+        "data": {"params": {"pool_size": pool_size, "stride": stride, "padding": padding}},
+    }
+
+
+class TestMaxPoolingLayer:
+    """Unit and integration tests for the MaxPooling2D layer."""
+
+    def test_maxpool_output_shape(self):
+        input_t = tf.keras.Input(shape=(28, 28, 16), name="inp")
+        node = _maxpool_node("mp1")
+        output = _build_layer(node, input_t)
+        assert output.shape == (None, 14, 14, 16)
+
+    def test_maxpool_default_params(self):
+        input_t = tf.keras.Input(shape=(16, 16, 8), name="inp")
+        node = _maxpool_node("mp1")
+        output = _build_layer(node, input_t)
+        assert output is not None
+
+    def test_maxpool_in_model(self):
+        """input → conv → maxpool → flatten → dense end-to-end."""
+        params = {
+            "nodes": [
+                _input_node("x", [28, 28, 1]),
+                _conv_node("c1", filters=16, kernel=(3, 3), stride=(1, 1), padding="same"),
+                _maxpool_node("mp1"),
+                _flatten_node("flat"),
+                _dense_node("out", 10, "softmax"),
+            ],
+            "edges": [
+                _edge("x", "c1"),
+                _edge("c1", "mp1"),
+                _edge("mp1", "flat"),
+                _edge("flat", "out"),
+            ],
+        }
+        result = model_generation(params)
+        model = tf.keras.models.model_from_json(json.dumps(result))
+        assert model.output_shape == (None, 10)

@@ -125,6 +125,18 @@ def _build_layer(node: dict, input_tensor):
     elif node_type == "customflatten":
         return tf.keras.layers.Flatten(name=name)(input_tensor)
 
+    elif node_type == "customdropout":
+        return tf.keras.layers.Dropout(
+            rate=float(params.get("rate", 0.5)),
+            name=name,
+        )(input_tensor)
+    elif node_type == "custommaxpool":
+        return tf.keras.layers.MaxPooling2D(
+            pool_size=int(params.get("pool_size", 2)),
+            strides=int(params.get("stride", 2)),
+            padding=params.get("padding", "valid"),
+            name=name,
+        )(input_tensor)
     elif node_type == "customconv":
         activation = params["activation"]
         return tf.keras.layers.Conv2D(

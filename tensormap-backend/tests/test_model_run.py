@@ -2,7 +2,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from app.services.deep_learning import run_code_service
+from app.services.deep_learning import get_code_service, run_code_service
 from app.services.model_run import model_run
 from app.shared.enums import ProblemType
 
@@ -97,3 +97,20 @@ class TestRunCodeServiceOnFailure:
             result, _ = run_code_service(db, "my_model")
 
         assert result["success"] is False
+
+
+class TestGetCodeServiceOnFailure:
+    def test_returns_http_400_when_generate_code_raises_value_error(self):
+        db = MagicMock()
+        with patch("app.services.deep_learning.generate_code", side_effect=ValueError("file missing")):
+            _, status_code = get_code_service(db, "my_model")
+
+        assert status_code == 400
+
+    def test_response_body_has_error_message_from_value_error(self):
+        db = MagicMock()
+        with patch("app.services.deep_learning.generate_code", side_effect=ValueError("file missing")):
+            result, _ = get_code_service(db, "my_model")
+
+        assert result["success"] is False
+        assert result["message"] == "file missing"

@@ -333,10 +333,11 @@ def run_code_service(db: Session, model_name: str, project_id: uuid_pkg.UUID | N
         return _resp(404, False, "Model not found")
     if model.file_id is None or model.epochs is None:
         return _resp(400, False, "Training configuration not set. Please configure training parameters first.")
+    run_id = str(uuid_pkg.uuid4())
     try:
-        model_run(model_name, db, loop=loop)
+        model_run(model_name, db, run_id=run_id, loop=loop)
         logger.info("Model '%s' training completed", model_name)
-        return _resp(200, True, "Model executed successfully.")
+        return _resp(200, True, "Model executed successfully.", {"run_id": run_id})
     except Exception as e:
         logger.exception("Model run failed: %s", str(e))
         for error in errors.err_msgs:

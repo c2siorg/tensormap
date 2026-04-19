@@ -5,6 +5,7 @@ import os
 import re
 import sys
 import uuid as uuid_pkg
+from collections import deque
 from datetime import UTC
 from typing import Any
 
@@ -55,6 +56,10 @@ def _sanitize_model_name(name: str) -> str:
 
 # Maximum size (in bytes) for the serialised graph JSON stored in the DB.
 _MAX_GRAPH_JSON_BYTES = 512 * 1024  # 512 KB
+
+# Estimated ReactFlow node dimensions used for auto-layout spacing
+_LAYOUT_X_SPACING = 300.0  # px - accounts for node width (~200px) + margin
+_LAYOUT_Y_SPACING = 150.0  # px - accounts for node height (~80px) + margin
 
 
 def _extract_graph(payload: dict) -> dict | None:
@@ -379,19 +384,80 @@ def get_model_graph_service(db: Session, model_name: str, project_id: uuid_pkg.U
 
 
 def _apply_auto_layout(graph: dict) -> None:
-    """Assign default positions to nodes that lack one.
+    """Assign default positions to nodes that lack one using a layered DAG layout.
 
-    This is a simple vertical-stack layout used as a fallback so that the
-    ReactFlow canvas can render the graph without crashing.  For a more
-    sophisticated layout (e.g. dagre), see:
-    https://reactflow.dev/docs/examples/layout/dagre/
+    Nodes without a predefined position are placed by:
+    1. Identifying input nodes (in-degree 0).
+    2. Grouping nodes into layers based on the longest path from an input.
+    3. Spacing layers vertically and centering nodes within each layer horizontally.
 
-    TODO: Replace with a proper auto-layout algorithm (e.g. dagre) in a
-    follow-up issue.
+    Note: Cyclic or disconnected nodes are assigned a default layer (0).
     """
-    for i, node in enumerate(graph.get("nodes", [])):
-        if "position" not in node:
-            node["position"] = {"x": 100.0, "y": float(i * 200)}
+    nodes = [n for n in graph.get("nodes", []) if n.get("id")]
+    if not nodes:
+        return
+
+    # If any node already has a position, do nothing to avoid visually inconsistent partial graphs
+    if any("position" in node for node in nodes):
+        return
+
+    edges = graph.get("edges", [])
+
+    # 1. Build adjacency list and map nodes by ID
+    adj = {node["id"]: [] for node in nodes}
+    in_degree = {node["id"]: 0 for node in nodes}
+
+    for edge in edges:
+        source = edge.get("source")
+        target = edge.get("target")
+        if source in adj and target in in_degree:
+            adj[source].append(target)
+            in_degree[target] += 1
+
+    # 2. Find longest path from input to each node to determine layer
+    # Kahn's topological order + longest path DP
+    node_layers = {}
+    queue = deque(n_id for n_id, deg in in_degree.items() if deg == 0)
+    for n_id in queue:
+        node_layers[n_id] = 0
+
+    topo_in_degree = dict(in_degree)  # mutable copy
+
+    while queue:
+        curr = queue.popleft()
+        for neighbor in adj[curr]:
+            new_layer = node_layers[curr] + 1
+            if new_layer > node_layers.get(neighbor, 0):
+                node_layers[neighbor] = new_layer
+
+            topo_in_degree[neighbor] -= 1
+            if topo_in_degree[neighbor] == 0:
+                queue.append(neighbor)
+
+    # Nodes not yet assigned are part of cycles or disconnected
+    for node in nodes:
+        node_layers.setdefault(node["id"], 0)
+
+    # 3. Group nodes by layer
+    max_layer = max(node_layers.values()) if node_layers else 0
+    layers = [[] for _ in range(max_layer + 1)]
+    for node in nodes:
+        layers[node_layers[node["id"]]].append(node)
+
+    # 4. Assign positions based on layers
+    for layer_idx, layer_nodes in enumerate(layers):
+        if not layer_nodes:
+            continue
+
+        y_pos = layer_idx * _LAYOUT_Y_SPACING
+
+        # Center nodes horizontally
+        total_width = (len(layer_nodes) - 1) * _LAYOUT_X_SPACING
+        start_x = -total_width / 2.0
+
+        for i, node in enumerate(layer_nodes):
+            if "position" not in node:
+                node["position"] = {"x": start_x + (i * _LAYOUT_X_SPACING), "y": y_pos}
 
 
 def _unflatten_model_configs(configs: list[ModelConfigs]) -> dict:

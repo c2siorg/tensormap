@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 
 from app.schemas.data_process import TransformationItem
-from app.services.data_process import preprocess_data
+from app.services.data_process import _TRANSFORMATION_REGISTRY, preprocess_data
 
 
 def _make_db() -> MagicMock:
@@ -107,6 +107,12 @@ class TestLogTransform:
         result_df = _run_df(df, "Log Transform", "price")
         assert result_df["price"].iloc[0] == pytest.approx(0.0)
 
+    def test_rejects_values_below_negative_one(self):
+        df = pd.DataFrame({"price": [1.0, -2.0, 3.0]})
+        result, status_code = _run(df, "Log Transform", "price")
+        assert status_code == 422
+        assert "below -1" in result["message"]
+
 
 class TestFillMissingValues:
     def test_returns_200(self):
@@ -137,3 +143,42 @@ class TestFillMissingValues:
         result_df = _run_df(df, "Fill Missing Values", "age", params=None)
         assert result_df["age"].isna().sum() == 0
         assert result_df["age"].iloc[1] == pytest.approx(20.0)
+
+
+class TestTransformationValidation:
+    """Ensure the registry accepts all valid names and rejects unknown ones."""
+
+    @pytest.mark.parametrize("transformation", list(_TRANSFORMATION_REGISTRY.keys()))
+    def test_valid_transformation_accepted(self, transformation):
+        df = pd.DataFrame({"col": [1.0, 2.0, 3.0]})
+        _, status_code = _run(df, transformation, "col")
+        assert status_code != 422, f"{transformation} was rejected as unknown"
+
+    def test_invalid_transformation_rejected(self):
+        df = pd.DataFrame({"col": [1.0, 2.0, 3.0]})
+        result, status_code = _run(df, "Not A Real Transform", "col")
+        assert status_code == 422
+        assert result["success"] is False
+        assert "Not A Real Transform" in result["message"]
+        assert "One Hot Encoding" in result["message"]
+
+
+class TestTransformationCorrectness:
+    """Verify that transformations produce expected observable side-effects."""
+
+    def test_drop_column_actually_drops(self):
+        df = pd.DataFrame({"col": [1.0, 2.0], "other": [3.0, 4.0]})
+        result_df = _run_df(df, "Drop Column", "col")
+        assert "col" not in result_df.columns
+
+    def test_min_max_normalize_produces_unit_range(self):
+        df = pd.DataFrame({"col": [0.0, 5.0, 10.0]})
+        result_df = _run_df(df, "Min-Max Normalization", "col")
+        assert result_df["col"].min() == pytest.approx(0.0)
+        assert result_df["col"].max() == pytest.approx(1.0)
+
+    def test_fill_missing_unknown_strategy_rejected(self):
+        df = pd.DataFrame({"col": [1.0, None, 3.0]})
+        result, status_code = _run(df, "Fill Missing Values", "col", params={"strategy": "interpolate"})
+        assert status_code == 422
+        assert "Unknown fill strategy" in result["message"]

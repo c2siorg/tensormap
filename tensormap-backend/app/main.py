@@ -1,5 +1,4 @@
 """TensorMap backend application entry point.
-
 Creates the FastAPI app, configures CORS and exception handlers, mounts
 routers, and wraps the ASGI app with Socket.IO for real-time training progress.
 """
@@ -8,12 +7,21 @@ from contextlib import asynccontextmanager
 
 import socketio
 from fastapi import FastAPI
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import ValidationError
+from sqlalchemy.exc import IntegrityError
 
 from app.config import get_settings
-from app.exceptions import AppException, app_exception_handler, generic_exception_handler
+from app.exceptions import (
+    AppException,
+    app_exception_handler,
+    generic_exception_handler,
+    integrity_error_handler,
+    validation_exception_handler,
+)
 from app.middleware import RequestLoggingMiddleware
-from app.routers import data_process, data_upload, deep_learning, project
+from app.routers import data_process, data_upload, deep_learning, health, project
 from app.shared.logging_config import get_logger
 from app.socketio_instance import sio
 
@@ -34,8 +42,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="TensorMap API", lifespan=lifespan)
-
 settings = get_settings()
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_allowed_origins_list,
@@ -46,8 +54,14 @@ app.add_middleware(
 app.add_middleware(RequestLoggingMiddleware)
 
 app.add_exception_handler(AppException, app_exception_handler)
+app.add_exception_handler(IntegrityError, integrity_error_handler)
+app.add_exception_handler(ValidationError, validation_exception_handler)
+# FastAPI raises RequestValidationError for invalid request bodies/params,
+# not pydantic.ValidationError — register this to standardise the response shape.
+app.add_exception_handler(RequestValidationError, validation_exception_handler)
 app.add_exception_handler(Exception, generic_exception_handler)
 
+app.include_router(health.router, tags=["health"])
 app.include_router(data_upload.router, prefix=settings.api_base)
 app.include_router(data_process.router, prefix=settings.api_base)
 app.include_router(deep_learning.router, prefix=settings.api_base)

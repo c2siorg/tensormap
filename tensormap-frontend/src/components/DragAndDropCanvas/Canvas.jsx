@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { useParams } from "react-router-dom";
 import { Trash2, Undo2, Redo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import BatchNormNode from "./CustomNodes/BatchNormNode/BatchNormNode";
 import {
   Dialog,
   DialogContent,
@@ -56,6 +57,7 @@ const nodeTypes = {
   customdropout: DropoutNode,
   custommaxpool: MaxPoolingNode,
   customglobalavgpool: GlobalAvgPoolNode,
+  custombatchnorm: BatchNormNode,
 };
 
 function Canvas() {
@@ -539,6 +541,7 @@ function Canvas() {
         customdropout: { rate: "" },
         custommaxpool: { pool_size: "", stride: "", padding: "valid" },
         customglobalavgpool: {},
+        custombatchnorm: {},
       };
 
       const newNode = {

@@ -31,3 +31,9 @@ htmlcov/
 
 # Generated model files
 templates/json-model/*.json
+*.db
+*.sqlite
+*.sqlite3
+__pycache__/
+*.pyc
+*.pyo

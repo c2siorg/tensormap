@@ -58,7 +58,12 @@ def get_all_targets_service(db: Session, offset: int = 0, limit: int = 50) -> tu
     total = db.exec(select(func.count()).select_from(DataProcess)).one()
 
     stmt = (
-        select(DataProcess.file_id, DataFile.file_name, DataFile.file_type, DataProcess.target)
+        select(
+            DataProcess.file_id,
+            DataFile.file_name,
+            DataFile.file_type,
+            DataProcess.target,
+        )
         .join(DataFile, DataFile.id == DataProcess.file_id)
         .offset(offset)
         .limit(limit)
@@ -73,7 +78,11 @@ def get_all_targets_service(db: Session, offset: int = 0, limit: int = 50) -> tu
         }
         for row in rows
     ]
-    body = {"success": True, "message": "Target fields of all files received successfully", "data": data}
+    body = {
+        "success": True,
+        "message": "Target fields of all files received successfully",
+        "data": data,
+    }
     body["pagination"] = {"total": total, "offset": offset, "limit": limit}
     return body, 200
 
@@ -217,7 +226,12 @@ def get_correlation_matrix(db: Session, file_id: uuid_pkg.UUID) -> tuple:
     # Convert the DataFrame to a plain list-of-lists; NaN becomes None (JSON null)
     columns = corr.columns.tolist()
     matrix = [[None if pd.isna(v) else round(float(v), 6) for v in row] for row in corr.to_numpy()]
-    return _resp(200, True, "Correlation matrix computed successfully", {"columns": columns, "matrix": matrix})
+    return _resp(
+        200,
+        True,
+        "Correlation matrix computed successfully",
+        {"columns": columns, "matrix": matrix},
+    )
 
 
 def get_file_data(db: Session, file_id: uuid_pkg.UUID, page: int = 1, page_size: int = 50) -> tuple:
@@ -267,78 +281,71 @@ def get_file_data(db: Session, file_id: uuid_pkg.UUID, page: int = 1, page_size:
     )
 
 
-# Transformation handler functions
-def _handle_one_hot_encoding(df: pd.DataFrame, feature: str, params: dict = None) -> pd.DataFrame:
-    """Apply one-hot encoding to a categorical column."""
-    return pd.get_dummies(df, columns=[feature])
+def _one_hot_encode(df: pd.DataFrame, col: str, _params: dict | None) -> pd.DataFrame:
+    return pd.get_dummies(df, columns=[col], dtype=int)
 
 
-def _handle_categorical_to_numerical(df: pd.DataFrame, feature: str, params: dict = None) -> pd.DataFrame:
-    """Convert categorical values to numerical codes."""
-    df[feature] = pd.Categorical(df[feature]).codes
+def _categorical_to_numerical(df: pd.DataFrame, col: str, _params: dict | None) -> pd.DataFrame:
+    codes = pd.Categorical(df[col]).codes.astype(float)
+    codes[codes == -1] = float("nan")
+    df[col] = codes
     return df
 
 
-def _handle_drop_column(df: pd.DataFrame, feature: str, params: dict = None) -> pd.DataFrame:
-    """Drop a column from the dataframe."""
-    return df.drop(columns=[feature])
+def _drop_column(df: pd.DataFrame, col: str, _params: dict | None) -> pd.DataFrame:
+    return df.drop(columns=[col])
 
 
-def _handle_min_max_normalization(df: pd.DataFrame, feature: str, params: dict = None) -> pd.DataFrame:
-    """Apply min-max normalization to a numeric column."""
-    col_min = df[feature].min()
-    col_max = df[feature].max()
-    df[feature] = 0.0 if np.isclose(col_min, col_max) else (df[feature] - col_min) / (col_max - col_min)
+def _min_max_normalize(df: pd.DataFrame, col: str, _params: dict | None) -> pd.DataFrame:
+    col_min = df[col].min()
+    col_max = df[col].max()
+    df[col] = 0.0 if np.isclose(col_min, col_max) else (df[col] - col_min) / (col_max - col_min)
     return df
 
 
-def _handle_z_score_standardization(df: pd.DataFrame, feature: str, params: dict = None) -> pd.DataFrame:
-    """Apply z-score standardization to a numeric column."""
-    std = df[feature].std()
-    df[feature] = 0.0 if std == 0 else (df[feature] - df[feature].mean()) / std
+def _zscore_standardize(df: pd.DataFrame, col: str, _params: dict | None) -> pd.DataFrame:
+    mean = df[col].mean()
+    std = df[col].std()
+    df[col] = 0.0 if np.isclose(std, 0) else (df[col] - mean) / std
     return df
 
 
-def _handle_log_transform(df: pd.DataFrame, feature: str, params: dict = None) -> pd.DataFrame:
-    """Apply log transformation to a numeric column."""
-    s = df[feature]
-    if (s < -1).any():
-        logger.warning(
-            "Log Transform skipped for column '%s': %d value(s) below -1",
-            feature,
-            int((s < -1).sum()),
-        )
-    else:
-        df[feature] = np.log1p(s)
+def _log_transform(df: pd.DataFrame, col: str, _params: dict | None) -> pd.DataFrame:
+    s = df[col]
+    invalid = int((s < -1).sum())
+    if invalid:
+        raise ValueError(f"Log Transform: {invalid} value(s) below -1 in column '{col}'")
+    df[col] = np.log1p(s)
     return df
 
 
-def _handle_fill_missing_values(df: pd.DataFrame, feature: str, params: dict = None) -> pd.DataFrame:
-    """Fill missing values in a column using specified strategy."""
+def _fill_missing(df: pd.DataFrame, col: str, params: dict | None) -> pd.DataFrame:
     strategy = (params or {}).get("strategy", "mean")
     if strategy == "median":
-        df[feature] = df[feature].fillna(df[feature].median())
+        df[col] = df[col].fillna(df[col].median())
     elif strategy == "mode":
-        mode_vals = df[feature].mode()
-        df[feature] = df[feature].fillna(mode_vals[0] if not mode_vals.empty else df[feature].mean())
+        mode_vals = df[col].mode()
+        fill_val = mode_vals[0] if not mode_vals.empty else df[col].median()
+        df[col] = df[col].fillna(fill_val)
+    elif strategy == "mean":
+        df[col] = df[col].fillna(df[col].mean())
     else:
-        df[feature] = df[feature].fillna(df[feature].mean())
+        raise ValueError(f"Unknown fill strategy '{strategy}'. Valid: 'mean', 'median', 'mode'")
     return df
 
 
-# Dispatch dictionary mapping transformation names to handler functions
-_TRANSFORMATION_HANDLERS: dict[str, Callable] = {
-    "One Hot Encoding": _handle_one_hot_encoding,
-    "Categorical to Numerical": _handle_categorical_to_numerical,
-    "Drop Column": _handle_drop_column,
-    "Min-Max Normalization": _handle_min_max_normalization,
-    "Z-score Standardization": _handle_z_score_standardization,
-    "Log Transform": _handle_log_transform,
-    "Fill Missing Values": _handle_fill_missing_values,
+# Single source of truth: maps transformation name → handler function.
+# Adding a new transformation only requires adding one entry here.
+# This is the ONLY place to register new transformations.
+_TRANSFORMATION_REGISTRY: dict[str, Callable[..., pd.DataFrame]] = {
+    "One Hot Encoding": _one_hot_encode,
+    "Categorical to Numerical": _categorical_to_numerical,
+    "Drop Column": _drop_column,
+    "Min-Max Normalization": _min_max_normalize,
+    "Z-score Standardization": _zscore_standardize,
+    "Log Transform": _log_transform,
+    "Fill Missing Values": _fill_missing,
 }
-
-# Derived automatically — no manual sync needed
-_VALID_TRANSFORMATIONS = set(_TRANSFORMATION_HANDLERS.keys())
 
 
 def preprocess_data(db: Session, file_id: uuid_pkg.UUID, transformations: list) -> tuple:
@@ -355,51 +362,33 @@ def preprocess_data(db: Session, file_id: uuid_pkg.UUID, transformations: list) 
         # Validate all transformations before applying any, so the request either
         # fully succeeds or fully fails — no partial mutations.
         for t in transformations:
-            # Handle both dict-like and object attribute access
-            if hasattr(t, "transformation"):
-                name = t.transformation
-                feature = t.feature
-                params = getattr(t, "params", None)
-            else:
-                name = t.get("transformation")
-                feature = t.get("feature")
-                params = t.get("params")
-
-            if name.casefold() not in {t.casefold() for t in _VALID_TRANSFORMATIONS}:
+            if t.transformation not in _TRANSFORMATION_REGISTRY:
                 return _resp(
                     422,
                     False,
-                    f"Unsupported transformation '{name}'. Valid options: {sorted(_VALID_TRANSFORMATIONS)}",
+                    f"Unknown transformation '{t.transformation}'. Valid options: {sorted(_TRANSFORMATION_REGISTRY)}",
                 )
-            if feature not in df.columns:
+            if t.feature not in df.columns:
                 return _resp(
                     422,
                     False,
-                    f"Column '{feature}' not found. Available columns: {list(df.columns)}",
+                    f"Column '{t.feature}' not found. Available columns: {list(df.columns)}",
                 )
 
         for t in transformations:
-            # Handle both dict-like and object attribute access
-            if hasattr(t, "transformation"):
-                name = t.transformation
-                feature = t.feature
-                params = getattr(t, "params", None)
-            else:
-                name = t.get("transformation")
-                feature = t.get("feature")
-                params = t.get("params")
-
-            # Find the matching transformation name (case-insensitive)
-            actual_name = next(
-                (valid_name for valid_name in _VALID_TRANSFORMATIONS if valid_name.casefold() == name.casefold()), None
-            )
-
-            if actual_name and actual_name in _TRANSFORMATION_HANDLERS:
-                handler = _TRANSFORMATION_HANDLERS[actual_name]
-                df = handler(df, feature, params)
+            if t.feature not in df.columns:
+                return _resp(
+                    422,
+                    False,
+                    f"Column '{t.feature}' not found (may have been removed by a prior transformation)",
+                )
+            handler = _TRANSFORMATION_REGISTRY[t.transformation]
+            df = handler(df, t.feature, t.params)
 
         df.to_csv(file_path, index=False)
         return _resp(200, True, "Dataset preprocessed successfully")
+    except ValueError as e:
+        return _resp(422, False, str(e))
     except pd.errors.ParserError as e:
         logger.exception("CSV parsing error: %s", str(e))
         return _resp(500, False, f"Error parsing CSV data: {e}")

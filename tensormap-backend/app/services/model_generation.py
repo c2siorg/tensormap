@@ -17,7 +17,11 @@ def model_generation(model_params: dict) -> dict:
     it via ``model.to_json()`` so the output always matches the installed
     Keras version's expected format.
     """
-    logger.debug("Generating model from %d nodes, %d edges", len(model_params["nodes"]), len(model_params["edges"]))
+    logger.debug(
+        "Generating model from %d nodes, %d edges",
+        len(model_params["nodes"]),
+        len(model_params["edges"]),
+    )
 
     # Build adjacency maps
     source_to_targets = defaultdict(list)
@@ -46,7 +50,7 @@ def model_generation(model_params: dict) -> dict:
         for target_id in source_to_targets.get(current_id, []):
             if target_id in visited:
                 continue
-            # Check if all sources of this target have been visited
+
             all_sources = target_to_sources.get(target_id, [])
             if not all(src in visited for src in all_sources):
                 continue
@@ -54,7 +58,6 @@ def model_generation(model_params: dict) -> dict:
             visited.add(target_id)
             queue.append(target_id)
 
-            # Collect input tensors for this node
             source_tensors = [keras_tensors[src] for src in all_sources]
             if len(source_tensors) > 1:
                 input_tensor = tf.keras.layers.Concatenate(axis=-1)(source_tensors)
@@ -64,7 +67,6 @@ def model_generation(model_params: dict) -> dict:
             node = nodes_by_id[target_id]
             keras_tensors[target_id] = _build_layer(node, input_tensor)
 
-    # Identify input and output tensors
     inputs = [keras_tensors[n["id"]] for n in model_params["nodes"] if n["type"] == "custominput"]
     output_ids = [n["id"] for n in model_params["nodes"] if n["id"] not in source_to_targets]
     outputs = [keras_tensors[oid] for oid in output_ids]
@@ -90,6 +92,23 @@ def _build_layer(node: dict, input_tensor):
     elif node_type == "customflatten":
         return tf.keras.layers.Flatten(name=name)(input_tensor)
 
+    elif node_type == "customdropout":
+        return tf.keras.layers.Dropout(
+            rate=float(params.get("rate", 0.5)),
+            name=name,
+        )(input_tensor)
+
+    elif node_type == "custommaxpool":
+        return tf.keras.layers.MaxPooling2D(
+            pool_size=int(params.get("pool_size", 2)),
+            strides=int(params.get("stride", 2)),
+            padding=params.get("padding", "valid"),
+            name=name,
+        )(input_tensor)
+
+    elif node_type == "customglobalavgpool":
+        return tf.keras.layers.GlobalAveragePooling2D(name=name)(input_tensor)
+
     elif node_type == "customconv":
         activation = params["activation"]
         return tf.keras.layers.Conv2D(
@@ -100,6 +119,12 @@ def _build_layer(node: dict, input_tensor):
             activation="linear" if activation == "none" else activation,
             name=name,
         )(input_tensor)
+
+    elif node_type == "customdropout":
+        rate = float(params.get("rate", 0.5))
+        if not 0.0 <= rate < 1.0:
+            raise ValueError(f"Dropout rate must be in [0, 1), got {rate!r}.")
+        return tf.keras.layers.Dropout(rate=rate, name=name)(input_tensor)
 
     else:
         raise ValueError(f"Unknown node type: {node_type}")

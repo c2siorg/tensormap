@@ -1,7 +1,4 @@
-import json
-
 import tensorflow as tf
-import yaml
 
 
 def deep_learning_model():
@@ -33,7 +30,8 @@ def deep_learning_model():
         label_mode=label_mode,
     )
 
-    json_string = json.dumps(yaml.safe_load(open("{{data.dl_model.json_file}}")))
+    with open("{{data.dl_model.json_file}}") as f:
+        json_string = f.read()
     model = tf.keras.models.model_from_json(json_string, custom_objects=None)
 
     model.compile(

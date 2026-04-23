@@ -20,6 +20,30 @@ from app.socketio_instance import sio
 
 logger = get_logger(__name__)
 
+
+def _validate_training_params(batch_size, epochs, training_split):
+    """Validate training hyper-parameters before use (Issue #4).
+
+    Raises ValueError with a clear message instead of letting TensorFlow
+    crash with a cryptic error on bad values.
+    """
+    errors = []
+    if batch_size is not None and (not isinstance(batch_size, int) or batch_size <= 0):
+        errors.append(f"batch_size must be a positive integer, got {batch_size!r}")
+    if epochs is not None and (not isinstance(epochs, int) or epochs <= 0):
+        errors.append(f"epochs must be a positive integer, got {epochs!r}")
+    if training_split is not None:
+        try:
+            ts = float(training_split)
+        except (TypeError, ValueError):
+            errors.append(f"training_split must be a number, got {training_split!r}")
+        else:
+            if not (0 < ts < 100):
+                errors.append(f"training_split must be between 0 and 100, got {ts}")
+    if errors:
+        raise ValueError("Invalid training parameters: " + "; ".join(errors))
+
+
 _main_loop: asyncio.AbstractEventLoop | None = None
 
 
@@ -114,8 +138,47 @@ def model_run(model_name: str, db: Session, loop: asyncio.AbstractEventLoop | No
         raise
 
 
+def _prepare_training_data(features, target_field, training_split):
+    """Prepare training data with transparent logging of dropped rows (Issue #5).
+
+    Instead of silently dropping rows with missing values, this function logs
+    the count and emits a Socket.IO warning so the user knows their dataset
+    was trimmed before training.
+    """
+    original_rows = len(features)
+    rows_with_missing = int(features.isnull().any(axis=1).sum())
+
+    if rows_with_missing > 0:
+        pct = (rows_with_missing / original_rows) * 100 if original_rows else 0
+        msg = f"Warning: Removed {rows_with_missing} rows ({pct:.1f}%) with missing values before training"
+        logger.warning(msg)
+        _model_result(msg, -1)
+
+    features = features.dropna()
+    logger.info("Data preparation: %d -> %d rows retained", original_rows, len(features))
+
+    if target_field not in features.columns:
+        raise ValueError(f"Target field '{target_field}' not found in dataset after cleaning")
+
+    # Shuffle to prevent issues with ordered datasets
+    features = features.sample(frac=1, random_state=42).reset_index(drop=True)
+
+    X = features.drop(target_field, axis=1)
+    y = features[target_field]
+
+    split_index = int(len(X) * float(training_split) / 100)
+    return X[:split_index], y[:split_index], X[split_index:], y[split_index:]
+
+
 def _run(model_name: str, db: Session) -> None:
     model_configs = db.exec(select(ModelBasic).where(ModelBasic.model_name == model_name)).first()
+
+    # Issue #4: validate training params early for clear error messages
+    _validate_training_params(
+        batch_size=model_configs.batch_size,
+        epochs=model_configs.epochs,
+        training_split=model_configs.training_split,
+    )
 
     if model_configs.model_type == ProblemType.IMAGE_CLASSIFICATION:
         image_properties = db.exec(select(ImageProperties).where(ImageProperties.id == model_configs.file_id)).first()
@@ -158,18 +221,11 @@ def _run(model_name: str, db: Session) -> None:
     else:
         file_location = _helper_generate_file_location(db, file_id=model_configs.file_id)
         features = pd.read_csv(file_location)
-        features.dropna(inplace=True)
-        # Shuffle data to prevent issues with ordered datasets
-        features = features.sample(frac=1, random_state=42).reset_index(drop=True)
 
-        X = features.drop(model_configs.target_field, axis=1)
-        y = features[model_configs.target_field]
-
-        split_index = int(len(X) * model_configs.training_split / 100)
-        x_training = X[:split_index]
-        y_training = y[:split_index]
-        x_testing = X[split_index:]
-        y_testing = y[split_index:]
+        # Issue #5: use _prepare_training_data for transparent missing-value handling
+        x_training, y_training, x_testing, y_testing = _prepare_training_data(
+            features, model_configs.target_field, model_configs.training_split
+        )
 
         batch_size = model_configs.batch_size if model_configs.batch_size is not None else 32
 

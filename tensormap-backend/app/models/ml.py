@@ -16,7 +16,7 @@ class ModelBasic(SQLModel, table=True):
     __tablename__ = "model_basic"
 
     id: int | None = Field(default=None, primary_key=True)
-    model_name: str = Field(max_length=50, nullable=False, unique=True)
+    model_name: str = Field(max_length=100, nullable=False, unique=True)  # Issue #3: increased from 50
     file_id: uuid_pkg.UUID | None = Field(
         default=None, sa_column=Column(PgUUID(as_uuid=True), ForeignKey("data_file.id"), index=True, nullable=True)
     )
@@ -55,8 +55,8 @@ class ModelConfigs(SQLModel, table=True):
     __tablename__ = "model_configs"
 
     id: int | None = Field(default=None, primary_key=True)
-    parameter: str = Field(max_length=50, nullable=False)
-    value: str = Field(max_length=50, nullable=False)
+    parameter: str = Field(max_length=200, nullable=False)  # Issue #3: flattened paths exceed 50 chars
+    value: str = Field(max_length=500, nullable=False)  # Issue #3: values may be long
     model_id: int = Field(foreign_key="model_basic.id", index=True)
     created_on: datetime | None = Field(default=None, sa_column=Column(DateTime, server_default=func.now()))
     updated_on: datetime | None = Field(

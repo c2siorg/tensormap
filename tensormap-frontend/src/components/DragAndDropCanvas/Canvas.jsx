@@ -39,6 +39,7 @@ import { getAllModels, getModelGraph, saveModel } from "../../services/ModelServ
 import { trainingHistory as trainingHistoryAtom } from "../../shared/atoms";
 import ContextMenu from "./ContextMenu";
 import useUndoRedo from "../../hooks/useUndoRedo";
+import GlobalAvgPoolNode from "./CustomNodes/GlobalAvgPoolNode/GlobalAvgPoolNode";
 
 const isMac =
   typeof navigator !== "undefined"
@@ -54,6 +55,7 @@ const nodeTypes = {
   customconv: ConvNode,
   customdropout: DropoutNode,
   custommaxpool: MaxPoolingNode,
+  customglobalavgpool: GlobalAvgPoolNode,
 };
 
 function Canvas() {
@@ -74,6 +76,8 @@ function Canvas() {
   });
   const [contextMenu, setContextMenu] = useState({ nodeId: null, x: 0, y: 0 });
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [nodeToDelete, setNodeToDelete] = useState(null);
   const defaultViewport = { x: 10, y: 15, zoom: 0.5 };
 
   const draftKey = `tensormap_draft_${projectId || "default"}`;
@@ -404,6 +408,22 @@ function Canvas() {
     closeContextMenu();
   }, [contextMenu.nodeId, setNodes, closeContextMenu, takeSnapshotAndUpdate]);
 
+  const deleteNode = useCallback(() => {
+    setNodeToDelete(contextMenu.nodeId);
+    setDeleteConfirmOpen(true);
+    closeContextMenu();
+  }, [contextMenu.nodeId, closeContextMenu]);
+
+  const confirmDeleteNode = useCallback(() => {
+    if (!nodeToDelete) return;
+    takeSnapshotAndUpdate(nodesRef.current, edgesRef.current);
+    setSelectedNodeId((prev) => (prev === nodeToDelete ? null : prev));
+    setNodes((nds) => nds.filter((n) => n.id !== nodeToDelete));
+    setEdges((eds) => eds.filter((e) => e.source !== nodeToDelete && e.target !== nodeToDelete));
+    setDeleteConfirmOpen(false);
+    setNodeToDelete(null);
+  }, [nodeToDelete, setNodes, setEdges, takeSnapshotAndUpdate]);
+
   const onNodeUpdate = useCallback(
     (nodeId, newParams) => {
       takeSnapshotAndUpdate(nodesRef.current, edgesRef.current);
@@ -518,6 +538,7 @@ function Canvas() {
         },
         customdropout: { rate: "" },
         custommaxpool: { pool_size: "", stride: "", padding: "valid" },
+        customglobalavgpool: {},
       };
 
       const newNode = {
@@ -542,6 +563,25 @@ function Canvas() {
         message={feedbackDialog.message}
         detail={feedbackDialog.detail}
       />
+      <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete node</DialogTitle>
+            <DialogDescription>
+              This will remove the node and all its connections. You can undo with{" "}
+              {isMac ? "⌘Z" : "Ctrl+Z"}.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteConfirmOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={confirmDeleteNode}>
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Dialog open={clearConfirmOpen} onOpenChange={setClearConfirmOpen}>
         <DialogContent>
           <DialogHeader>
@@ -639,6 +679,7 @@ function Canvas() {
               x={contextMenu.x}
               y={contextMenu.y}
               onDuplicate={duplicateNode}
+              onDelete={deleteNode}
               onClose={closeContextMenu}
             />
           )}

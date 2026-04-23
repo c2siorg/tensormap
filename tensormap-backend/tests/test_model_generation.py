@@ -265,12 +265,26 @@ class TestModelGeneration:
         assert model.input_shape == (None, 28, 28, 1)
 
 
+# ===================================================================
+# Helper Builders for New Layer Types
+# ===================================================================
+
+
 def _maxpool_node(node_id: str, pool_size: int = 2, stride: int = 2, padding: str = "valid") -> dict:
     return {
         "id": node_id,
         "type": "custommaxpool",
         "data": {"params": {"pool_size": pool_size, "stride": stride, "padding": padding}},
     }
+
+
+def _dropout_node(node_id: str, rate: float | str = 0.5) -> dict:
+    return {"id": node_id, "type": "customdropout", "data": {"params": {"rate": rate}}}
+
+
+# ===================================================================
+# Tests for MaxPooling layer support
+# ===================================================================
 
 
 class TestMaxPoolingLayer:
@@ -308,3 +322,87 @@ class TestMaxPoolingLayer:
         result = model_generation(params)
         model = tf.keras.models.model_from_json(json.dumps(result))
         assert model.output_shape == (None, 10)
+
+
+# ===================================================================
+# Tests for Dropout layer support
+# ===================================================================
+
+
+class TestDropoutBuildLayer:
+    """Unit tests for the Dropout node handler in _build_layer."""
+
+    def test_dropout_preserves_output_shape(self):
+        """Dropout must not change the tensor shape."""
+        input_t = tf.keras.Input(shape=(10,), name="inp")
+        node = _dropout_node("drop1", rate="0.5")
+        output = _build_layer(node, input_t)
+        assert output.shape == (None, 10)
+
+    def test_dropout_default_rate_when_param_missing(self):
+        """Dropout defaults to rate=0.5 when the key is absent from params."""
+        input_t = tf.keras.Input(shape=(8,), name="inp")
+        node = {"id": "drop2", "type": "customdropout", "data": {"params": {}}}
+        output = _build_layer(node, input_t)
+        assert output.shape == (None, 8)
+
+    def test_dropout_rate_zero_is_valid(self):
+        """Rate of 0.0 (no dropout) is a legal value."""
+        input_t = tf.keras.Input(shape=(4,), name="inp")
+        node = _dropout_node("drop3", rate=0.0)
+        output = _build_layer(node, input_t)
+        assert output.shape == (None, 4)
+
+    def test_dropout_invalid_rate_raises_value_error(self):
+        """Rate >= 1.0 must raise ValueError with a clear message."""
+        input_t = tf.keras.Input(shape=(4,), name="inp")
+        node = _dropout_node("drop4", rate="1.0")
+        with pytest.raises(ValueError, match="rate"):
+            _build_layer(node, input_t)
+
+    def test_dropout_negative_rate_raises_value_error(self):
+        """Negative rate must raise ValueError."""
+        input_t = tf.keras.Input(shape=(4,), name="inp")
+        node = _dropout_node("drop5", rate="-0.1")
+        with pytest.raises(ValueError, match="rate"):
+            _build_layer(node, input_t)
+
+
+class TestDropoutInModelGeneration:
+    """End-to-end tests for Dropout inside a full model graph."""
+
+    def test_dense_dropout_dense_pipeline(self):
+        """input → dense → dropout → dense should build and round-trip through JSON."""
+        params = {
+            "nodes": [
+                _input_node("x", [20]),
+                _dense_node("h1", 64, "relu"),
+                _dropout_node("dropout1", rate=0.3),
+                _dense_node("out", 1, "sigmoid"),
+            ],
+            "edges": [
+                _edge("x", "h1"),
+                _edge("h1", "dropout1"),
+                _edge("dropout1", "out"),
+            ],
+        }
+        result = model_generation(params)
+        model = tf.keras.models.model_from_json(json.dumps(result))
+        assert model.output_shape == (None, 1)
+        assert any("dropout" in layer.name.lower() for layer in model.layers)
+
+    def test_model_generation_raises_for_unknown_type(self):
+        """An unsupported node type still raises ValueError (regression guard)."""
+        params = {
+            "nodes": [
+                _input_node("x", [5]),
+                _dense_node("out", 1),
+                {"id": "bad", "type": "customunknown", "data": {"params": {}}},
+            ],
+            "edges": [
+                _edge("x", "out"),
+                _edge("out", "bad"),
+            ],
+        }
+        with pytest.raises(ValueError, match="Unknown node type"):
+            model_generation(params)

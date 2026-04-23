@@ -30,6 +30,7 @@ import DenseNode from "./CustomNodes/DenseNode/DenseNode";
 import FlattenNode from "./CustomNodes/FlattenNode/FlattenNode";
 import ConvNode from "./CustomNodes/ConvNode/ConvNode";
 import DropoutNode from "./CustomNodes/DropoutNode/DropoutNode";
+import MaxPoolingNode from "./CustomNodes/MaxPoolingNode/MaxPoolingNode";
 import Sidebar from "./Sidebar";
 import NodePropertiesPanel from "./NodePropertiesPanel";
 import { canSaveModel, generateModelJSON } from "./Helpers";
@@ -38,6 +39,7 @@ import { getAllModels, getModelGraph, saveModel } from "../../services/ModelServ
 import { trainingHistory as trainingHistoryAtom } from "../../shared/atoms";
 import ContextMenu from "./ContextMenu";
 import useUndoRedo from "../../hooks/useUndoRedo";
+import GlobalAvgPoolNode from "./CustomNodes/GlobalAvgPoolNode/GlobalAvgPoolNode";
 
 const isMac =
   typeof navigator !== "undefined"
@@ -52,6 +54,8 @@ const nodeTypes = {
   customflatten: FlattenNode,
   customconv: ConvNode,
   customdropout: DropoutNode,
+  custommaxpool: MaxPoolingNode,
+  customglobalavgpool: GlobalAvgPoolNode,
 };
 
 function Canvas() {
@@ -515,6 +519,8 @@ function Canvas() {
           kernelY: "",
         },
         customdropout: { rate: "" },
+        custommaxpool: { pool_size: "", stride: "", padding: "valid" },
+        customglobalavgpool: {},
       };
 
       const newNode = {

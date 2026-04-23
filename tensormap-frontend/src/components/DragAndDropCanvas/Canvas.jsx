@@ -39,6 +39,7 @@ import { getAllModels, getModelGraph, saveModel } from "../../services/ModelServ
 import { trainingHistory as trainingHistoryAtom } from "../../shared/atoms";
 import ContextMenu from "./ContextMenu";
 import useUndoRedo from "../../hooks/useUndoRedo";
+import GlobalAvgPoolNode from "./CustomNodes/GlobalAvgPoolNode/GlobalAvgPoolNode";
 
 const isMac =
   typeof navigator !== "undefined"
@@ -54,6 +55,7 @@ const nodeTypes = {
   customconv: ConvNode,
   customdropout: DropoutNode,
   custommaxpool: MaxPoolingNode,
+  customglobalavgpool: GlobalAvgPoolNode,
 };
 
 function Canvas() {
@@ -518,6 +520,7 @@ function Canvas() {
         },
         customdropout: { rate: "" },
         custommaxpool: { pool_size: "", stride: "", padding: "valid" },
+        customglobalavgpool: {},
       };
 
       const newNode = {

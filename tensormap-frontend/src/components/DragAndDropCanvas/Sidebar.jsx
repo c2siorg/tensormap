@@ -52,6 +52,21 @@ function Sidebar() {
         >
           MaxPooling2D
         </div>
+        <div
+          className="cursor-grab rounded-md border border-l-4 border-l-node-conv bg-white px-3 py-2 text-xs font-medium"
+          onDragStart={(e) => onDragStart(e, "custommaxpool")}
+          draggable
+        >
+          MaxPooling2D
+        </div>
+
+        <div
+          className="cursor-grab rounded-md border border-l-4 border-l-node-flatten bg-white px-3 py-2 text-xs font-medium"
+          onDragStart={(e) => onDragStart(e, "customglobalavgpool")}
+          draggable
+        >
+          GlobalAvgPool2D
+        </div>
       </CardContent>
     </Card>
   );

@@ -16,7 +16,13 @@ export const canSaveModel = (modelName, modelData) => {
         return false;
       }
     } else if (node.type === "custominput") {
-      if (!node.data.params["dim-1"] || node.data.params["dim-1"] === "") {
+      const dim1 = Number(node.data.params["dim-1"]);
+      if (
+        !node.data.params["dim-1"] ||
+        node.data.params["dim-1"] === "" ||
+        dim1 < 1 ||
+        !Number.isInteger(dim1)
+      ) {
         return false;
       }
     } else if (node.type === "customconv") {
@@ -27,6 +33,11 @@ export const canSaveModel = (modelName, modelData) => {
     } else if (node.type === "custommaxpool") {
       const p = node.data.params;
       if (!p.pool_size || !p.stride) {
+        return false;
+      }
+    } else if (node.type === "customdropout") {
+      const rate = parseFloat(node.data.params.rate);
+      if (node.data.params.rate === "" || isNaN(rate) || rate < 0 || rate >= 1) {
         return false;
       }
     }

@@ -33,6 +33,7 @@ import {
   getAllModels,
   updateTrainingConfig,
   deleteModel,
+  exportModel,
 } from "../../services/ModelServices";
 import { getAllFiles } from "../../services/FileServices";
 import { models as modelListAtom } from "../../shared/atoms";
@@ -401,6 +402,18 @@ export default function Training() {
     }
   };
 
+  const handleExport = async (format) => {
+    if (!selectedModel) return;
+    setIsLoading(true);
+    try {
+      await exportModel(selectedModel, format, projectId);
+    } catch (error) {
+      setResultValues([error.response?.data?.message ?? "Export failed"]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleRun = () => {
     if (!selectedModel) return;
 
@@ -550,6 +563,27 @@ export default function Training() {
               variant="outline"
             >
               Download Code
+            </Button>
+            <Button
+              onClick={() => handleExport("savedmodel")}
+              disabled={!selectedModel || !configSaved || isLoading}
+              variant="outline"
+            >
+              Export (SavedModel)
+            </Button>
+            <Button
+              onClick={() => handleExport("tflite")}
+              disabled={!selectedModel || !configSaved || isLoading}
+              variant="outline"
+            >
+              Export (TFLite)
+            </Button>
+            <Button
+              onClick={() => handleExport("onnx")}
+              disabled={!selectedModel || !configSaved || isLoading}
+              variant="outline"
+            >
+              Export (ONNX)
             </Button>
             <Button
               onClick={handleRun}

@@ -170,3 +170,41 @@ export const runModel = async (modelName, projectId) => {
       throw err;
     });
 };
+
+/**
+ * Export a trained model in the specified format.
+ *
+ * @param {string} model_name - Name of the model to export
+ * @param {string} format - Export format: 'savedmodel', 'tflite', or 'onnx'
+ * @param {string} [projectId] - Optional project ID
+ * @returns {Promise<void>}
+ */
+export const exportModel = async (model_name, format, projectId) => {
+  const params = new URLSearchParams({ format });
+  if (projectId) params.append("project_id", projectId);
+
+  return axios
+    .get(`${urls.BACKEND_MODEL_EXPORT}/${model_name}?${params}`, { responseType: "blob" })
+    .then((resp) => {
+      if (resp.status === 200) {
+        let extension = format;
+        if (format === "savedmodel") extension = "tar.gz";
+
+        const link = document.createElement("a");
+        link.href = window.URL.createObjectURL(new Blob([resp.data]));
+        link.download = `${model_name}.${extension}`;
+        document.body.appendChild(link);
+        link.click();
+        setTimeout(() => {
+          window.URL.revokeObjectURL(link.href);
+          document.body.removeChild(link);
+        }, 200);
+      } else {
+        throw new Error("Export failed");
+      }
+    })
+    .catch((err) => {
+      logger.error(err);
+      throw err;
+    });
+};

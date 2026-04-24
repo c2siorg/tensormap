@@ -3,8 +3,8 @@ import copy
 import json
 import os
 import re
-import sys
 import uuid as uuid_pkg
+from collections import deque
 from datetime import UTC
 from typing import Any
 
@@ -78,7 +78,7 @@ def _validate_graph_size(graph: dict | None) -> str | None:
     if graph is None:
         return None
     raw = json.dumps(graph)
-    size = sys.getsizeof(raw)
+    size = len(raw.encode("utf-8"))
     if size > _MAX_GRAPH_JSON_BYTES:
         return f"Graph payload too large ({size} bytes > {_MAX_GRAPH_JSON_BYTES})"
     return None
@@ -102,7 +102,7 @@ def _build_model_summary(keras_model) -> dict:
         )
 
     total = int(keras_model.count_params())
-    trainable = int(sum(w.numpy().size for w in keras_model.trainable_weights))
+    trainable = int(sum(int(w.numpy().size) for w in keras_model.trainable_weights))
     return {
         "layers": layers,
         "total_params": total,
@@ -137,10 +137,14 @@ def model_validate_service(db: Session, incoming: dict, project_id: uuid_pkg.UUI
     if existing:
         return _resp(400, False, "Model name already used. Use a different name")
 
-    if code[PROBLEM_TYPE] in (ProblemType.CLASSIFICATION, ProblemType.IMAGE_CLASSIFICATION):
-        loss = "sparse_categorical_crossentropy"
-    else:
-        loss = "mean_squared_error"
+    _LOSS_MAPPING = {
+        ProblemType.CLASSIFICATION: "sparse_categorical_crossentropy",
+        ProblemType.IMAGE_CLASSIFICATION: "sparse_categorical_crossentropy",
+        ProblemType.REGRESSION: "mean_squared_error",
+    }
+    loss = _LOSS_MAPPING.get(code[PROBLEM_TYPE])
+    if loss is None:
+        return _resp(400, False, f"Unknown problem type: {code[PROBLEM_TYPE]!r}")
 
     model = ModelBasic(
         model_name=code[DL_MODEL][MODEL_NAME],
@@ -298,10 +302,14 @@ def update_training_config_service(
         return _resp(404, False, "Model not found")
 
     problem_type_id = config["problem_type_id"]
-    if problem_type_id in (ProblemType.CLASSIFICATION, ProblemType.IMAGE_CLASSIFICATION):
-        loss = "sparse_categorical_crossentropy"
-    else:
-        loss = "mean_squared_error"
+    _LOSS_MAPPING = {
+        ProblemType.CLASSIFICATION: "sparse_categorical_crossentropy",
+        ProblemType.IMAGE_CLASSIFICATION: "sparse_categorical_crossentropy",
+        ProblemType.REGRESSION: "mean_squared_error",
+    }
+    loss = _LOSS_MAPPING.get(problem_type_id)
+    if loss is None:
+        return _resp(400, False, f"Unknown problem type: {problem_type_id!r}")
 
     model.file_id = config["file_id"]
     model.model_type = problem_type_id
@@ -405,17 +413,48 @@ def get_model_graph_service(db: Session, model_name: str, project_id: uuid_pkg.U
 def _apply_auto_layout(graph: dict) -> None:
     """Assign default positions to nodes that lack one.
 
-    This is a simple vertical-stack layout used as a fallback so that the
-    ReactFlow canvas can render the graph without crashing.  For a more
-    sophisticated layout (e.g. dagre), see:
-    https://reactflow.dev/docs/examples/layout/dagre/
-
-    TODO: Replace with a proper auto-layout algorithm (e.g. dagre) in a
-    follow-up issue.
+    Uses a BFS layered layout: nodes are bucketed into layers based on
+    their depth in the DAG, then distributed vertically within each layer.
+    This makes the network topology visually apparent instead of stacking
+    every node in a single column at x=100.
     """
-    for i, node in enumerate(graph.get("nodes", [])):
-        if "position" not in node:
-            node["position"] = {"x": 100.0, "y": float(i * 200)}
+
+    nodes = graph.get("nodes", [])
+    edges = graph.get("edges", [])
+
+    children: dict[str, list[str]] = {n["id"]: [] for n in nodes}
+    in_degree: dict[str, int] = {n["id"]: 0 for n in nodes}
+    for edge in edges:
+        src, tgt = edge.get("source"), edge.get("target")
+        if src in children and tgt in in_degree:
+            children[src].append(tgt)
+            in_degree[tgt] += 1
+
+    queue = deque(nid for nid, deg in in_degree.items() if deg == 0)
+    layer: dict[str, int] = {nid: 0 for nid in queue}
+    while queue:
+        nid = queue.popleft()
+        for child in children[nid]:
+            layer[child] = max(layer.get(child, 0), layer[nid] + 1)
+            in_degree[child] -= 1
+            if in_degree[child] == 0:
+                queue.append(child)
+
+    NODE_W, NODE_H = 220.0, 100.0
+    layer_slots: dict[int, list[str]] = {}
+    for n in nodes:
+        lvl = layer.get(n["id"], 0)
+        layer_slots.setdefault(lvl, []).append(n["id"])
+
+    node_index = {n["id"]: n for n in nodes}
+    for lvl, nids in layer_slots.items():
+        for slot, nid in enumerate(nids):
+            node = node_index.get(nid)
+            if node is not None and "position" not in node:
+                node["position"] = {
+                    "x": float(lvl) * (NODE_W + 60),
+                    "y": float(slot) * (NODE_H + 40),
+                }
 
 
 def _unflatten_model_configs(configs: list[ModelConfigs]) -> dict:

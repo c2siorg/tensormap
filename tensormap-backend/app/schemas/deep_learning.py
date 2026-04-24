@@ -1,9 +1,35 @@
 """Request schemas for model validation, code generation, and training endpoints."""
 
 import uuid as uuid_pkg
+from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+
+class KnownOptimizer(StrEnum):
+    ADAM = "adam"
+    SGD = "sgd"
+    RMSPROP = "rmsprop"
+    ADAGRAD = "adagrad"
+    ADADELTA = "adadelta"
+    ADAMAX = "adamax"
+    NADAM = "nadam"
+    FTRL = "ftrl"
+
+
+class KnownMetric(StrEnum):
+    ACCURACY = "accuracy"
+    BINARY_ACCURACY = "binary_accuracy"
+    CATEGORICAL_ACCURACY = "categorical_accuracy"
+    SPARSE_CATEGORICAL_ACCURACY = "sparse_categorical_accuracy"
+    MAE = "mae"
+    MEAN_ABSOLUTE_ERROR = "mean_absolute_error"
+    MSE = "mse"
+    MEAN_SQUARED_ERROR = "mean_squared_error"
+    AUC = "auc"
+    PRECISION = "precision"
+    RECALL = "recall"
 
 
 # --- "code" sub-models ---
@@ -19,9 +45,19 @@ class DLModelConfig(BaseModel):
     """Training hyperparameters (optimizer, metric, epochs)."""
 
     model_name: str = Field(min_length=1)
-    optimizer: str = Field(min_length=1)
-    metric: str = Field(min_length=1)
+    optimizer: KnownOptimizer
+    metric: KnownMetric
     epochs: int = Field(gt=0)
+
+    @field_validator("optimizer", mode="before")
+    @classmethod
+    def normalise_optimizer(cls, v: str) -> str:
+        return v.lower().strip()
+
+    @field_validator("metric", mode="before")
+    @classmethod
+    def normalise_metric(cls, v: str) -> str:
+        return v.lower().strip()
 
 
 class CodeConfig(BaseModel):

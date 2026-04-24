@@ -55,8 +55,8 @@ class ModelConfigs(SQLModel, table=True):
     __tablename__ = "model_configs"
 
     id: int | None = Field(default=None, primary_key=True)
-    parameter: str = Field(max_length=200, nullable=False)  # Issue #3: flattened paths exceed 50 chars
-    value: str = Field(max_length=500, nullable=False)  # Issue #3: values may be long
+    parameter: str = Field(max_length=255, nullable=False)  # Issue #3: flattened paths exceed 50 chars
+    value: str = Field(max_length=2000, nullable=False)  # Issue #3: values may be long
     model_id: int = Field(foreign_key="model_basic.id", index=True)
     created_on: datetime | None = Field(default=None, sa_column=Column(DateTime, server_default=func.now()))
     updated_on: datetime | None = Field(

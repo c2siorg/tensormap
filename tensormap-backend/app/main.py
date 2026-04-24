@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 import socketio
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.config import get_settings
 from app.exceptions import AppException, app_exception_handler, generic_exception_handler
@@ -52,6 +53,31 @@ app.include_router(data_upload.router, prefix=settings.api_base)
 app.include_router(data_process.router, prefix=settings.api_base)
 app.include_router(deep_learning.router, prefix=settings.api_base)
 app.include_router(project.router, prefix=settings.api_base)
+
+
+@app.get("/health")
+def health_check():
+    """Basic health check - app is running."""
+    return {"status": "ok", "service": "tensormap"}
+
+
+@app.get("/ready")
+def readiness_check():
+    """Readiness check - verify DB is accessible."""
+    from sqlmodel import text
+
+    from app.database import get_db
+
+    try:
+        with next(get_db()) as db:
+            db.execute(text("SELECT 1")).first()
+        return {"status": "ready", "database": "connected"}
+    except Exception as e:
+        return JSONResponse(
+            status_code=503,
+            content={"status": "not ready", "database": "disconnected", "error": str(e)},
+        )
+
 
 # Wrap FastAPI with SocketIO so socket.io requests are handled,
 # and everything else passes through to FastAPI.

@@ -228,6 +228,46 @@ class TestModelGeneration:
         with pytest.raises(ValueError):
             model_generation(params)
 
+    def test_duplicate_node_ids_raise_value_error(self):
+        params = {
+            "nodes": [_input_node("dup", [4]), _dense_node("dup", 8, "relu")],
+            "edges": [],
+        }
+        with pytest.raises(ValueError, match="Duplicate node IDs"):
+            model_generation(params)
+
+    def test_edge_with_unknown_node_raises_value_error(self):
+        params = {
+            "nodes": [_input_node("in", [4]), _dense_node("out", 1, "linear")],
+            "edges": [_edge("in", "missing")],
+        }
+        with pytest.raises(ValueError, match="unknown node"):
+            model_generation(params)
+
+    def test_non_input_node_without_incoming_edge_raises_value_error(self):
+        params = {
+            "nodes": [_input_node("in", [4]), _dense_node("orphan", 8, "relu")],
+            "edges": [],
+        }
+        with pytest.raises(ValueError, match="has no incoming edges"):
+            model_generation(params)
+
+    def test_cycle_detection_raises_value_error(self):
+        params = {
+            "nodes": [_input_node("in", [4]), _dense_node("a", 8, "relu"), _dense_node("b", 4, "relu")],
+            "edges": [_edge("in", "a"), _edge("a", "b"), _edge("b", "a")],
+        }
+        with pytest.raises(ValueError, match="disconnected or cyclic"):
+            model_generation(params)
+
+    def test_input_with_incoming_edge_raises_value_error(self):
+        params = {
+            "nodes": [_input_node("in1", [4]), _input_node("in2", [4]), _dense_node("h1", 8, "relu")],
+            "edges": [_edge("in1", "h1"), _edge("h1", "in2")],
+        }
+        with pytest.raises(ValueError, match="cannot have incoming edges"):
+            model_generation(params)
+
     def test_unknown_layer_type_raises_value_error(self):
         """An unsupported node type in the graph must propagate a ValueError."""
         params = {

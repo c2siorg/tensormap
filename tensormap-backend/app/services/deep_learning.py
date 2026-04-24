@@ -177,16 +177,43 @@ def model_validate_service(db: Session, incoming: dict, project_id: uuid_pkg.UUI
             if error in str(e):
                 return _resp(400, False, errors.err_msgs[error])
         return _resp(400, False, "Model saving failed. Please recheck the model configs")
+    
+    def _safe_model_write(db: Session, model: ModelBasic, file_path: str, content: dict) -> Optional[str]:
+        try:
+            serialized = json.dumps(content)
+        except (TypeError, ValueError):
+            try:
+                db.rollback()
+                db.delete(model)
+                db.commit()
+            except Exception:
+                db.rollback()
+                logger.exception("Model serialization failed — DB orphan cleanup also failed")
+            else:
+                logger.error("Model serialization failed — orphaned DB record cleaned up")
+            return "Model validated but failed to serialize"
 
-    try:
-        model_path = os.path.join(MODEL_GENERATION_LOCATION, code[DL_MODEL][MODEL_NAME] + MODEL_GENERATION_TYPE)
-        with open(model_path, "w+") as f:
-            f.write(json.dumps(model_generated) + "\n")
-        db.commit()
-    except OSError:
-        db.rollback()
-        logger.exception("Error writing model file")
-        return _resp(400, False, "Model validated but failed to save")
+        try:
+            with open(file_path, "w") as f:
+                f.write(serialized + "\n")
+            db.commit()
+            return None
+        except OSError:
+            try:
+                db.rollback()
+                db.delete(model)
+                db.commit()
+            except Exception:
+                db.rollback()
+                logger.exception("Error writing model file — DB orphan cleanup also failed")
+            else:
+                logger.error("Error writing model file — orphaned DB record cleaned up")
+            return "Model validated but failed to save"
+
+    model_path = os.path.join(MODEL_GENERATION_LOCATION, code[DL_MODEL][MODEL_NAME] + MODEL_GENERATION_TYPE)
+    err_msg = _safe_model_write(db, model, model_path, model_generated)
+    if err_msg:
+        return _resp(400, False, err_msg)
 
     logger.info("Model '%s' validated and saved successfully", code[DL_MODEL][MODEL_NAME])
     return _resp(200, True, "Model Validation and saving successful", {"summary": _build_model_summary(keras_model)})
@@ -247,15 +274,10 @@ def model_save_service(db: Session, incoming: dict, model_name: str, project_id:
                 return _resp(400, False, errors.err_msgs[error])
         return _resp(400, False, "Model saving failed. Please recheck the model configs")
 
-    try:
-        model_path = os.path.join(MODEL_GENERATION_LOCATION, model_name + MODEL_GENERATION_TYPE)
-        with open(model_path, "w+") as f:
-            f.write(json.dumps(model_generated) + "\n")
-        db.commit()
-    except OSError:
-        db.rollback()
-        logger.exception("Error writing model file")
-        return _resp(400, False, "Model validated but failed to save")
+    model_path = os.path.join(MODEL_GENERATION_LOCATION, model_name + MODEL_GENERATION_TYPE)
+    err_msg = _safe_model_write(db, model, model_path, model_generated)
+    if err_msg:
+        return _resp(400, False, err_msg)
 
     logger.info("Model '%s' validated and saved successfully", model_name)
     return _resp(200, True, "Model validated and saved successfully", {"summary": _build_model_summary(keras_model)})

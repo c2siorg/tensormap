@@ -113,8 +113,12 @@ export default function Training() {
   const modelList = useRecoilValue(modelListSelector);
 
   // Sync with global model list atom
+  const prevModelListRef = useRef(null);
   useEffect(() => {
-    setModelList(modelList);
+    if (modelList !== prevModelListRef.current) {
+      prevModelListRef.current = modelList;
+      setModelList(modelList);
+    }
   }, [modelList, setModelList]);
 
   const fetchModels = useCallback(() => {
@@ -199,20 +203,21 @@ export default function Training() {
     });
 
     socket.on("disconnect", (reason) => {
-      if (reason === "io server disconnect") {
-        socket.connect();
-      }
+      logger.warn("Socket disconnected:", reason);
     });
-
-    fetchModels();
-    fetchFiles();
 
     return () => {
       clearTimeout(timeoutRef.current);
       socket.off(strings.DL_RESULT_LISTENER, dlResultListener);
       socket.disconnect();
+      socketRef.current = null;
     };
-  }, [projectId, fetchModels, fetchFiles, setModelList]);
+  }, [projectId]);
+
+  useEffect(() => {
+    fetchModels();
+    fetchFiles();
+  }, [fetchModels, fetchFiles]);
 
   // Validation functions
   const validateEpochs = useCallback((value) => {

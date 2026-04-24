@@ -5,9 +5,9 @@ import os
 import re
 import sys
 import uuid as uuid_pkg
+from importlib import import_module
 from typing import Any
 
-import tensorflow as tf
 from flatten_json import flatten
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
@@ -37,6 +37,7 @@ from app.shared.enums import ProblemType
 from app.shared.logging_config import get_logger
 
 logger = get_logger(__name__)
+tf = None
 
 
 def _resp(status_code: int, success: bool, message: str, data: Any = None) -> tuple:
@@ -110,9 +111,24 @@ def _build_model_summary(keras_model) -> dict:
     }
 
 
+def _get_tensorflow():
+    """Import TensorFlow lazily so app startup does not hard-fail on ML deps."""
+    global tf
+    if tf is not None:
+        return tf
+    try:
+        tf = import_module("tensorflow")
+        return tf
+    except Exception as exc:
+        raise RuntimeError(
+            "TensorFlow import failed. Install compatible tensorflow/protobuf versions for this runtime."
+        ) from exc
+
+
 def model_validate_service(db: Session, incoming: dict, project_id: uuid_pkg.UUID | None = None) -> tuple:
     """Validate a model graph with Keras, persist the configuration, and save the JSON file."""
     model_generated = model_generation(model_params=incoming["model"])
+    tf = _get_tensorflow()
 
     try:
         keras_model = tf.keras.models.model_from_json(json.dumps(model_generated))
@@ -195,6 +211,7 @@ def model_validate_service(db: Session, incoming: dict, project_id: uuid_pkg.UUI
 def model_save_service(db: Session, incoming: dict, model_name: str, project_id: uuid_pkg.UUID | None = None) -> tuple:
     """Validate a model graph with Keras and save architecture only (no training config)."""
     model_generated = model_generation(model_params=incoming)
+    tf = _get_tensorflow()
 
     try:
         keras_model = tf.keras.models.model_from_json(json.dumps(model_generated))

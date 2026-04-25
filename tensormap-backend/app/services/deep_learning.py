@@ -495,6 +495,28 @@ def get_available_model_list(
     return body, 200
 
 
+def check_model_name_service(db: Session, model_name: str, project_id: uuid_pkg.UUID | None = None) -> tuple:
+    """Check if a model name is available."""
+    stmt = select(ModelBasic).where(ModelBasic.model_name == model_name)
+    if project_id is not None:
+        stmt = stmt.where(ModelBasic.project_id == project_id)
+    existing = db.exec(stmt).first()
+
+    if existing:
+        return {"success": False, "message": "Model name already in use", "data": {"available": False}}, 200
+    return {"success": True, "message": "Model name is available", "data": {"available": True}}, 200
+
+
+def get_model_count_service(db: Session, project_id: uuid_pkg.UUID | None = None) -> tuple:
+    """Get model count."""
+    stmt = select(func.count(ModelBasic.id))
+    if project_id is not None:
+        stmt = stmt.where(ModelBasic.project_id == project_id)
+
+    total = db.exec(stmt).one()
+    return {"success": True, "message": "Model count retrieved", "data": {"count": total}}, 200
+
+
 def get_training_history_service(
     db: Session, project_id: uuid_pkg.UUID | None = None, offset: int = 0, limit: int = 50
 ) -> tuple:

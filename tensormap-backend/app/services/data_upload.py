@@ -1,5 +1,6 @@
 import contextlib
 import os
+import time
 import uuid as uuid_pkg
 from typing import Any
 
@@ -11,6 +12,7 @@ from werkzeug.utils import secure_filename
 
 from app.config import get_settings
 from app.models import DataFile
+from app.services.data_quality import analyze_data_file
 from app.shared.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -48,7 +50,9 @@ def add_file_service(db: Session, file_wrapper: Any, project_id: uuid_pkg.UUID |
     safe_filename = f"{original_name}_{unique_id}.{original_ext}"
     file_path = os.path.join(upload_folder, safe_filename)
 
+    upload_start = time.time()
     file_wrapper.save(file_path)
+    upload_duration = round(time.time() - upload_start, 3)
 
     file_name_db = secure_filename(original_name)
     file_type_db = original_ext
@@ -65,6 +69,16 @@ def add_file_service(db: Session, file_wrapper: Any, project_id: uuid_pkg.UUID |
         except (pd.errors.ParserError, OSError, UnicodeDecodeError, MemoryError):
             logger.warning("Could not extract columns/row_count from %s", file_path)
 
+    # GAP-2: run quality analysis for CSV files
+    quality = {}
+    if file_type_db == "csv":
+        quality = analyze_data_file(file_path)
+
+        # Handle analysis errors gracefully - continue with file saved
+        if isinstance(quality, dict) and "error" in quality:
+            logger.warning("Data quality analysis failed: %s", quality.get("error"))
+            quality = {}  # Empty dict means fields will stay NULL in DB
+
     record = DataFile(
         file_name=file_name_db,
         file_type=file_type_db,
@@ -72,6 +86,23 @@ def add_file_service(db: Session, file_wrapper: Any, project_id: uuid_pkg.UUID |
         project_id=project_id,
         columns=columns_list,
         row_count=row_count,
+        upload_duration_seconds=upload_duration,
+        file_size_mb=quality.get("file_size_mb"),
+        data_quality_score=quality.get("data_quality_score"),
+        has_missing_values=quality.get("has_missing_values", False),
+        missing_value_count=quality.get("missing_value_count", 0),
+        missing_columns=quality.get("missing_columns"),
+        column_nulls=quality.get("column_nulls"),
+        column_dtypes=quality.get("column_dtypes"),
+        numeric_columns=quality.get("numeric_columns"),
+        categorical_columns=quality.get("categorical_columns"),
+        has_duplicates=quality.get("has_duplicates", False),
+        duplicate_row_count=quality.get("duplicate_row_count", 0),
+        class_distribution=quality.get("class_distribution"),
+        is_imbalanced=quality.get("is_imbalanced", False),
+        imbalance_ratio=quality.get("imbalance_ratio"),
+        validation_status=quality.get("validation_status", "pending"),
+        validation_messages=quality.get("validation_messages"),
     )
     db.add(record)
     db.commit()

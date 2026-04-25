@@ -25,6 +25,35 @@ class DataFile(SQLModel, table=True):
     project_id: uuid_pkg.UUID | None = Field(
         sa_column=Column(PgUUID(as_uuid=True), ForeignKey("project.id", ondelete="CASCADE"), index=True, nullable=True)
     )
+    # GAP-2: file size and upload duration
+    file_size_mb: float | None = Field(default=None, nullable=True)
+    upload_duration_seconds: float | None = Field(default=None, nullable=True)
+
+    # GAP-2: quality score and missing value info
+    data_quality_score: int | None = Field(default=None, nullable=True)
+    has_missing_values: bool = Field(default=False, nullable=False)
+    missing_value_count: int = Field(default=0, nullable=False)
+    missing_columns: list | None = Field(default=None, sa_column=Column(JSON, nullable=True))
+    column_nulls: dict | None = Field(default=None, sa_column=Column(JSON, nullable=True))
+
+    # GAP-2: column type info
+    column_dtypes: dict | None = Field(default=None, sa_column=Column(JSON, nullable=True))
+    numeric_columns: list | None = Field(default=None, sa_column=Column(JSON, nullable=True))
+    categorical_columns: list | None = Field(default=None, sa_column=Column(JSON, nullable=True))
+
+    # GAP-2: duplicate info
+    has_duplicates: bool = Field(default=False, nullable=False)
+    duplicate_row_count: int = Field(default=0, nullable=False)
+
+    # GAP-2: class distribution (for classification targets)
+    class_distribution: dict | None = Field(default=None, sa_column=Column(JSON, nullable=True))
+    is_imbalanced: bool = Field(default=False, nullable=False)
+    imbalance_ratio: float | None = Field(default=None, nullable=True)
+
+    # GAP-2: validation status
+    validation_status: str = Field(default="pending", max_length=30, nullable=False)
+    validation_messages: list | None = Field(default=None, sa_column=Column(JSON, nullable=True))
+
     created_on: datetime | None = Field(default=None, sa_column=Column(DateTime, server_default=func.now()))
     updated_on: datetime | None = Field(
         default=None, sa_column=Column(DateTime, server_default=func.now(), onupdate=func.now())

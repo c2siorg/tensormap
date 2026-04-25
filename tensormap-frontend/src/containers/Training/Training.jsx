@@ -29,6 +29,7 @@ import FeedbackDialog from "../../components/shared/FeedbackDialog";
 import Result from "../../components/ResultPanel/Result/Result";
 import {
   download_code,
+  exportModel,
   runModel,
   getTrainingHistory,
   updateTrainingConfig,
@@ -463,6 +464,13 @@ export default function Training() {
     }
   }, [selectedModel, projectId]);
 
+  const handleExport = useCallback((format) => {
+    if (!selectedModel) return;
+    exportModel(selectedModel, format, projectId).catch((error) => {
+      setResultValues([error.response?.data?.message || "Export failed"]);
+    });
+  }, [selectedModel, projectId]);
+
   const handleRun = useCallback(() => {
     if (!selectedModel) return;
 
@@ -619,6 +627,27 @@ export default function Training() {
               variant="outline"
             >
               Download Code
+            </Button>
+            <Button
+              onClick={() => handleExport("savedmodel")}
+              disabled={!selectedModel || !configSaved || isLoading}
+              variant="outline"
+            >
+              Export (SavedModel)
+            </Button>
+            <Button
+              onClick={() => handleExport("tflite")}
+              disabled={!selectedModel || !configSaved || isLoading}
+              variant="outline"
+            >
+              Export (TFLite)
+            </Button>
+            <Button
+              onClick={() => handleExport("onnx")}
+              disabled={!selectedModel || !configSaved || isLoading}
+              variant="outline"
+            >
+              Export (ONNX)
             </Button>
             <Button
               onClick={handleRun}

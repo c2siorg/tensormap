@@ -77,7 +77,7 @@ function NodePropertiesPanel({
             />
           </div>
           <Button className="w-full" onClick={onSave} disabled={!canSave}>
-            Validate &amp; Save
+            Validate & Save
           </Button>
         </CardContent>
       </Card>
@@ -100,30 +100,54 @@ function NodePropertiesPanel({
             <Label>Dim 1</Label>
             <Input
               type="number"
-              min="0"
+              min="1"
+              step="1"
               placeholder="Dimension 1"
               value={params["dim-1"] ?? ""}
-              onChange={handleChange("dim-1")}
+              onChange={(e) => {
+                const val = e.target.value;
+                if (val === "") {
+                  doUpdate("dim-1", null);
+                } else {
+                  doUpdate("dim-1", Math.max(1, Math.floor(Number(val))));
+                }
+              }}
             />
           </div>
           <div className="space-y-1">
             <Label>Dim 2</Label>
             <Input
               type="number"
-              min="0"
+              min="1"
+              step="1"
               placeholder="Dimension 2 (optional)"
               value={params["dim-2"] ?? ""}
-              onChange={handleChange("dim-2")}
+              onChange={(e) => {
+                const val = e.target.value;
+                if (val === "") {
+                  doUpdate("dim-2", null);
+                } else {
+                  doUpdate("dim-2", Math.max(1, Math.floor(Number(val))));
+                }
+              }}
             />
           </div>
           <div className="space-y-1">
             <Label>Dim 3</Label>
             <Input
               type="number"
-              min="0"
+              min="1"
+              step="1"
               placeholder="Dimension 3 (optional)"
               value={params["dim-3"] ?? ""}
-              onChange={handleChange("dim-3")}
+              onChange={(e) => {
+                const val = e.target.value;
+                if (val === "") {
+                  doUpdate("dim-3", null);
+                } else {
+                  doUpdate("dim-3", Math.max(1, Math.floor(Number(val))));
+                }
+              }}
             />
           </div>
         </CardContent>
@@ -290,14 +314,24 @@ function NodePropertiesPanel({
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="space-y-1">
-            <Label>Rate (0–1)</Label>
+            <Label>Rate (0–0.9)</Label>
             <Input
               type="number"
               min="0"
-              max="1"
+              max="0.9"
               step="0.1"
-              value={params.rate}
-              onChange={(e) => updateParam("rate", e.target.value)}
+              value={params.rate ?? ""}
+              onChange={(e) => {
+                const val = e.target.value;
+                if (val === "") {
+                  doUpdate("rate", null);
+                } else {
+                  const v = parseFloat(val);
+                  if (!isNaN(v)) {
+                    doUpdate("rate", Math.min(0.9, Math.max(0, v)));
+                  }
+                }
+              }}
             />
           </div>
         </CardContent>
@@ -317,8 +351,8 @@ function NodePropertiesPanel({
               type="number"
               min="1"
               placeholder="Pool size"
-              value={params.pool_size}
-              onChange={(e) => updateParam("pool_size", Number(e.target.value))}
+              value={params.pool_size ?? ""}
+              onChange={handleChange("pool_size")}
             />
           </div>
           <div className="space-y-1">
@@ -327,13 +361,16 @@ function NodePropertiesPanel({
               type="number"
               min="1"
               placeholder="Stride"
-              value={params.stride}
-              onChange={(e) => updateParam("stride", Number(e.target.value))}
+              value={params.stride ?? ""}
+              onChange={handleChange("stride")}
             />
           </div>
           <div className="space-y-1">
             <Label>Padding</Label>
-            <Select value={params.padding} onValueChange={(v) => updateParam("padding", v)}>
+            <Select
+              value={params.padding ?? ""}
+              onValueChange={(v) => doUpdate("padding", v || null)}
+            >
               <SelectTrigger>
                 <SelectValue placeholder="Padding" />
               </SelectTrigger>

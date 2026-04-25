@@ -62,9 +62,23 @@ export const getTrainingHistory = async (projectId) => {
       }
       return [];
     })
+    .catch(() => []);
+};
+
+/**
+ * Get interpretability metrics for a model.
+ */
+export const getModelInterpret = async (modelName, fileId, projectId) => {
+  const params = new URLSearchParams();
+  if (fileId) params.append("file_id", fileId);
+  if (projectId) params.append("project_id", projectId);
+
+  return axios
+    .get(`${urls.BACKEND_MODEL_INTERPRET}/${modelName}?${params}`)
+    .then((resp) => resp.data)
     .catch((err) => {
       logger.error(err);
-      throw err;
+      return { success: false, message: "Failed to get interpretability" };
     });
 };
 

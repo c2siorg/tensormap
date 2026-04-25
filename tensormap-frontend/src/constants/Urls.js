@@ -27,3 +27,4 @@ export const BACKEND_DELETE_MODEL = "/model";
 export const BACKEND_PROJECT = "/project";
 export const BACKEND_GET_COLUMN_STATS = "/data/process/stats/";
 export const BACKEND_MODEL_EXPORT = "/model/export";
+export const BACKEND_MODEL_INTERPRET = "/model/interpret";

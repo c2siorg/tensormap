@@ -8,6 +8,8 @@ import uuid as uuid_pkg
 from datetime import UTC
 from typing import Any
 
+import numpy as np
+import pandas as pd
 import tensorflow as tf
 from flatten_json import flatten
 from sqlalchemy import func
@@ -521,6 +523,107 @@ def get_training_history_service(
     body = {"success": True, "message": "Training history generated successfully.", "data": data}
     body["pagination"] = {"total": total, "offset": offset, "limit": limit}
     return body, 200
+
+
+def interpret_model_service(
+    db: Session,
+    model_name: str,
+    file_id: uuid_pkg.UUID | None = None,
+    project_id: uuid_pkg.UUID | None = None,
+) -> tuple:
+    """Generate interpretability metrics for a trained model.
+
+    For classification: confusion matrix and per-class metrics.
+    For regression: feature importance via permutation.
+    """
+    from sqlmodel import select
+
+    from app.models.ml import DataFile
+
+    stmt = select(ModelBasic).where(ModelBasic.model_name == model_name)
+    if project_id is not None:
+        stmt = stmt.where(ModelBasic.project_id == project_id)
+    model_record = db.exec(stmt).first()
+
+    if not model_record:
+        return {"success": False, "message": f"Model '{model_name}' not found", "data": None}, 404
+
+    model_path = _validate_model_path(model_name)
+    if not os.path.exists(model_path):
+        return {"success": False, "message": "Model file not found", "data": None}, 404
+
+    try:
+        loaded_model = tf.keras.models.load_model(model_path)
+    except Exception as e:
+        logger.error("Failed to load model: %s", e)
+        return {"success": False, "message": f"Could not load model: {e}", "data": None}, 400
+
+    problem_type = ProblemType(model_record.problem_type)
+
+    if file_id:
+        data_file = db.exec(select(DataFile).where(DataFile.id == file_id)).first()
+        if not data_file:
+            return {"success": False, "message": "Data file not found", "data": None}, 404
+
+        try:
+            df = pd.read_csv(data_file.file_name)
+            X = df.drop(columns=[data_file.target_field], errors="ignore")
+            y_true = df[data_file.target_field]
+
+            if problem_type in (ProblemType.BINARY_CLASSIFICATION, ProblemType.MULTI_CLASS_CLASSIFICATION):
+                y_pred = loaded_model.predict(X.values.reshape(-1, X.shape[1]), verbose=0)
+                if len(y_pred.shape) > 1:
+                    y_pred_classes = y_pred.argmax(axis=-1)
+                else:
+                    y_pred_classes = (y_pred > 0.5).astype(int).flatten()
+
+                cm = tf.math.confusion_matrix(y_true, y_pred_classes).numpy()
+                result = {"confusion_matrix": cm.tolist(), "problem_type": str(problem_type)}
+
+                labels = sorted(y_true.unique().tolist()) if hasattr(y_true, "unique") else list(range(cm.shape[0]))
+                result["labels"] = labels
+
+                report = {}
+                for i, label in enumerate(labels):
+                    tp = int(cm[i][i])
+                    fp = int(cm[:, i].sum()) - tp
+                    fn = int(cm[i, :].sum()) - tp
+                    precision_val = tp / (tp + fp) if (tp + fp) > 0 else 0
+                    recall_val = tp / (tp + fn) if (tp + fn) > 0 else 0
+                    report[str(label)] = {
+                        "precision": round(precision_val, 3),
+                        "recall": round(recall_val, 3),
+                        "f1": round(
+                            2 * precision_val * recall_val / (precision_val + recall_val)
+                            if (precision_val + recall_val) > 0
+                            else 0,
+                            3,
+                        ),
+                        "support": int((y_true == label).sum()),
+                    }
+                result["classification_report"] = report
+            else:
+                y_pred = loaded_model.predict(X.values.reshape(-1, X.shape[1]), verbose=0).flatten()
+                baseline_error = np.mean((y_true - y_pred) ** 2)
+
+                importance = []
+                for col in X.columns:
+                    X_permuted = X.copy()
+                    X_permuted[col] = np.random.permutation(X_permuted[col])
+                    y_permuted = loaded_model.predict(
+                        X_permuted.values.reshape(-1, X_permuted.shape[1]), verbose=0
+                    ).flatten()
+                    perm_error = np.mean((y_true - y_permuted) ** 2)
+                    importance.append({"feature": col, "importance": round(perm_error - baseline_error, 4)})
+
+                importance.sort(key=lambda x: abs(x["importance"]), reverse=True)
+                result = {"feature_importance": importance[:10], "problem_type": str(problem_type)}
+        except Exception as e:
+            return {"success": False, "message": f"Could not process data: {e}", "data": None}, 400
+    else:
+        return {"success": False, "message": "file_id required for interpretability", "data": None}, 400
+
+    return {"success": True, "message": "Interpretability generated", "data": result}, 200
 
 
 def delete_model_service(db: Session, model_id: int) -> tuple:

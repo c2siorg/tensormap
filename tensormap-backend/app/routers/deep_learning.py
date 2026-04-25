@@ -15,6 +15,7 @@ from app.services.deep_learning import (
     get_code_service,
     get_model_graph_service,
     get_training_history_service,
+    interpret_model_service,
     model_save_service,
     model_validate_service,
     run_code_service,
@@ -124,6 +125,19 @@ def get_training_history(
 ):
     """Return a paginated list of models with enriched metadata for training history view."""
     body, status_code = get_training_history_service(db, project_id=project_id, offset=offset, limit=limit)
+    return JSONResponse(status_code=status_code, content=body)
+
+
+@router.get("/model/interpret/{model_name}")
+def get_model_interpretability(
+    model_name: str,
+    file_id: uuid_pkg.UUID | None = Query(None),
+    project_id: uuid_pkg.UUID | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Get interpretability metrics for a trained model."""
+    logger.debug("Computing interpretability for model %s", model_name)
+    body, status_code = interpret_model_service(db, model_name=model_name, file_id=file_id, project_id=project_id)
     return JSONResponse(status_code=status_code, content=body)
 
 

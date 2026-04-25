@@ -11,6 +11,7 @@ from app.schemas.data_process import (
 )
 from app.services.data_process import (
     add_target_service,
+    augment_tabular_data_service,
     delete_one_target_by_id_service,
     get_all_targets_service,
     get_column_stats_service,
@@ -99,4 +100,17 @@ def preprocess(file_id: uuid_pkg.UUID, request: PreprocessRequest, db: Session =
     """Apply transformations to a CSV file, overwriting it in place."""
     logger.debug("Preprocessing file_id=%s with %d transformations", file_id, len(request.transformations))
     body, status_code = preprocess_data(db, file_id=file_id, transformations=request.transformations)
+    return JSONResponse(status_code=status_code, content=body)
+
+
+@router.post("/data/augment/{file_id}")
+def augment(
+    file_id: uuid_pkg.UUID,
+    method: str = Query("smote", regex="^(smote|noise|shuffle)$"),
+    n_samples: int = Query(100, ge=1, le=10000),
+    db: Session = Depends(get_db),
+):
+    """Augment tabular data using synthetic generation."""
+    logger.debug("Augmenting file_id=%s with method=%s, n_samples=%d", file_id, method, n_samples)
+    body, status_code = augment_tabular_data_service(db, file_id=file_id, method=method, n_samples=n_samples)
     return JSONResponse(status_code=status_code, content=body)

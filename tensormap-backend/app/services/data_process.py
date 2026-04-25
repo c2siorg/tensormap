@@ -1,3 +1,4 @@
+import os
 import uuid as uuid_pkg
 from collections.abc import Callable
 from typing import Any
@@ -396,3 +397,78 @@ def preprocess_data(db: Session, file_id: uuid_pkg.UUID, transformations: list) 
     except Exception as e:
         logger.exception("Error preprocessing data: %s", str(e))
         return _resp(500, False, f"Error preprocessing data: {e}")
+
+
+def augment_tabular_data_service(
+    db: Session,
+    file_id: uuid_pkg.UUID,
+    method: str = "smote",
+    n_samples: int = 100,
+) -> tuple:
+    """Augment tabular data using synthetic generation.
+
+    Methods:
+    - smote: Synthetic Minority Over-sampling Technique
+    - noise: Add Gaussian noise to existing samples
+    - shuffle: Randomly shuffle feature values
+    """
+    file_record = db.get(DataFile, file_id)
+    if not file_record:
+        return _resp(404, False, "File not found")
+
+    file_path = file_record.file_path
+    if not file_path or not os.path.exists(file_path):
+        return _resp(404, False, "File not found on disk")
+
+    try:
+        df = pd.read_csv(file_path)
+
+        if method == "smote":
+            from sklearn.neighbors import NearestNeighbors
+
+            X = df.select_dtypes(include=[np.number]).values
+            if len(X) < 2:
+                return _resp(400, False, "Not enough numeric data for SMOTE")
+
+            k = min(5, len(X) - 1)
+            nn = NearestNeighbors(n_neighbors=k + 1)
+            nn.fit(X)
+            distances, indices = nn.kneighbors(X)
+
+            synthetic = []
+            for _ in range(n_samples):
+                idx = np.random.randint(0, len(X))
+                neighbor_idx = np.random.choice(indices[idx], 1)[0]
+                diff = X[neighbor_idx] - X[idx]
+                new_sample = X[idx] + np.random.random() * diff
+                synthetic.append(new_sample)
+
+            synthetic_df = pd.DataFrame(synthetic, columns=df.select_dtypes(include=[np.number]).columns)
+            df = pd.concat([df, synthetic_df], ignore_index=True)
+
+        elif method == "noise":
+            numeric_cols = df.select_dtypes(include=[np.number]).columns
+            for col in numeric_cols:
+                std = df[col].std()
+                noise = np.random.normal(0, std * 0.1, n_samples)
+                new_values = np.random.choice(df[col].values, n_samples) + noise
+                other_cols = {c: np.random.choice(df[c].values, n_samples) for c in df.columns if c != col}
+                new_rows = pd.DataFrame({col: new_values, **other_cols})
+                df = pd.concat([df, new_rows], ignore_index=True)
+
+        elif method == "shuffle":
+            for _ in range(n_samples):
+                shuffled = df.apply(lambda x: x.sample(frac=1).values)
+                df = pd.concat([df, shuffled], ignore_index=True)
+
+        else:
+            return _resp(400, False, f"Unknown augmentation method: {method}")
+
+        df.to_csv(file_path, index=False)
+        return _resp(200, True, f"Added {n_samples} synthetic samples using {method}")
+
+    except ImportError as e:
+        return _resp(500, False, f"Missing dependency: {e}")
+    except Exception as e:
+        logger.exception("Error augmenting data: %s", str(e))
+        return _resp(500, False, f"Error augmenting data: {e}")

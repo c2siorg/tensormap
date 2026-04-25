@@ -82,6 +82,44 @@ export const getModelInterpret = async (modelName, fileId, projectId) => {
     });
 };
 
+export const compareRuns = async (projectId, limit = 10) => {
+  const params = new URLSearchParams();
+  if (projectId) params.append("project_id", projectId);
+  params.append("limit", limit);
+
+  return axios
+    .get(`${urls.BACKEND_MODEL_COMPARE}?${params}`)
+    .then((resp) => resp.data)
+    .catch((err) => {
+      logger.error(err);
+      return { success: false, message: "Failed to compare runs" };
+    });
+};
+
+export const tuneHyperparameters = async (modelName, fileId, projectId) => {
+  const params = new URLSearchParams();
+  if (fileId) params.append("file_id", fileId);
+  if (projectId) params.append("project_id", projectId);
+
+  return axios
+    .get(`${urls.BACKEND_MODEL_TUNE}/${modelName}?${params}`)
+    .then((resp) => resp.data)
+    .catch((err) => {
+      logger.error(err);
+      return { success: false, message: "Failed to tune hyperparameters" };
+    });
+};
+
+export const augmentTabularData = async (fileId, method = "smote", nSamples = 100) => {
+  return axios
+    .post(`${urls.BACKEND_DATA_AUGMENT}/${fileId}?method=${method}&n_samples=${nSamples}`)
+    .then((resp) => resp.data)
+    .catch((err) => {
+      logger.error(err);
+      return { success: false, message: "Failed to augment data" };
+    });
+};
+
 /**
  * Deletes a saved model by its database ID.
  *

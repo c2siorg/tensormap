@@ -28,3 +28,6 @@ export const BACKEND_PROJECT = "/project";
 export const BACKEND_GET_COLUMN_STATS = "/data/process/stats/";
 export const BACKEND_MODEL_EXPORT = "/model/export";
 export const BACKEND_MODEL_INTERPRET = "/model/interpret";
+export const BACKEND_MODEL_COMPARE = "/model/compare";
+export const BACKEND_MODEL_TUNE = "/model/tune";
+export const BACKEND_DATA_AUGMENT = "/data/augment";

@@ -1,5 +1,7 @@
 import asyncio
 import os
+import time
+from datetime import UTC, datetime
 
 import pandas as pd
 import tensorflow as tf
@@ -8,6 +10,7 @@ from sqlmodel import Session, select
 from app.config import get_settings
 from app.models.data import DataFile, ImageProperties
 from app.models.ml import ModelBasic
+from app.models.training_run import ModelTrainingRun
 from app.shared.constants import (
     MODEL_GENERATION_LOCATION,
     MODEL_GENERATION_TYPE,
@@ -173,6 +176,23 @@ def _prepare_training_data(features, target_field, training_split):
 def _run(model_name: str, db: Session) -> None:
     model_configs = db.exec(select(ModelBasic).where(ModelBasic.model_name == model_name)).first()
 
+    # GAP-1: create a training run record before training starts
+    training_run = ModelTrainingRun(
+        model_id=model_configs.id,
+        started_at=datetime.now(UTC),
+        status="in_progress",
+        epochs_configured=model_configs.epochs,
+        batch_size_configured=model_configs.batch_size,
+        training_split_configured=model_configs.training_split,
+        optimizer=model_configs.optimizer,
+        loss_fn=model_configs.loss,
+        metric_name=model_configs.metric,
+    )
+    db.add(training_run)
+    db.commit()
+    db.refresh(training_run)
+    _start_time = time.time()
+
     # Issue #4: validate training params early for clear error messages
     _validate_training_params(
         batch_size=model_configs.batch_size,
@@ -244,7 +264,7 @@ def _run(model_name: str, db: Session) -> None:
     )
 
     if model_configs.model_type == ProblemType.IMAGE_CLASSIFICATION:
-        model.fit(
+        history = model.fit(
             train_data,
             validation_data=test_data,
             epochs=model_configs.epochs,
@@ -253,7 +273,7 @@ def _run(model_name: str, db: Session) -> None:
         )
         model.evaluate(test_data, callbacks=[CustomProgressBar()], verbose=0)
     else:
-        model.fit(
+        history = model.fit(
             x_training,
             y_training,
             epochs=model_configs.epochs,
@@ -262,3 +282,31 @@ def _run(model_name: str, db: Session) -> None:
             verbose=0,
         )
         model.evaluate(x_testing, y_testing, callbacks=[CustomProgressBar()], verbose=0)
+
+    # GAP-1: persist training history
+    h = history.history
+    metric_key = model_configs.metric if model_configs.metric in h else None
+    val_metric_key = f"val_{metric_key}" if metric_key else None
+
+    training_run.completed_at = datetime.now(UTC)
+    training_run.duration_seconds = round(time.time() - _start_time, 2)
+    training_run.status = "success"
+    training_run.epoch_losses = [round(v, 6) for v in h.get("loss", [])]
+    training_run.epoch_val_losses = [round(v, 6) for v in h.get("val_loss", [])]
+    training_run.epoch_metrics = [round(v, 6) for v in h.get(metric_key, [])] if metric_key else None
+    training_run.epoch_val_metrics = [round(v, 6) for v in h.get(val_metric_key, [])] if val_metric_key else None
+    training_run.final_train_loss = round(h["loss"][-1], 6) if h.get("loss") else None
+    training_run.final_val_loss = round(h["val_loss"][-1], 6) if h.get("val_loss") else None
+    training_run.final_train_metric = round(h[metric_key][-1], 6) if metric_key and h.get(metric_key) else None
+    training_run.final_val_metric = (
+        round(h[val_metric_key][-1], 6) if val_metric_key and h.get(val_metric_key) else None
+    )
+
+    db.add(training_run)
+    db.commit()
+    logger.info(
+        "Training run #%d saved — loss: %s, duration: %ss",
+        training_run.id,
+        training_run.final_train_loss,
+        training_run.duration_seconds,
+    )

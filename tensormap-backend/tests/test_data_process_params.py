@@ -44,6 +44,9 @@ def test_get_file_data_csv_success(tmp_path, mock_db, mock_settings):
     csv_file = tmp_path / "test.csv"
     csv_file.write_text("col1,col2\n1,2\n")
 
+    # Point the service at tmp_path so it finds the CSV we just wrote.
+    mock_settings.return_value.upload_folder = str(tmp_path)
+
     mock_file = MagicMock(spec=DataFile)
     mock_file.id = uuid.uuid4()
     mock_file.file_name = "test"

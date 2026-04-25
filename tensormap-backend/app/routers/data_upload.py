@@ -19,14 +19,19 @@ ALLOWED_EXTENSIONS = {"csv"}
 
 
 class _UploadFileWrapper:
-    """Wraps FastAPI UploadFile to match the interface expected by service functions."""
+    """Wraps FastAPI UploadFile to match the interface expected by service functions.
+
+    The service reads the underlying stream via ``.file`` (Werkzeug-style) for its
+    size check, so expose it directly rather than keeping a private ``._file``.
+    """
 
     def __init__(self, upload_file: UploadFile):
-        self._file = upload_file
+        self.file = upload_file.file
         self.filename = upload_file.filename
 
     def save(self, path: str) -> None:
-        content = self._file.file.read()
+        self.file.seek(0)
+        content = self.file.read()
         with open(path, "wb") as f:
             f.write(content)
 

@@ -173,6 +173,10 @@ def _prepare_training_data(features, target_field, training_split):
 def _run(model_name: str, db: Session) -> None:
     model_configs = db.exec(select(ModelBasic).where(ModelBasic.model_name == model_name)).first()
 
+    #  Check if model exists to avoid AttributeError ---
+    if model_configs is None:
+        raise ValueError(f"Model '{model_name}' not found in database.")
+
     # Issue #4: validate training params early for clear error messages
     _validate_training_params(
         batch_size=model_configs.batch_size,
@@ -188,15 +192,6 @@ def _run(model_name: str, db: Session) -> None:
         label_mode = image_properties.label_mode
 
         directory = _helper_generate_file_location(db, file_id=model_configs.file_id)
-        logger.debug(
-            "Image classification params - directory: %s, image_size: %s, "
-            "batch_size: %s, color_mode: %s, label_mode: %s",
-            directory,
-            image_size,
-            batch_size,
-            color_mode,
-            label_mode,
-        )
         validation_split = 1 - (model_configs.training_split / 100)
         train_data = tf.keras.utils.image_dataset_from_directory(
             directory,

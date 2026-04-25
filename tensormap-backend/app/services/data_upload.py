@@ -23,6 +23,7 @@ def _resp(status_code: int, success: bool, message: str, data: Any = None) -> tu
 
 def add_file_service(db: Session, file_wrapper: Any, project_id: uuid_pkg.UUID | None = None) -> tuple:
     """Save an uploaded file to disk and create a DataFile record."""
+
     settings = get_settings()
     upload_folder = settings.upload_folder
     os.makedirs(upload_folder, exist_ok=True)
@@ -39,7 +40,22 @@ def add_file_service(db: Session, file_wrapper: Any, project_id: uuid_pkg.UUID |
         with contextlib.suppress(AttributeError, OSError):
             file_wrapper.file.seek(0)
     if file_size > settings.max_content_length:
-        return _resp(413, False, "File too large. Maximum allowed size is 200MB.")
+        max_mb = settings.max_content_length // (1024 * 1024)
+        return _resp(413, False, f"File too large. Maximum allowed size is {max_mb}MB.")
+
+    # Check for duplicate filename in DB to avoid overwriting
+    file_name_db = secure_filename(file_wrapper.filename.rsplit(".", 1)[0].lower())
+    file_type_db = file_wrapper.filename.rsplit(".", 1)[1].lower()
+    existing_file = db.exec(
+        select(DataFile).where(DataFile.file_name == file_name_db, DataFile.file_type == file_type_db)
+    ).first()
+    if existing_file:
+        return _resp(
+            409,
+            False,
+            f"A file named '{file_name_db}.{file_type_db}' already exists. "
+            "Please rename or delete the existing one first.",
+        )
 
     # Generate unique filename to prevent collisions
     original_name = file_wrapper.filename.rsplit(".", 1)[0].lower()
@@ -79,7 +95,10 @@ def add_file_service(db: Session, file_wrapper: Any, project_id: uuid_pkg.UUID |
 
 
 def get_all_files_service(
-    db: Session, project_id: uuid_pkg.UUID | None = None, offset: int = 0, limit: int = 50
+    db: Session,
+    project_id: uuid_pkg.UUID | None = None,
+    offset: int = 0,
+    limit: int = 50,
 ) -> tuple:
     """Return a paginated list of uploaded files with their CSV column names."""
     settings = get_settings()
@@ -110,8 +129,17 @@ def get_all_files_service(
                     file.row_count = row_count
                     db.add(file)
                     db.commit()
-                except (pd.errors.ParserError, OSError, UnicodeDecodeError, MemoryError):
-                    logger.warning("Failed to read CSV for file %s (id=%s)", file.file_name, file.id)
+                except (
+                    pd.errors.ParserError,
+                    OSError,
+                    UnicodeDecodeError,
+                    MemoryError,
+                ):
+                    logger.warning(
+                        "Failed to read CSV for file %s (id=%s)",
+                        file.file_name,
+                        file.id,
+                    )
                     fields = []
                     row_count = 0
             else:
@@ -128,7 +156,11 @@ def get_all_files_service(
                     "error": fields == [],
                 }
             )
-        body = {"success": True, "message": "Saved files found successfully", "data": data}
+        body = {
+            "success": True,
+            "message": "Saved files found successfully",
+            "data": data,
+        }
         body["pagination"] = {"total": total, "offset": offset, "limit": limit}
         return body, 200
     except pd.errors.ParserError:

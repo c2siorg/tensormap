@@ -30,7 +30,15 @@ logger = get_logger(__name__)
 
 def generate_code(model_name: str, db: Session) -> str:
     """Generate TensorFlow Python code from a saved model configuration."""
+
+    # Fetch model configuration
     model_configs = db.exec(select(ModelBasic).where(ModelBasic.model_name == model_name)).first()
+
+    # Raise an error if model config is not found
+    if model_configs is None:
+        raise ValueError(f"Model with name '{model_name}' not found.")
+
+    # Fetch associated data file
     file = db.exec(select(DataFile).where(DataFile.id == model_configs.file_id)).first()
 
     data = {
@@ -47,6 +55,7 @@ def generate_code(model_name: str, db: Session) -> str:
         },
     }
 
+    # Handle image properties if the file is a zip
     if file.file_type == "zip":
         image_prop = db.exec(select(ImageProperties).where(ImageProperties.id == model_configs.file_id)).first()
         if image_prop:
@@ -60,6 +69,8 @@ def generate_code(model_name: str, db: Session) -> str:
             )
 
     logger.debug("Generating code for model type: %s", model_configs.model_type)
+
+    # Load template and render
     template_loader = FileSystemLoader(searchpath=TEMPLATE_ROOT)
     template_env = Environment(loader=template_loader)
     template = template_env.get_template(_map_template(model_configs.model_type))
@@ -69,12 +80,20 @@ def generate_code(model_name: str, db: Session) -> str:
 
 def _map_template(problem_type_id: int) -> str:
     """Map a ProblemType enum value to its Jinja2 template path."""
+
     options = {
         ProblemType.CLASSIFICATION: CODE_TEMPLATE_FOLDER + "multi-class-all-float-classification-csv.py",
         ProblemType.REGRESSION: CODE_TEMPLATE_FOLDER + "linear-regression-all-float.py",
         ProblemType.IMAGE_CLASSIFICATION: CODE_TEMPLATE_FOLDER + "simple-image-classification.py",
     }
-    return options[problem_type_id]
+
+    # Use .get() to avoid KeyError for unknown problem_type ---
+    template_path = options.get(problem_type_id)
+    if template_path is None:
+        # Raise clear error if problem_type is not mapped
+        raise ValueError(f"Unknown problem type: {problem_type_id}")
+
+    return template_path
 
 
 def _file_location(file_id, db: Session) -> str:

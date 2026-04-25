@@ -72,11 +72,26 @@ def get_code(request: ModelNameRequest, db: Session = Depends(get_db)):
 @router.post("/model/run")
 async def run_model(request: ModelNameRequest, db: Session = Depends(get_db)):
     """Train a saved model in a background thread and stream progress via Socket.IO."""
-    logger.info("Starting model training: model_name=%s", request.model_name)
-    loop = asyncio.get_running_loop()
-    body, status_code = await asyncio.to_thread(
-        run_code_service, db, model_name=request.model_name, project_id=request.project_id, loop=loop
+
+    request_id = str(uuid_pkg.uuid4())[:8]
+    logger.info(
+        "[%s] Starting model training: model_name=%s project_id=%s", request_id, request.model_name, request.project_id
     )
+    loop = asyncio.get_running_loop()
+    try:
+        body, status_code = await asyncio.to_thread(
+            run_code_service, db, model_name=request.model_name, project_id=request.project_id, loop=loop
+        )
+    except Exception:
+        logger.exception("[%s] Unhandled exception during model training", request_id)
+        return JSONResponse(
+            status_code=500,
+            content={"error": "Model training encountered an unexpected error.", "request_id": request_id},
+        )
+    if status_code >= 400:
+        logger.warning("[%s] Training returned error %d: %s", request_id, status_code, body)
+    else:
+        logger.info("[%s] Training completed successfully", request_id)
     return JSONResponse(status_code=status_code, content=body)
 
 

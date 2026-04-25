@@ -464,12 +464,15 @@ export default function Training() {
     }
   }, [selectedModel, projectId]);
 
-  const handleExport = useCallback((format) => {
-    if (!selectedModel) return;
-    exportModel(selectedModel, format, projectId).catch((error) => {
-      setResultValues([error.response?.data?.message || "Export failed"]);
-    });
-  }, [selectedModel, projectId]);
+  const handleExport = useCallback(
+    (format) => {
+      if (!selectedModel) return;
+      exportModel(selectedModel, format, projectId).catch((error) => {
+        setResultValues([error.response?.data?.message || "Export failed"]);
+      });
+    },
+    [selectedModel, projectId],
+  );
 
   const handleRun = useCallback(() => {
     if (!selectedModel) return;

@@ -9,12 +9,11 @@ import PropTypes from "prop-types";
  * click outside the menu triggers onClose without needing document-level
  * event listeners (which would require explicit cleanup).
  */
-function ContextMenu({ x, y, onDuplicate, onClose }) {
+function ContextMenu({ x, y, onDuplicate, onDelete, onClose }) {
   return (
     <>
       {/* transparent overlay — catches clicks outside the menu */}
       <div className="fixed inset-0 z-40" onClick={onClose} />
-
       <div
         style={{ left: x, top: y }}
         className="fixed z-50 min-w-[140px] rounded-md border bg-white py-1 shadow-md"
@@ -25,6 +24,12 @@ function ContextMenu({ x, y, onDuplicate, onClose }) {
         >
           Duplicate
         </button>
+        <button
+          className="w-full px-3 py-1.5 text-left text-sm text-destructive hover:bg-red-50 hover:text-red-700"
+          onClick={onDelete}
+        >
+          Delete
+        </button>
       </div>
     </>
   );
@@ -34,6 +39,7 @@ ContextMenu.propTypes = {
   x: PropTypes.number.isRequired,
   y: PropTypes.number.isRequired,
   onDuplicate: PropTypes.func.isRequired,
+  onDelete: PropTypes.func.isRequired,
   onClose: PropTypes.func.isRequired,
 };
 

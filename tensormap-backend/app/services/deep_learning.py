@@ -5,7 +5,7 @@ import os
 import re
 import sys
 import uuid as uuid_pkg
-from importlib import import_module
+from datetime import UTC
 from typing import Any
 
 from flatten_json import flatten
@@ -127,8 +127,10 @@ def _get_tensorflow():
 
 def model_validate_service(db: Session, incoming: dict, project_id: uuid_pkg.UUID | None = None) -> tuple:
     """Validate a model graph with Keras, persist the configuration, and save the JSON file."""
-    model_generated = model_generation(model_params=incoming["model"])
-    tf = _get_tensorflow()
+    try:
+        model_generated = model_generation(model_params=incoming["model"])
+    except ValueError as e:
+        return _resp(400, False, str(e))
 
     try:
         keras_model = tf.keras.models.model_from_json(json.dumps(model_generated))
@@ -178,6 +180,17 @@ def model_validate_service(db: Session, incoming: dict, project_id: uuid_pkg.UUI
         if params[param] is not None:
             configs.append(ModelConfigs(parameter=param, value=str(params[param])))
 
+    # Issue #6: write file BEFORE DB commit so DB and filesystem stay in sync.
+    # If file write fails, DB is never touched. If DB fails, file is cleaned up.
+    model_path = _validate_model_path(code[DL_MODEL][MODEL_NAME])  # Issue #1
+    try:
+        with open(model_path, "w+") as f:
+            f.write(json.dumps(model_generated) + "\n")
+        logger.info("Model JSON written to %s", model_path)
+    except OSError:
+        logger.exception("Error writing model file")
+        return _resp(400, False, "Model validated but failed to save")
+
     try:
         db.add(model)
         db.flush()
@@ -185,24 +198,22 @@ def model_validate_service(db: Session, incoming: dict, project_id: uuid_pkg.UUI
         for cfg in configs:
             cfg.model_id = model.id
         db.add_all(configs)
-        db.flush()
+        db.commit()
     except IntegrityError as e:
         db.rollback()
+        with contextlib.suppress(OSError):
+            os.remove(model_path)
         logger.exception("IntegrityError saving model: %s", str(e))
         for error in errors.err_msgs:
             if error in str(e):
                 return _resp(400, False, errors.err_msgs[error])
         return _resp(400, False, "Model saving failed. Please recheck the model configs")
-
-    try:
-        model_path = os.path.join(MODEL_GENERATION_LOCATION, code[DL_MODEL][MODEL_NAME] + MODEL_GENERATION_TYPE)
-        with open(model_path, "w+") as f:
-            f.write(json.dumps(model_generated) + "\n")
-        db.commit()
-    except OSError:
+    except Exception as e:
         db.rollback()
-        logger.exception("Error writing model file")
-        return _resp(400, False, "Model validated but failed to save")
+        with contextlib.suppress(OSError):
+            os.remove(model_path)
+        logger.exception("Unexpected error saving model: %s", str(e))
+        return _resp(500, False, "Model saving failed. Please try again.")
 
     logger.info("Model '%s' validated and saved successfully", code[DL_MODEL][MODEL_NAME])
     return _resp(200, True, "Model Validation and saving successful", {"summary": _build_model_summary(keras_model)})
@@ -210,8 +221,10 @@ def model_validate_service(db: Session, incoming: dict, project_id: uuid_pkg.UUI
 
 def model_save_service(db: Session, incoming: dict, model_name: str, project_id: uuid_pkg.UUID | None = None) -> tuple:
     """Validate a model graph with Keras and save architecture only (no training config)."""
-    model_generated = model_generation(model_params=incoming)
-    tf = _get_tensorflow()
+    try:
+        model_generated = model_generation(model_params=incoming)
+    except ValueError as e:
+        return _resp(400, False, str(e))
 
     try:
         keras_model = tf.keras.models.model_from_json(json.dumps(model_generated))
@@ -248,6 +261,17 @@ def model_save_service(db: Session, incoming: dict, model_name: str, project_id:
         if params[param] is not None:
             configs.append(ModelConfigs(parameter=param, value=str(params[param])))
 
+    # Issue #6: write file BEFORE DB commit so DB and filesystem stay in sync.
+    # If file write fails, DB is never touched. If DB fails, file is cleaned up.
+    model_path = _validate_model_path(model_name)  # Issue #1
+    try:
+        with open(model_path, "w+") as f:
+            f.write(json.dumps(model_generated) + "\n")
+        logger.info("Model JSON written to %s", model_path)
+    except OSError:
+        logger.exception("Error writing model file")
+        return _resp(400, False, "Model validated but failed to save")
+
     try:
         db.add(model)
         db.flush()
@@ -255,24 +279,22 @@ def model_save_service(db: Session, incoming: dict, model_name: str, project_id:
         for cfg in configs:
             cfg.model_id = model.id
         db.add_all(configs)
-        db.flush()
+        db.commit()
     except IntegrityError as e:
         db.rollback()
+        with contextlib.suppress(OSError):
+            os.remove(model_path)
         logger.exception("IntegrityError saving model: %s", str(e))
         for error in errors.err_msgs:
             if error in str(e):
                 return _resp(400, False, errors.err_msgs[error])
         return _resp(400, False, "Model saving failed. Please recheck the model configs")
-
-    try:
-        model_path = os.path.join(MODEL_GENERATION_LOCATION, model_name + MODEL_GENERATION_TYPE)
-        with open(model_path, "w+") as f:
-            f.write(json.dumps(model_generated) + "\n")
-        db.commit()
-    except OSError:
+    except Exception as e:
         db.rollback()
-        logger.exception("Error writing model file")
-        return _resp(400, False, "Model validated but failed to save")
+        with contextlib.suppress(OSError):
+            os.remove(model_path)
+        logger.exception("Unexpected error saving model: %s", str(e))
+        return _resp(500, False, "Model saving failed. Please try again.")
 
     logger.info("Model '%s' validated and saved successfully", model_name)
     return _resp(200, True, "Model validated and saved successfully", {"summary": _build_model_summary(keras_model)})
@@ -332,7 +354,10 @@ def get_code_service(db: Session, model_name: str, project_id: uuid_pkg.UUID | N
     err = _verify_model_project(db, model_name, project_id)
     if err:
         return err
-    python_code = generate_code(model_name, db)
+    try:
+        python_code = generate_code(model_name, db)
+    except ValueError as e:
+        return _resp(400, False, str(e))
     return {"content": python_code, "file_name": model_name + ".py"}, 200
 
 
@@ -467,16 +492,47 @@ def _numeric_dicts_to_lists(obj):
 def get_available_model_list(
     db: Session, project_id: uuid_pkg.UUID | None = None, offset: int = 0, limit: int = 50
 ) -> tuple:
-    """Return a paginated list of saved model names."""
-    base_filter = select(ModelBasic)
+    """Return a paginated list of saved models with basic info (backward compatible)."""
+    base_filter = select(ModelBasic).order_by(ModelBasic.created_on.desc())
     if project_id is not None:
         base_filter = base_filter.where(ModelBasic.project_id == project_id)
 
     total = db.exec(select(func.count()).select_from(base_filter.subquery())).one()
-
     models = db.exec(base_filter.offset(offset).limit(limit)).all()
+
     data = [{"id": m.id, "model_name": m.model_name} for m in models]
+
     body = {"success": True, "message": "Model list generated successfully.", "data": data}
+    body["pagination"] = {"total": total, "offset": offset, "limit": limit}
+    return body, 200
+
+
+def get_training_history_service(
+    db: Session, project_id: uuid_pkg.UUID | None = None, offset: int = 0, limit: int = 50
+) -> tuple:
+    """Return a paginated list of models with enriched metadata for training history view."""
+    base_filter = select(ModelBasic).order_by(ModelBasic.created_on.desc())
+    if project_id is not None:
+        base_filter = base_filter.where(ModelBasic.project_id == project_id)
+
+    total = db.exec(select(func.count()).select_from(base_filter.subquery())).one()
+    models = db.exec(base_filter.offset(offset).limit(limit)).all()
+
+    data = [
+        {
+            "id": m.id,
+            "model_name": m.model_name,
+            "created_on": m.created_on.replace(tzinfo=UTC).isoformat() if m.created_on else None,
+            "epochs": m.epochs,
+            "optimizer": m.optimizer,
+            "metric": m.metric,
+            "loss": m.loss,
+            "training_split": m.training_split,
+        }
+        for m in models
+    ]
+
+    body = {"success": True, "message": "Training history generated successfully.", "data": data}
     body["pagination"] = {"total": total, "offset": offset, "limit": limit}
     return body, 200
 
@@ -491,15 +547,28 @@ def delete_model_service(db: Session, model_id: int) -> tuple:
     try:
         db.delete(model)
         db.commit()
-    except Exception:
+    except IntegrityError:
         db.rollback()
-        logger.exception("Failed to delete model id=%s", model_id)
+        logger.exception("Failed to delete model id=%s", model_id)  # Issue #2: specific exception
         return _resp(500, False, "Failed to delete model")
 
     # Best-effort removal of the JSON file — do not fail if already gone
-    model_path = os.path.join(MODEL_GENERATION_LOCATION, model_name + MODEL_GENERATION_TYPE)
+    model_path = _validate_model_path(model_name)  # Issue #1: path traversal guard
     with contextlib.suppress(OSError):
         os.remove(model_path)
 
     logger.info("Model '%s' (id=%s) deleted successfully", model_name, model_id)
     return _resp(200, True, f"Model '{model_name}' deleted successfully")
+
+
+def _validate_model_path(model_name: str) -> str:
+    """Resolve model JSON path and guard against directory traversal (Issue #1).
+
+    model_run.py already uses _helper_generate_json_model_file_location() for
+    reads; this mirrors that protection for the write side in deep_learning.py.
+    """
+    path = os.path.realpath(os.path.join(MODEL_GENERATION_LOCATION, model_name + MODEL_GENERATION_TYPE))
+    base_dir = os.path.realpath(MODEL_GENERATION_LOCATION)
+    if not path.startswith(base_dir + os.sep) and path != base_dir:
+        raise ValueError("Invalid model path: escapes model directory")
+    return path

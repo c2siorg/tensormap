@@ -5,6 +5,7 @@ import os
 import re
 import sys
 import uuid as uuid_pkg
+from collections import defaultdict, deque
 from datetime import UTC
 from typing import Any
 
@@ -403,19 +404,55 @@ def get_model_graph_service(db: Session, model_name: str, project_id: uuid_pkg.U
 
 
 def _apply_auto_layout(graph: dict) -> None:
-    """Assign default positions to nodes that lack one.
+    """Assign deterministic DAG-aware positions to nodes lacking coordinates.
 
-    This is a simple vertical-stack layout used as a fallback so that the
-    ReactFlow canvas can render the graph without crashing.  For a more
-    sophisticated layout (e.g. dagre), see:
-    https://reactflow.dev/docs/examples/layout/dagre/
-
-    TODO: Replace with a proper auto-layout algorithm (e.g. dagre) in a
-    follow-up issue.
+    Existing node positions are preserved. New positions are generated using a
+    lightweight layered layout derived from edge directions so ReactFlow can
+    render meaningful structure even for legacy graphs without saved positions.
     """
-    for i, node in enumerate(graph.get("nodes", [])):
-        if "position" not in node:
-            node["position"] = {"x": 100.0, "y": float(i * 200)}
+    nodes = graph.get("nodes", [])
+    if not nodes:
+        return
+
+    by_id = {str(node.get("id")): node for node in nodes if node.get("id") is not None}
+    adjacency: dict[str, set[str]] = defaultdict(set)
+    indegree: dict[str, int] = {node_id: 0 for node_id in by_id}
+
+    for edge in graph.get("edges", []):
+        source = str(edge.get("source")) if edge.get("source") is not None else None
+        target = str(edge.get("target")) if edge.get("target") is not None else None
+        if source in by_id and target in by_id and target not in adjacency[source]:
+            adjacency[source].add(target)
+            indegree[target] += 1
+
+    queue = deque(sorted(node_id for node_id, degree in indegree.items() if degree == 0))
+    layer: dict[str, int] = {node_id: 0 for node_id in queue}
+    topo: list[str] = []
+
+    while queue:
+        node_id = queue.popleft()
+        topo.append(node_id)
+        for nxt in sorted(adjacency[node_id]):
+            layer[nxt] = max(layer.get(nxt, 0), layer.get(node_id, 0) + 1)
+            indegree[nxt] -= 1
+            if indegree[nxt] == 0:
+                queue.append(nxt)
+
+    # Cycles or disconnected leftovers: place them into successive layers.
+    leftovers = [node_id for node_id in sorted(by_id) if node_id not in topo]
+    max_layer = max(layer.values(), default=0)
+    for idx, node_id in enumerate(leftovers, start=1):
+        layer[node_id] = max_layer + idx
+
+    rows_by_layer: dict[int, list[str]] = defaultdict(list)
+    for node_id in sorted(by_id):
+        rows_by_layer[layer.get(node_id, 0)].append(node_id)
+
+    for x_layer, node_ids in rows_by_layer.items():
+        for y_row, node_id in enumerate(node_ids):
+            node = by_id[node_id]
+            if "position" not in node:
+                node["position"] = {"x": float(250 * x_layer + 100), "y": float(140 * y_row + 100)}
 
 
 def _unflatten_model_configs(configs: list[ModelConfigs]) -> dict:

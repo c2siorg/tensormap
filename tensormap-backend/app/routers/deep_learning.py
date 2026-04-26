@@ -9,6 +9,7 @@ from sqlmodel import Session
 from app.database import get_db
 from app.schemas.deep_learning import ModelNameRequest, ModelSaveRequest, ModelValidateRequest, TrainingConfigRequest
 from app.services.deep_learning import (
+    compare_runs_service,
     delete_model_service,
     export_model_service,
     get_available_model_list,
@@ -138,4 +139,16 @@ def export_model(
     """Export a trained model in the specified format."""
     logger.debug("Exporting model %s as %s", model_name, format)
     body, status_code = export_model_service(db, model_name=model_name, export_format=format, project_id=project_id)
+    return JSONResponse(status_code=status_code, content=body)
+
+
+@router.get("/model/compare")
+def compare_runs(
+    project_id: uuid_pkg.UUID | None = Query(None),
+    limit: int = Query(10, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    """Compare metrics across multiple training runs for a project."""
+    logger.debug("Comparing runs for project %s", project_id)
+    body, status_code = compare_runs_service(db, project_id=project_id, limit=limit)
     return JSONResponse(status_code=status_code, content=body)

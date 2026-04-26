@@ -661,3 +661,59 @@ def export_model_service(
     except Exception as e:
         logger.error("Export failed: %s", e)
         return {"success": False, "message": f"Export failed: {e}"}, 500
+
+
+def compare_runs_service(
+    db: Session,
+    project_id: uuid_pkg.UUID | None = None,
+    limit: int = 10,
+) -> tuple:
+    """Compare metrics across multiple training runs for a project.
+
+    Returns chronological comparison with metrics like loss, accuracy over time,
+    and identifies the best performing run.
+    """
+    from sqlalchemy import func
+
+    from app.models import ModelBasic
+
+    base_filter = select(ModelBasic).order_by(ModelBasic.created_on.desc())
+    if project_id is not None:
+        base_filter = base_filter.where(ModelBasic.project_id == project_id)
+
+    total = db.exec(select(func.count()).select_from(base_filter.subquery())).one()
+    runs = db.exec(base_filter.limit(limit)).all()
+
+    if not runs:
+        return {"success": False, "message": "No training runs found", "data": None}, 404
+
+    comparison = []
+    for run in runs:
+        comparison.append(
+            {
+                "id": run.id,
+                "model_name": run.model_name,
+                "created_on": run.created_on.isoformat() if run.created_on else None,
+                "epochs": run.epochs,
+                "optimizer": run.optimizer,
+                "metric": run.metric,
+                "loss": run.loss,
+                "training_split": run.training_split,
+            }
+        )
+
+    loss_values = [r["loss"] for r in comparison if r["loss"] is not None]
+    best_loss = min(loss_values) if loss_values else None
+    best_run = next((r for r in comparison if r["loss"] == best_loss), None)
+
+    result = {
+        "runs": comparison,
+        "summary": {
+            "total_runs": total,
+            "displayed": len(comparison),
+            "best_run": best_run,
+        },
+    }
+
+    logger.info("Run comparison: %d runs for project %s", total, project_id)
+    return {"success": True, "message": "Run comparison generated", "data": result}, 200

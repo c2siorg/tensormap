@@ -6,6 +6,7 @@ import re
 import sys
 import uuid as uuid_pkg
 from datetime import UTC
+from importlib import import_module
 from typing import Any
 
 from flatten_json import flatten
@@ -133,7 +134,8 @@ def model_validate_service(db: Session, incoming: dict, project_id: uuid_pkg.UUI
         return _resp(400, False, str(e))
 
     try:
-        keras_model = tf.keras.models.model_from_json(json.dumps(model_generated))
+        tf_module = _get_tensorflow()
+        keras_model = tf_module.keras.models.model_from_json(json.dumps(model_generated))
     except Exception as e:
         logger.error("Model validation error: %s", str(e))
         for error in errors.err_msgs:
@@ -227,7 +229,8 @@ def model_save_service(db: Session, incoming: dict, model_name: str, project_id:
         return _resp(400, False, str(e))
 
     try:
-        keras_model = tf.keras.models.model_from_json(json.dumps(model_generated))
+        tf_module = _get_tensorflow()
+        keras_model = tf_module.keras.models.model_from_json(json.dumps(model_generated))
     except Exception as e:
         logger.error("Model validation error: %s", str(e))
         for error in errors.err_msgs:

@@ -174,6 +174,27 @@ export const getModelGraph = async (modelName, projectId) => {
     });
 };
 
+export const downloadWeights = async (modelName, projectId) => {
+  const params = projectId ? { project_id: projectId } : {};
+  return axios
+    .get(`${urls.BACKEND_DOWNLOAD_WEIGHTS}/${encodeURIComponent(modelName)}/weights`, {
+      params,
+      responseType: "blob",
+    })
+    .then((resp) => {
+      const link = document.createElement("a");
+      link.href = window.URL.createObjectURL(new Blob([resp.data]));
+      link.setAttribute("download", `${modelName}.weights.h5`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    })
+    .catch((err) => {
+      logger.error("Failed to download weights:", err);
+      throw err;
+    });
+};
+
 export const runModel = async (modelName, projectId) => {
   const data = {
     model_name: modelName,

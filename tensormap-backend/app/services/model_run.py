@@ -11,6 +11,7 @@ from app.models.ml import ModelBasic
 from app.shared.constants import (
     MODEL_GENERATION_LOCATION,
     MODEL_GENERATION_TYPE,
+    MODEL_WEIGHTS_LOCATION,
     SOCKETIO_DL_NAMESPACE,
     SOCKETIO_LISTENER,
 )
@@ -48,19 +49,66 @@ _main_loop: asyncio.AbstractEventLoop | None = None
 
 
 class CustomProgressBar(tf.keras.callbacks.Callback):
-    """Keras callback that emits training progress to the frontend via Socket.IO."""
+    """Keras callback that emits structured training progress via Socket.IO."""
 
     def __init__(self) -> None:
         super().__init__()
+        self._current_epoch = 0
+
+    def on_train_begin(self, logs: dict = None) -> None:
+        """Emit training start event."""
+        _model_result(
+            "Starting training...",
+            0,
+            {"type": "train_begin", "total_epochs": self.params.get("epochs", 0)},
+        )
 
     def on_epoch_begin(self, epoch: int, logs: dict = None) -> None:
         """Emit the start of a new epoch."""
-        _model_result(f"Epoch {epoch + 1}/{self.params['epochs']}", 0)
+        self._current_epoch = epoch
+        _model_result(
+            f"Epoch {epoch + 1}/{self.params['epochs']}",
+            0,
+            {"type": "epoch_begin", "epoch": epoch + 1, "total_epochs": self.params["epochs"]},
+        )
+
+    def on_epoch_end(self, epoch: int, logs: dict = None) -> None:
+        """Emit structured epoch metrics at the end of each epoch."""
+        logs = logs or {}
+        if "loss" not in logs:
+            logger.warning("loss not in epoch logs for epoch %d: %s", epoch, logs.keys())
+        metrics = {
+            "type": "epoch_end",
+            "epoch": epoch + 1,
+            "total_epochs": self.params["epochs"],
+            "loss": round(float(logs.get("loss", 0)), 4),
+            "val_loss": round(float(logs["val_loss"]), 4) if "val_loss" in logs else None,
+        }
+        # Add accuracy or mse
+        if "accuracy" in logs:
+            metrics["accuracy"] = round(float(logs["accuracy"]), 4)
+        if "val_accuracy" in logs:
+            metrics["val_accuracy"] = round(float(logs["val_accuracy"]), 4)
+        if "mse" in logs:
+            metrics["mse"] = round(float(logs["mse"]), 4)
+        if "val_mse" in logs:
+            metrics["val_mse"] = round(float(logs["val_mse"]), 4)
+
+        msg = f"Epoch {epoch + 1}/{self.params['epochs']} - loss: {metrics['loss']:.4f}"
+        if metrics.get("accuracy") is not None:
+            msg += f" - accuracy: {metrics['accuracy']:.4f}"
+        if metrics.get("val_loss") is not None:
+            msg += f" - val_loss: {metrics['val_loss']:.4f}"
+        if metrics.get("val_accuracy") is not None:
+            msg += f" - val_accuracy: {metrics['val_accuracy']:.4f}"
+
+        _model_result(msg, 1, metrics)
 
     def on_batch_end(self, batch: int, logs: dict = None) -> None:
-        """Emit batch-level progress with loss and metric values."""
+        """Emit batch-level progress."""
+        logs = logs or {}
         progress = batch / self.params["steps"] if self.params["steps"] else 0
-        progress_bar_width = 50
+        progress_bar_width = 30
         arrow = ">" * int(progress * progress_bar_width)
         spaces = "=" * (progress_bar_width - len(arrow))
         if "mse" in logs:
@@ -69,32 +117,45 @@ class CustomProgressBar(tf.keras.callbacks.Callback):
             metric = f"Accuracy: {logs['accuracy']:.4f}"
         else:
             metric = ""
-
         _model_result(
-            f"{batch + 1}/{self.params['steps']}  [{arrow}{spaces}] "
+            f"{batch + 1}/{self.params['steps']} [{arrow}{spaces}] "
             f"{int(progress * 100)}% - Loss: {logs['loss']:.4f} - {metric}",
             1,
+            {"type": "batch_end", "batch": batch + 1, "loss": round(float(logs.get("loss", 0)), 4)},
         )
 
     def on_test_begin(self, logs: dict = None) -> None:
         """Emit the start of model evaluation."""
-        _model_result("Evaluating...", 2)
+        _model_result("Evaluating...", 2, {"type": "eval_begin"})
 
     def on_test_end(self, logs: dict = None) -> None:
         """Emit final evaluation metrics."""
+        logs = logs or {}
         if "mse" in logs:
             metric = f"MSE Loss- {logs['mse']:.4f}"
         elif "accuracy" in logs:
             metric = f"Accuracy- {logs['accuracy']:.4f}"
         else:
             metric = ""
-        _model_result(f"Evaluation Results: {metric} Loss - {logs['loss']:.4f}", 3)
-        _model_result("Finish", 4)
+        _model_result(
+            f"Evaluation Results: {metric} Loss - {logs['loss']:.4f}",
+            3,
+            {"type": "eval_end", "loss": round(float(logs.get("loss", 0)), 4)},
+        )
+
+    def on_train_end(self, logs: dict = None) -> None:
+        """Emit training completion event."""
+        _model_result("Training complete", 4, {"type": "train_end"})
 
 
-def _model_result(message: str, test: int) -> None:
-    """Emit a Socket.IO event with a training progress message."""
+def _model_result(message: str, test: int, metrics: dict | None = None) -> None:
+    """Emit a Socket.IO event with a training progress message and optional structured metrics."""
     data = {"message": message, "test": test}
+    if metrics:
+        try:
+            data.update(metrics)
+        except (TypeError, ValueError) as e:
+            logger.warning("Invalid metrics dict: %s", e)
     if _main_loop is not None and _main_loop.is_running():
         future = asyncio.run_coroutine_threadsafe(
             sio.emit(SOCKETIO_LISTENER, data, namespace=SOCKETIO_DL_NAMESPACE),
@@ -262,3 +323,18 @@ def _run(model_name: str, db: Session) -> None:
             verbose=0,
         )
         model.evaluate(x_testing, y_testing, callbacks=[CustomProgressBar()], verbose=0)
+
+    # Save trained weights
+    try:
+        os.makedirs(MODEL_WEIGHTS_LOCATION, exist_ok=True)
+        weights_path = os.path.join(MODEL_WEIGHTS_LOCATION, model_name + ".weights.h5")
+        model.save_weights(weights_path)
+        logger.info("Saved trained weights for model '%s' to %s", model_name, weights_path)
+        _model_result(
+            f"Weights saved to {model_name}.weights.h5",
+            3,
+            {"type": "weights_saved", "path": model_name + ".weights.h5"},
+        )
+    except OSError as e:
+        logger.error("Failed to save weights: %s", e)
+        _model_result(f"Error saving weights: {e}", -1)

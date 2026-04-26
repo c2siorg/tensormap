@@ -1,10 +1,12 @@
 import asyncio
 import io
+import os
 import uuid as uuid_pkg
 
+import aiofiles
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse, StreamingResponse
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app.database import get_db
 from app.schemas.deep_learning import ModelNameRequest, ModelSaveRequest, ModelValidateRequest, TrainingConfigRequest
@@ -19,6 +21,7 @@ from app.services.deep_learning import (
     run_code_service,
     update_training_config_service,
 )
+from app.shared.constants import MODEL_WEIGHTS_LOCATION
 from app.shared.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -100,6 +103,51 @@ async def delete_model(
     logger.info("Deleting model id=%s", model_id)
     body, status_code = delete_model_service(db, model_id=model_id)
     return JSONResponse(status_code=status_code, content=body)
+
+
+@router.get("/model/{model_name}/weights")
+async def download_weights(
+    model_name: str,
+    project_id: uuid_pkg.UUID | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Download trained weights (.weights.h5) for a saved model."""
+    # Verify access: if project_id provided, verify model belongs to that project
+    if project_id:
+        from app.models.ml import ModelBasic
+
+        model = db.exec(
+            select(ModelBasic).where(ModelBasic.model_name == model_name).where(ModelBasic.project_id == project_id)
+        ).first()
+        if not model:
+            return JSONResponse(
+                status_code=403,
+                content={"success": False, "message": "Access denied: model not found in project"},
+            )
+
+    # Sanitize filename to prevent path traversal
+    safe_name = "".join(c if c.isalnum() or c in "-_." else "_" for c in model_name)
+    weights_path = os.path.join(MODEL_WEIGHTS_LOCATION, model_name + ".weights.h5")
+
+    if not os.path.exists(weights_path):
+        return JSONResponse(
+            status_code=404,
+            content={"success": False, "message": "Weights not found. Train the model first."},
+        )
+
+    async def iterfile():
+        try:
+            async with aiofiles.open(weights_path, "rb") as f:
+                while chunk := await f.read(8192):
+                    yield chunk
+        except OSError as e:
+            logger.error("Error reading weights file: %s", e)
+
+    return StreamingResponse(
+        iterfile(),
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": f"attachment; filename={safe_name}.weights.h5"},
+    )
 
 
 @router.get("/model/model-list")

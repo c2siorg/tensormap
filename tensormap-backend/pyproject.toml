@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "TensorMap Python Server"
 requires-python = ">=3.12"
 dependencies = [
+    "aiofiles>=23.2",
     "fastapi>=0.115",
     "uvicorn[standard]>=0.34",
     "sqlmodel>=0.0.22",

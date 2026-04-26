@@ -27,8 +27,10 @@ import * as strings from "../../constants/Strings";
 import logger from "../../shared/logger";
 import FeedbackDialog from "../../components/shared/FeedbackDialog";
 import Result from "../../components/ResultPanel/Result/Result";
+import TrainingChart from "../../components/TrainingChart/TrainingChart";
 import {
   download_code,
+  downloadWeights,
   runModel,
   getTrainingHistory,
   updateTrainingConfig,
@@ -65,6 +67,7 @@ export default function Training() {
 
   const [selectedModel, setSelectedModel] = useState(null);
   const [resultValues, setResultValues] = useState([]);
+  const [epochData, setEpochData] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isHistoryLoading, setIsHistoryLoading] = useState(true);
   const [connectionError, setConnectionError] = useState(null);
@@ -174,16 +177,45 @@ export default function Training() {
 
     const dlResultListener = (resp) => {
       clearTimeout(timeoutRef.current);
-      if (resp.message && resp.message.includes("Starting")) {
+
+      // Handle structured events from Phase 3
+      if (resp.type === "train_begin") {
         setResultValues([]);
+        setEpochData([]);
         setIsLoading(true);
-      } else if (resp.message && resp.message.includes("Finish")) {
+      } else if (resp.type === "epoch_end") {
+        setEpochData((prev) => [
+          ...prev,
+          {
+            epoch: resp.epoch,
+            loss: resp.loss,
+            val_loss: resp.val_loss ?? null,
+            accuracy: resp.accuracy ?? null,
+            val_accuracy: resp.val_accuracy ?? null,
+            mse: resp.mse ?? null,
+          },
+        ]);
+        if (resp.message) setResultValues((prev) => [...prev, resp.message]);
+      } else if (resp.type === "train_end") {
         setIsLoading(false);
-        if (fetchModelsRef.current) {
-          fetchModelsRef.current();
-        }
+        if (fetchModelsRef.current) fetchModelsRef.current();
+      } else if (resp.type === "early_stopping" || resp.type === "lr_change") {
+        if (resp.message) setResultValues((prev) => [...prev, resp.message]);
+      } else if (resp.type === "batch_end") {
+        // batch updates — only show in log, don't add to chart
+        if (resp.message) setResultValues((prev) => [...prev, resp.message]);
       } else {
-        setResultValues((prev) => [...prev, resp.message]);
+        // Fallback for legacy unstructured messages
+        if (resp.message && resp.message.includes("Starting")) {
+          setResultValues([]);
+          setEpochData([]);
+          setIsLoading(true);
+        } else if (resp.message && resp.message.includes("Finish")) {
+          setIsLoading(false);
+          if (fetchModelsRef.current) fetchModelsRef.current();
+        } else if (resp.message) {
+          setResultValues((prev) => [...prev, resp.message]);
+        }
       }
     };
 
@@ -457,6 +489,18 @@ export default function Training() {
     trainingConfig.target_field &&
     !hasValidationErrors();
 
+  const handleDownloadWeights = useCallback(() => {
+    if (selectedModel) {
+      downloadWeights(selectedModel, projectId).catch((error) => {
+        setDeleteFeedback({
+          open: true,
+          success: false,
+          message: error.response?.data?.message || "Failed to download weights",
+        });
+      });
+    }
+  }, [selectedModel, projectId]);
+
   const handleDownload = useCallback(() => {
     if (selectedModel) {
       download_code(selectedModel, projectId).catch((error) => logger.error(error));
@@ -494,6 +538,7 @@ export default function Training() {
 
   const handleClear = () => {
     setResultValues([]);
+    setEpochData([]);
     setIsLoading(false);
   };
 
@@ -619,6 +664,13 @@ export default function Training() {
               variant="outline"
             >
               Download Code
+            </Button>
+            <Button
+              onClick={handleDownloadWeights}
+              disabled={!selectedModel || isLoading}
+              variant="outline"
+            >
+              Download Weights
             </Button>
             <Button
               onClick={handleRun}
@@ -866,6 +918,8 @@ export default function Training() {
           </CardContent>
         </Card>
       )}
+
+      <TrainingChart epochData={epochData} isTraining={isLoading} />
 
       {resultValues.length > 0 && (
         <div className="space-y-2">

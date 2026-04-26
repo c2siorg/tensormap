@@ -154,3 +154,22 @@ def test_validate_model_valid(client: TestClient):
     assert resp.status_code == 200
     body = resp.json()
     assert body["success"] is True
+
+
+def test_get_layer_schema(client: TestClient):
+    resp = client.get("/api/v1/model/layers/schema")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert isinstance(body, list)
+    assert len(body) >= 5
+
+    by_type = {item["type"]: item for item in body}
+    assert "customdense" in by_type
+    assert "customconv" in by_type
+    assert "customdropout" in by_type
+
+    dropout = by_type["customdropout"]
+    assert dropout["compiler_supported"] is True
+    assert len(dropout["params"]) == 1
+    assert dropout["params"][0]["name"] == "rate"
+    assert dropout["params"][0]["min"] == 0.0

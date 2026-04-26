@@ -1,3 +1,4 @@
+import os
 import uuid as uuid_pkg
 from collections.abc import Callable
 from typing import Any
@@ -370,3 +371,86 @@ def preprocess_data(db: Session, file_id: uuid_pkg.UUID, transformations: list) 
     except Exception as e:
         logger.exception("Error preprocessing data: %s", str(e))
         return _resp(500, False, f"Error preprocessing data: {e}")
+
+
+def augment_image_service(
+    db: Session,
+    file_id: uuid_pkg.UUID,
+    technique: str = "flip_horizontal",
+) -> tuple:
+    """Apply image augmentation techniques to generate synthetic variants.
+
+    Supported techniques:
+    - flip_horizontal: Mirror image along vertical axis
+    - flip_vertical: Mirror image along horizontal axis
+    - rotate_90: Rotate image by 90 degrees
+    - brightness: Adjust brightness by 20%
+    - zoom: Zoom to 90% then resize
+    - gaussian_noise: Add Gaussian noise
+    - random_crop: Crop to 85% then resize
+    """
+    file_record = db.get(DataFile, file_id)
+    if not file_record:
+        return _resp(404, False, "Image file not found")
+
+    file_path = file_record.file_path
+    if not file_path or not os.path.exists(file_path):
+        return _resp(404, False, "Image file not found on disk")
+
+    settings = get_settings()
+    output_dir = os.path.join(settings.UPLOAD_DIRECTORY, f"augmented_{file_id}")
+    os.makedirs(output_dir, exist_ok=True)
+
+    supported_formats = {".jpg", ".jpeg", ".png", ".bmp", ".gif", ".webp"}
+    _, ext = os.path.splitext(file_path)
+    if ext.lower() not in supported_formats:
+        return _resp(400, False, f"Unsupported image format: {ext}")
+
+    try:
+        from PIL import Image, ImageEnhance
+
+        original = Image.open(file_path)
+
+        if technique == "flip_horizontal":
+            augmented = original.transpose(Image.FLIP_LEFT_RIGHT)
+        elif technique == "flip_vertical":
+            augmented = original.transpose(Image.FLIP_TOP_BOTTOM)
+        elif technique == "rotate_90":
+            augmented = original.rotate(90, expand=True)
+        elif technique == "brightness":
+            enhancer = ImageEnhance.Brightness(original)
+            augmented = enhancer.enhance(1.2)
+        elif technique == "zoom":
+            width, height = original.size
+            new_width = int(width * 0.9)
+            new_height = int(height * 0.9)
+            left = (width - new_width) // 2
+            top = (height - new_height) // 2
+            cropped = original.crop((left, top, left + new_width, top + new_height))
+            augmented = cropped.resize((width, height), Image.LANCZOS)
+        elif technique == "gaussian_noise":
+            np_img = np.array(original.convert("RGB")).astype(np.float32) / 255.0
+            noise = np.random.normal(0, 0.05, np_img.shape)
+            np_img = np.clip(np_img + noise, 0, 1)
+            augmented = Image.fromarray((np_img * 255).astype(np.uint8))
+        elif technique == "random_crop":
+            width, height = original.size
+            crop_size = int(min(width, height) * 0.85)
+            left = np.random.randint(0, width - crop_size + 1)
+            top = np.random.randint(0, height - crop_size + 1)
+            cropped = original.crop((left, top, left + crop_size, top + crop_size))
+            augmented = cropped.resize((width, height), Image.LANCZOS)
+        else:
+            return _resp(400, False, f"Unknown technique: {technique}")
+
+        output_path = os.path.join(output_dir, f"augmented_0{ext}")
+        augmented.save(output_path)
+
+        logger.info("Applied %s augmentation to file %s", technique, file_id)
+        return _resp(200, True, f"Generated augmented image using {technique}", {"output_path": output_path})
+
+    except ImportError:
+        return _resp(500, False, "Pillow not installed")
+    except Exception as e:
+        logger.exception("Error augmenting image: %s", str(e))
+        return _resp(500, False, f"Error augmenting image: {e}")

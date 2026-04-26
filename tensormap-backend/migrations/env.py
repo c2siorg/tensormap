@@ -6,8 +6,10 @@ from sqlmodel import SQLModel
 
 from app.config import get_settings
 from app.models.data import DataFile, DataProcess, ImageProperties  # noqa: F401
+from app.models.evaluation import ModelEvaluation  # noqa: F401
 from app.models.ml import ModelBasic, ModelConfigs  # noqa: F401
 from app.models.project import Project  # noqa: F401
+from app.models.training_run import ModelTrainingRun  # noqa: F401
 
 config = context.config
 

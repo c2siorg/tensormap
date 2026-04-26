@@ -21,7 +21,7 @@ from app.exceptions import (
     validation_exception_handler,
 )
 from app.middleware import RequestLoggingMiddleware
-from app.routers import data_process, data_upload, deep_learning, health, project
+from app.routers import data_process, data_upload, deep_learning, evaluation, health, project
 from app.shared.logging_config import get_logger
 from app.socketio_instance import sio
 
@@ -66,6 +66,7 @@ app.include_router(data_upload.router, prefix=settings.api_base)
 app.include_router(data_process.router, prefix=settings.api_base)
 app.include_router(deep_learning.router, prefix=settings.api_base)
 app.include_router(project.router, prefix=settings.api_base)
+app.include_router(evaluation.router, prefix=settings.api_base)
 
 # Wrap FastAPI with SocketIO so socket.io requests are handled,
 # and everything else passes through to FastAPI.

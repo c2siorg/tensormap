@@ -6,9 +6,9 @@ import re
 import sys
 import uuid as uuid_pkg
 from datetime import UTC
+from importlib import import_module
 from typing import Any
 
-import tensorflow as tf
 from flatten_json import flatten
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
@@ -38,6 +38,7 @@ from app.shared.enums import ProblemType
 from app.shared.logging_config import get_logger
 
 logger = get_logger(__name__)
+tf = None
 
 
 def _resp(status_code: int, success: bool, message: str, data: Any = None) -> tuple:
@@ -111,6 +112,20 @@ def _build_model_summary(keras_model) -> dict:
     }
 
 
+def _get_tensorflow():
+    """Import TensorFlow lazily so app startup does not hard-fail on ML deps."""
+    global tf
+    if tf is not None:
+        return tf
+    try:
+        tf = import_module("tensorflow")
+        return tf
+    except Exception as exc:
+        raise RuntimeError(
+            "TensorFlow import failed. Install compatible tensorflow/protobuf versions for this runtime."
+        ) from exc
+
+
 def model_validate_service(db: Session, incoming: dict, project_id: uuid_pkg.UUID | None = None) -> tuple:
     """Validate a model graph with Keras, persist the configuration, and save the JSON file."""
     try:
@@ -119,7 +134,8 @@ def model_validate_service(db: Session, incoming: dict, project_id: uuid_pkg.UUI
         return _resp(400, False, str(e))
 
     try:
-        keras_model = tf.keras.models.model_from_json(json.dumps(model_generated))
+        tf_module = _get_tensorflow()
+        keras_model = tf_module.keras.models.model_from_json(json.dumps(model_generated))
     except Exception as e:
         logger.error("Model validation error: %s", str(e))
         for error in errors.err_msgs:
@@ -213,7 +229,8 @@ def model_save_service(db: Session, incoming: dict, model_name: str, project_id:
         return _resp(400, False, str(e))
 
     try:
-        keras_model = tf.keras.models.model_from_json(json.dumps(model_generated))
+        tf_module = _get_tensorflow()
+        keras_model = tf_module.keras.models.model_from_json(json.dumps(model_generated))
     except Exception as e:
         logger.error("Model validation error: %s", str(e))
         for error in errors.err_msgs:

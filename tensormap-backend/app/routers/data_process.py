@@ -11,6 +11,7 @@ from app.schemas.data_process import (
 )
 from app.services.data_process import (
     add_target_service,
+    augment_image_service,
     delete_one_target_by_id_service,
     get_all_targets_service,
     get_column_stats_service,
@@ -94,4 +95,29 @@ def preprocess(file_id: uuid_pkg.UUID, request: PreprocessRequest, db: Session =
     """Apply transformations to a CSV file, overwriting it in place."""
     logger.debug("Preprocessing file_id=%s with %d transformations", file_id, len(request.transformations))
     body, status_code = preprocess_data(db, file_id=file_id, transformations=request.transformations)
+    return JSONResponse(status_code=status_code, content=body)
+
+
+@router.post("/data/augment/image/{file_id}")
+def augment_image(
+    file_id: uuid_pkg.UUID,
+    technique: str = Query(
+        "flip_horizontal",
+        pattern="^(flip_horizontal|flip_vertical|rotate_90|brightness|zoom|gaussian_noise|random_crop)$",
+    ),
+    db: Session = Depends(get_db),
+):
+    """Apply image augmentation techniques to generate synthetic variants.
+
+    Supported techniques:
+    - flip_horizontal: Mirror along vertical axis
+    - flip_vertical: Mirror along horizontal axis
+    - rotate_90: Rotate by 90 degrees
+    - brightness: Increase brightness by 20%
+    - zoom: Zoom to 90% then resize
+    - gaussian_noise: Add Gaussian noise
+    - random_crop: Crop to 85% then resize
+    """
+    logger.debug("Applying %s augmentation to file_id=%s", technique, file_id)
+    body, status_code = augment_image_service(db, file_id=file_id, technique=technique)
     return JSONResponse(status_code=status_code, content=body)

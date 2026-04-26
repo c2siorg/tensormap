@@ -10,6 +10,7 @@ from app.database import get_db
 from app.schemas.deep_learning import ModelNameRequest, ModelSaveRequest, ModelValidateRequest, TrainingConfigRequest
 from app.services.deep_learning import (
     delete_model_service,
+    export_model_service,
     get_available_model_list,
     get_code_service,
     get_model_graph_service,
@@ -110,4 +111,17 @@ def get_model_list(
 ):
     """Return a paginated list of saved model names, optionally filtered by project."""
     body, status_code = get_available_model_list(db, project_id=project_id, offset=offset, limit=limit)
+    return JSONResponse(status_code=status_code, content=body)
+
+
+@router.get("/model/export/{model_name}")
+def export_model(
+    model_name: str,
+    format: str = Query("savedmodel", pattern="^(savedmodel|tflite|onnx)$"),
+    project_id: uuid_pkg.UUID | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Export a trained model in the specified format."""
+    logger.debug("Exporting model %s as %s", model_name, format)
+    body, status_code = export_model_service(db, model_name=model_name, export_format=format, project_id=project_id)
     return JSONResponse(status_code=status_code, content=body)

@@ -486,3 +486,63 @@ def delete_model_service(db: Session, model_id: int) -> tuple:
 
     logger.info("Model '%s' (id=%s) deleted successfully", model_name, model_id)
     return _resp(200, True, f"Model '{model_name}' deleted successfully")
+
+
+def export_model_service(
+    db: Session, model_name: str, export_format: str = "savedmodel", project_id: uuid_pkg.UUID | None = None
+) -> tuple:
+    """Export a trained model to various formats.
+
+    Supports: savedmodel (TensorFlow), tflite (TensorFlow Lite), onnx (ONNX).
+    """
+    from app.models import ModelBasic
+
+    stmt = select(ModelBasic).where(ModelBasic.model_name == model_name)
+    if project_id is not None:
+        stmt = stmt.where(ModelBasic.project_id == project_id)
+    model = db.exec(stmt).first()
+
+    if not model:
+        return {"success": False, "message": f"Model '{model_name}' not found", "data": None}, 404
+
+    model_path = os.path.join(MODEL_GENERATION_LOCATION, model_name + MODEL_GENERATION_TYPE)
+    if not os.path.exists(model_path):
+        return {"success": False, "message": "Model file not found", "data": None}, 404
+
+    try:
+        loaded_model = tf.keras.models.load_model(model_path)
+    except Exception as e:
+        logger.error("Failed to load model: %s", e)
+        return {"success": False, "message": f"Could not load model: {e}", "data": None}, 400
+
+    export_dir = os.path.join(MODEL_GENERATION_LOCATION, f"{model_name}_export", export_format)
+    os.makedirs(export_dir, exist_ok=True)
+
+    try:
+        if export_format == "savedmodel":
+            saved_path = os.path.join(export_dir, model_name)
+            loaded_model.save(saved_path)
+            return {"success": True, "message": f"Exported to {saved_path}", "data": {"path": saved_path}}, 200
+
+        if export_format == "tflite":
+            converter = tf.lite.TFLiteConverter.from_keras_model(loaded_model)
+            converter.optimizations = [tf.lite.Optimize.DEFAULT]
+            tflite_model = converter.convert()
+            tflite_path = os.path.join(export_dir, f"{model_name}.tflite")
+            with open(tflite_path, "wb") as f:
+                f.write(tflite_model)
+            return {"success": True, "message": f"Exported to {tflite_path}", "data": {"path": tflite_path}}, 200
+
+        if export_format == "onnx":
+            try:
+                import tf2onnx
+            except ImportError:
+                return {"success": False, "message": "ONNX not available", "data": None}, 501
+            onnx_path = os.path.join(export_dir, f"{model_name}.onnx")
+            tf2onnx.convert.from_keras(loaded_model, output_path=onnx_path)
+            return {"success": True, "message": f"Exported to {onnx_path}", "data": {"path": onnx_path}}, 200
+
+        return {"success": False, "message": f"Unsupported: {export_format}"}, 400
+    except Exception as e:
+        logger.error("Export failed: %s", e)
+        return {"success": False, "message": f"Export failed: {e}"}, 500

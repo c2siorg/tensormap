@@ -1,5 +1,7 @@
 import asyncio
 import os
+import time
+from datetime import UTC, datetime
 
 import pandas as pd
 import tensorflow as tf
@@ -7,7 +9,10 @@ from sqlmodel import Session, select
 
 from app.config import get_settings
 from app.models.data import DataFile, ImageProperties
+from app.models.evaluation import ModelEvaluation
 from app.models.ml import ModelBasic
+from app.models.training_run import ModelTrainingRun
+from app.services.evaluation import compute_detailed_metrics
 from app.shared.constants import (
     MODEL_GENERATION_LOCATION,
     MODEL_GENERATION_TYPE,
@@ -173,6 +178,23 @@ def _prepare_training_data(features, target_field, training_split):
 def _run(model_name: str, db: Session) -> None:
     model_configs = db.exec(select(ModelBasic).where(ModelBasic.model_name == model_name)).first()
 
+    # GAP-1: create training run record
+    training_run = ModelTrainingRun(
+        model_id=model_configs.id,
+        started_at=datetime.now(UTC),
+        status="in_progress",
+        epochs_configured=model_configs.epochs,
+        batch_size_configured=model_configs.batch_size,
+        training_split_configured=model_configs.training_split,
+        optimizer=model_configs.optimizer,
+        loss_fn=model_configs.loss,
+        metric_name=model_configs.metric,
+    )
+    db.add(training_run)
+    db.commit()
+    db.refresh(training_run)
+    _start_time = time.time()
+
     # Issue #4: validate training params early for clear error messages
     _validate_training_params(
         batch_size=model_configs.batch_size,
@@ -244,16 +266,17 @@ def _run(model_name: str, db: Session) -> None:
     )
 
     if model_configs.model_type == ProblemType.IMAGE_CLASSIFICATION:
-        model.fit(
+        history = model.fit(
             train_data,
             validation_data=test_data,
             epochs=model_configs.epochs,
             callbacks=[CustomProgressBar()],
             verbose=0,
         )
-        model.evaluate(test_data, callbacks=[CustomProgressBar()], verbose=0)
+        eval_results = model.evaluate(test_data, callbacks=[CustomProgressBar()], verbose=0)
+        y_true_eval, y_pred_eval = None, None
     else:
-        model.fit(
+        history = model.fit(
             x_training,
             y_training,
             epochs=model_configs.epochs,
@@ -261,4 +284,62 @@ def _run(model_name: str, db: Session) -> None:
             callbacks=[CustomProgressBar()],
             verbose=0,
         )
-        model.evaluate(x_testing, y_testing, callbacks=[CustomProgressBar()], verbose=0)
+        eval_results = model.evaluate(x_testing, y_testing, callbacks=[CustomProgressBar()], verbose=0)
+        y_true_eval = y_testing.values
+        y_pred_eval = model.predict(x_testing, verbose=0)
+
+    # GAP-1: persist training history
+    h = history.history
+    metric_key = model_configs.metric if model_configs.metric in h else None
+    val_metric_key = f"val_{metric_key}" if metric_key else None
+
+    training_run.completed_at = datetime.now(UTC)
+    training_run.duration_seconds = round(time.time() - _start_time, 2)
+    training_run.status = "success"
+    training_run.epoch_losses = [round(v, 6) for v in h.get("loss", [])]
+    training_run.epoch_val_losses = [round(v, 6) for v in h.get("val_loss", [])]
+    training_run.epoch_metrics = [round(v, 6) for v in h.get(metric_key, [])] if metric_key else None
+    training_run.epoch_val_metrics = [round(v, 6) for v in h.get(val_metric_key, [])] if val_metric_key else None
+    training_run.final_train_loss = round(h["loss"][-1], 6) if h.get("loss") else None
+    training_run.final_val_loss = round(h["val_loss"][-1], 6) if h.get("val_loss") else None
+    training_run.final_train_metric = round(h[metric_key][-1], 6) if metric_key and h.get(metric_key) else None
+    training_run.final_val_metric = (
+        round(h[val_metric_key][-1], 6) if val_metric_key and h.get(val_metric_key) else None
+    )
+    db.add(training_run)
+    db.commit()
+    logger.info(
+        "Training run #%d saved — loss: %s, duration: %ss",
+        training_run.id,
+        training_run.final_train_loss,
+        training_run.duration_seconds,
+    )
+
+    # GAP-3: compute and persist detailed evaluation metrics
+    if y_true_eval is not None and y_pred_eval is not None:
+        eval_results_list = eval_results if isinstance(eval_results, list) else [eval_results]
+        test_loss = round(float(eval_results_list[0]), 6) if eval_results_list else None
+        test_metric = round(float(eval_results_list[1]), 6) if len(eval_results_list) > 1 else None
+        detailed = compute_detailed_metrics(
+            y_true=y_true_eval,
+            y_pred_raw=y_pred_eval,
+            problem_type=model_configs.model_type,
+            test_loss=test_loss,
+            test_metric=test_metric,
+        )
+        evaluation = ModelEvaluation(
+            training_run_id=training_run.id,
+            model_id=model_configs.id,
+            test_loss=detailed.get("test_loss"),
+            test_metric=detailed.get("test_metric"),
+            per_class_metrics=detailed.get("per_class_metrics"),
+            confusion_matrix=detailed.get("confusion_matrix"),
+            roc_auc=detailed.get("roc_auc"),
+            roc_curve_data=detailed.get("roc_curve_data"),
+            mae=detailed.get("mae"),
+            rmse=detailed.get("rmse"),
+            r_squared=detailed.get("r_squared"),
+        )
+        db.add(evaluation)
+        db.commit()
+        logger.info("Evaluation saved for training run #%d", training_run.id)

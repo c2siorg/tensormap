@@ -1,3 +1,4 @@
+import contextlib
 import os
 import uuid as uuid_pkg
 from typing import Any
@@ -26,13 +27,32 @@ def add_file_service(db: Session, file_wrapper: Any, project_id: uuid_pkg.UUID |
     upload_folder = settings.upload_folder
     os.makedirs(upload_folder, exist_ok=True)
 
-    filename = secure_filename(file_wrapper.filename.lower())
-    file_path = os.path.join(upload_folder, filename)
+    # Enforce max upload size before saving to disk
+    file_size = 0
+    try:
+        file_wrapper.file.seek(0, 2)
+        file_size = file_wrapper.file.tell()
+    except (AttributeError, OSError) as exc:
+        logger.warning("Could not determine upload size; rejecting upload. Reason: %s", exc)
+        return _resp(413, False, "File size could not be verified. Upload rejected.")
+    finally:
+        with contextlib.suppress(AttributeError, OSError):
+            file_wrapper.file.seek(0)
+    if file_size > settings.max_content_length:
+        return _resp(413, False, "File too large. Maximum allowed size is 200MB.")
+
+    # Generate unique filename to prevent collisions
+    original_name = file_wrapper.filename.rsplit(".", 1)[0].lower()
+    original_ext = file_wrapper.filename.rsplit(".", 1)[1].lower()
+    unique_id = uuid_pkg.uuid4().hex[:8]
+    safe_filename = f"{original_name}_{unique_id}.{original_ext}"
+    file_path = os.path.join(upload_folder, safe_filename)
+
     file_wrapper.save(file_path)
 
-    file_name_db = secure_filename(file_wrapper.filename.rsplit(".", 1)[0].lower())
-    file_type_db = file_wrapper.filename.rsplit(".", 1)[1].lower()
-    logger.info("Saving file: %s", file_name_db)
+    file_name_db = secure_filename(original_name)
+    file_type_db = original_ext
+    logger.info("Saving file: %s (disk name: %s)", file_name_db, safe_filename)
 
     # Cache column names and row count at upload time (CSV only)
     columns_list: list[str] | None = None
@@ -48,6 +68,7 @@ def add_file_service(db: Session, file_wrapper: Any, project_id: uuid_pkg.UUID |
     record = DataFile(
         file_name=file_name_db,
         file_type=file_type_db,
+        disk_name=safe_filename,
         project_id=project_id,
         columns=columns_list,
         row_count=row_count,
@@ -81,7 +102,7 @@ def get_all_files_service(
             elif file.file_type == "csv":
                 # Backfill: read header + count rows, then persist the cache
                 try:
-                    file_path = f"{upload_folder}/{file.file_name}.{file.file_type}"
+                    file_path = f"{upload_folder}/{file.disk_name}"
                     df_header = pd.read_csv(file_path, nrows=0)
                     fields = list(df_header.columns)
                     row_count = sum(chunk.shape[0] for chunk in pd.read_csv(file_path, chunksize=10_000))
@@ -128,7 +149,7 @@ def delete_one_file_by_id_service(db: Session, file_id: uuid_pkg.UUID) -> tuple:
         if not file:
             return _resp(400, False, "File not in the DB")
 
-        file_path = os.path.join(upload_folder, f"{file.file_name}.{file.file_type}")
+        file_path = os.path.join(upload_folder, file.disk_name)
 
         try:
             os.remove(file_path)

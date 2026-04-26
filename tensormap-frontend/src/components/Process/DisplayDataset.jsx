@@ -4,15 +4,7 @@ import { getFileData } from "../../services/FileServices";
 import logger from "../../shared/logger";
 import { Button } from "../ui/button";
 
-/**
- * Tabular preview of a CSV dataset.
- *
- * Fetches file data from the backend and renders it as a scrollable
- * HTML table.
- *
- * @param {{ fileId: string }} props
- */
-const DisplayDataset = ({ fileId, pageSize = 50 }) => {
+const DisplayDataset = ({ fileId, pageSize = 50, previewLimit = 100 }) => {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -62,14 +54,27 @@ const DisplayDataset = ({ fileId, pageSize = 50 }) => {
     }
   }, [fileId, page, fetchData]);
 
-  if (error) {
-    return <div className="flex h-48 items-center justify-center text-destructive">{error}</div>;
-  }
-
   if (isLoading) {
     return (
-      <div className="flex h-48 items-center justify-center text-muted-foreground">
-        Loading data...
+      <div className="flex h-48 items-center justify-center">
+        <div className="flex flex-col items-center gap-2">
+          <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+          <span className="text-muted-foreground">Loading data...</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex h-48 flex-col items-center justify-center gap-2 text-destructive">
+        <span>⚠️ {error}</span>
+        <button
+          onClick={() => fetchData(fileId, page)}
+          className="text-sm text-blue-600 hover:underline"
+        >
+          Try again
+        </button>
       </div>
     );
   }
@@ -77,30 +82,42 @@ const DisplayDataset = ({ fileId, pageSize = 50 }) => {
   if (!data || data.length === 0) {
     return (
       <div className="flex h-48 items-center justify-center text-muted-foreground">
-        Dataset is empty.
+        No data available
       </div>
     );
   }
 
+  const displayData = previewLimit ? data.slice(0, previewLimit) : data;
+  const hasMore = previewLimit && data.length > previewLimit;
+
   return (
     <div className="flex flex-col space-y-4">
+      {hasMore && (
+        <div className="text-sm text-muted-foreground">
+          Showing {previewLimit} of {pagination?.total_rows || data.length} rows
+        </div>
+      )}
       <div className="max-h-[500px] w-full overflow-auto">
         <table className="w-full border-collapse">
-          <thead>
+          <thead className="sticky top-0 bg-gray-50">
             <tr className="border-b">
-              {Object.keys(data[0]).map((key) => (
-                <th key={key} className="border px-3 py-2 text-left font-semibold">
+              {Object.keys(displayData[0] || {}).map((key) => (
+                <th key={key} className="border px-3 py-2 text-left font-semibold bg-gray-50">
                   {key.trim()}
                 </th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {data.map((row, index) => (
-              <tr key={`row-${pagination?.page}-${index}`} className="border-b">
+            {displayData.map((row, index) => (
+              <tr key={index} className="border-b hover:bg-gray-50">
                 {Object.values(row).map((value, idx) => (
-                  <td key={`cell-${pagination?.page}-${index}-${idx}`} className="border px-3 py-2">
-                    {value != null ? String(value) : ""}
+                  <td key={idx} className="border px-3 py-2">
+                    {value === null || value === undefined ? (
+                      <span className="text-gray-400">-</span>
+                    ) : (
+                      String(value)
+                    )}
                   </td>
                 ))}
               </tr>
@@ -144,6 +161,12 @@ const DisplayDataset = ({ fileId, pageSize = 50 }) => {
 DisplayDataset.propTypes = {
   fileId: PropTypes.string.isRequired,
   pageSize: PropTypes.number,
+  previewLimit: PropTypes.number,
+};
+
+DisplayDataset.defaultProps = {
+  pageSize: 50,
+  previewLimit: 100,
 };
 
 export default DisplayDataset;

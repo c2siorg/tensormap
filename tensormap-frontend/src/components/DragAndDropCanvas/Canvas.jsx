@@ -30,14 +30,16 @@ import DenseNode from "./CustomNodes/DenseNode/DenseNode";
 import FlattenNode from "./CustomNodes/FlattenNode/FlattenNode";
 import ConvNode from "./CustomNodes/ConvNode/ConvNode";
 import DropoutNode from "./CustomNodes/DropoutNode/DropoutNode";
+import MaxPoolingNode from "./CustomNodes/MaxPoolingNode/MaxPoolingNode";
 import Sidebar from "./Sidebar";
 import NodePropertiesPanel from "./NodePropertiesPanel";
 import { canSaveModel, generateModelJSON } from "./Helpers";
 import ModelSummaryPanel from "./ModelSummaryPanel";
 import { getAllModels, getModelGraph, saveModel } from "../../services/ModelServices";
-import { models as allModels } from "../../shared/atoms";
+import { trainingHistory as trainingHistoryAtom } from "../../shared/atoms";
 import ContextMenu from "./ContextMenu";
 import useUndoRedo from "../../hooks/useUndoRedo";
+import GlobalAvgPoolNode from "./CustomNodes/GlobalAvgPoolNode/GlobalAvgPoolNode";
 
 const isMac =
   typeof navigator !== "undefined"
@@ -52,12 +54,14 @@ const nodeTypes = {
   customflatten: FlattenNode,
   customconv: ConvNode,
   customdropout: DropoutNode,
+  custommaxpool: MaxPoolingNode,
+  customglobalavgpool: GlobalAvgPoolNode,
 };
 
 function Canvas() {
   const { projectId } = useParams();
   const reactFlowWrapper = useRef(null);
-  const [, setModelList] = useRecoilState(allModels);
+  const [, setTrainingHistory] = useRecoilState(trainingHistoryAtom);
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [reactFlowInstance, setReactFlowInstance] = useState(null);
@@ -72,6 +76,8 @@ function Canvas() {
   });
   const [contextMenu, setContextMenu] = useState({ nodeId: null, x: 0, y: 0 });
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [nodeToDelete, setNodeToDelete] = useState(null);
   const defaultViewport = { x: 10, y: 15, zoom: 0.5 };
 
   const draftKey = `tensormap_draft_${projectId || "default"}`;
@@ -201,6 +207,7 @@ function Canvas() {
         }
 
         const result = await getModelGraph(modelObjects[0].model_name, projectId);
+
         if (cancelled || !result.success) {
           if (!cancelled) isLoaded.current = true;
           return;
@@ -227,15 +234,7 @@ function Canvas() {
           setModelName(model_name);
           isLoaded.current = true;
 
-          // Populate the global model list from the fetched models
-          setModelList(
-            modelObjects.map((m, i) => ({
-              label: m.model_name + strings.MODEL_EXTENSION,
-              value: m.model_name,
-              id: m.id,
-              key: i,
-            })),
-          );
+          setTrainingHistory(modelObjects);
         }
       } catch (err) {
         logger.error("Failed to auto-load model:", err);
@@ -246,7 +245,7 @@ function Canvas() {
     return () => {
       cancelled = true;
     };
-  }, [projectId, setNodes, setEdges, setModelList, draftKey]);
+  }, [projectId, setNodes, setEdges, setTrainingHistory, draftKey]);
 
   // Handle debounced saving of draft
   useEffect(() => {
@@ -409,6 +408,22 @@ function Canvas() {
     closeContextMenu();
   }, [contextMenu.nodeId, setNodes, closeContextMenu, takeSnapshotAndUpdate]);
 
+  const deleteNode = useCallback(() => {
+    setNodeToDelete(contextMenu.nodeId);
+    setDeleteConfirmOpen(true);
+    closeContextMenu();
+  }, [contextMenu.nodeId, closeContextMenu]);
+
+  const confirmDeleteNode = useCallback(() => {
+    if (!nodeToDelete) return;
+    takeSnapshotAndUpdate(nodesRef.current, edgesRef.current);
+    setSelectedNodeId((prev) => (prev === nodeToDelete ? null : prev));
+    setNodes((nds) => nds.filter((n) => n.id !== nodeToDelete));
+    setEdges((eds) => eds.filter((e) => e.source !== nodeToDelete && e.target !== nodeToDelete));
+    setDeleteConfirmOpen(false);
+    setNodeToDelete(null);
+  }, [nodeToDelete, setNodes, setEdges, takeSnapshotAndUpdate]);
+
   const onNodeUpdate = useCallback(
     (nodeId, newParams) => {
       takeSnapshotAndUpdate(nodesRef.current, edgesRef.current);
@@ -460,7 +475,7 @@ function Canvas() {
           // Re-fetch the model list so the new entry has its DB id
           getAllModels(projectId)
             .then((modelObjects) => {
-              setModelList(
+              setTrainingHistory(
                 modelObjects.map((m, i) => ({
                   label: m.model_name + strings.MODEL_EXTENSION,
                   value: m.model_name,
@@ -522,6 +537,8 @@ function Canvas() {
           kernelY: "",
         },
         customdropout: { rate: "" },
+        custommaxpool: { pool_size: "", stride: "", padding: "valid" },
+        customglobalavgpool: {},
       };
 
       const newNode = {
@@ -546,6 +563,25 @@ function Canvas() {
         message={feedbackDialog.message}
         detail={feedbackDialog.detail}
       />
+      <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete node</DialogTitle>
+            <DialogDescription>
+              This will remove the node and all its connections. You can undo with{" "}
+              {isMac ? "⌘Z" : "Ctrl+Z"}.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteConfirmOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={confirmDeleteNode}>
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Dialog open={clearConfirmOpen} onOpenChange={setClearConfirmOpen}>
         <DialogContent>
           <DialogHeader>
@@ -643,6 +679,7 @@ function Canvas() {
               x={contextMenu.x}
               y={contextMenu.y}
               onDuplicate={duplicateNode}
+              onDelete={deleteNode}
               onClose={closeContextMenu}
             />
           )}

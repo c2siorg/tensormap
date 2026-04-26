@@ -13,6 +13,7 @@ from app.services.deep_learning import (
     get_available_model_list,
     get_code_service,
     get_model_graph_service,
+    interpret_model_service,
     model_save_service,
     model_validate_service,
     run_code_service,
@@ -110,4 +111,17 @@ def get_model_list(
 ):
     """Return a paginated list of saved model names, optionally filtered by project."""
     body, status_code = get_available_model_list(db, project_id=project_id, offset=offset, limit=limit)
+    return JSONResponse(status_code=status_code, content=body)
+
+
+@router.get("/model/interpret/{model_name}")
+def interpret_model(
+    model_name: str,
+    file_id: uuid_pkg.UUID | None = Query(None),
+    project_id: uuid_pkg.UUID | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Generate interpretability analysis for a trained model."""
+    logger.debug("Interpreting model %s", model_name)
+    body, status_code = interpret_model_service(db, model_name=model_name, file_id=file_id, project_id=project_id)
     return JSONResponse(status_code=status_code, content=body)

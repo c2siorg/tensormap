@@ -16,6 +16,7 @@ def _make_model_config(problem_type: int = ProblemType.CLASSIFICATION) -> MagicM
     cfg.optimizer = "adam"
     cfg.metric = "accuracy"
     cfg.epochs = 1
+    cfg.batch_size = 32  # Must be a real int so _validate_training_params accepts it.
     cfg.loss = "sparse_categorical_crossentropy"
     return cfg
 

@@ -9,6 +9,7 @@ from sqlmodel import Session
 from app.database import get_db
 from app.schemas.deep_learning import ModelNameRequest, ModelSaveRequest, ModelValidateRequest, TrainingConfigRequest
 from app.services.deep_learning import (
+    compare_runs_service,
     delete_model_service,
     get_available_model_list,
     get_code_service,
@@ -110,4 +111,16 @@ def get_model_list(
 ):
     """Return a paginated list of saved model names, optionally filtered by project."""
     body, status_code = get_available_model_list(db, project_id=project_id, offset=offset, limit=limit)
+    return JSONResponse(status_code=status_code, content=body)
+
+
+@router.get("/model/compare")
+def compare_runs(
+    project_id: uuid_pkg.UUID | None = Query(None),
+    limit: int = Query(10, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    """Compare metrics across multiple training runs for a project."""
+    logger.debug("Comparing runs for project %s", project_id)
+    body, status_code = compare_runs_service(db, project_id=project_id, limit=limit)
     return JSONResponse(status_code=status_code, content=body)

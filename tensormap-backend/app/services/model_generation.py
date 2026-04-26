@@ -67,8 +67,20 @@ def model_generation(model_params: dict) -> dict:
             node = nodes_by_id[target_id]
             keras_tensors[target_id] = _build_layer(node, input_tensor)
 
+    # Identify input and output tensors
+    unvisited_non_input = {
+        nid for nid in nodes_by_id if nid not in visited and nodes_by_id[nid]["type"] != "custominput"
+    }
+    if unvisited_non_input:
+        raise ValueError(
+            f"Disconnected nodes detected: {unvisited_non_input}. "
+            "Please connect all layers before generating the model."
+        )
+
     inputs = [keras_tensors[n["id"]] for n in model_params["nodes"] if n["type"] == "custominput"]
-    output_ids = [n["id"] for n in model_params["nodes"] if n["id"] not in source_to_targets]
+    output_ids = [
+        n["id"] for n in model_params["nodes"] if n["id"] not in source_to_targets and n["type"] != "custominput"
+    ]
     outputs = [keras_tensors[oid] for oid in output_ids]
 
     model = tf.keras.Model(inputs=inputs, outputs=outputs)

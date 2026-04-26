@@ -120,5 +120,8 @@ def _build_layer(node: dict, input_tensor):
             raise ValueError(f"Dropout rate must be in [0, 1), got {rate!r}.")
         return tf.keras.layers.Dropout(rate=rate, name=name)(input_tensor)
 
+    elif node_type == "custombatchnorm":
+        return tf.keras.layers.BatchNormalization(name=name)(input_tensor)
+
     else:
         raise ValueError(f"Unknown node type: {node_type}")

@@ -350,6 +350,18 @@ function NodePropertiesPanel({
       </Card>
     );
   }
+  if (type === "custombatchnorm") {
+    return (
+      <Card className="h-fit">
+        <CardHeader>
+          <CardTitle className="text-sm">BatchNormalization Layer</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">No configurable parameters</p>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return null;
 }

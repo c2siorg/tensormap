@@ -1,0 +1,27 @@
+name: Integration Tests
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  integration-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        working-directory: tensormap-backend
+        run: uv sync --frozen --extra dev
+
+      - name: Run integration tests
+        working-directory: tensormap-backend
+        run: uv run pytest ../tests/integration/ -v

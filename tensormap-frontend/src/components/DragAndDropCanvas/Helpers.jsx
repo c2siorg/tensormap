@@ -5,7 +5,6 @@
 export const canSaveModel = (modelName, modelData) => {
   if (!modelName || modelName.trim() === "") return false;
   if (!modelData.nodes || modelData.nodes.length === 0) return false;
-
   for (const node of modelData.nodes) {
     if (node.type === "customdense") {
       if (
@@ -17,7 +16,13 @@ export const canSaveModel = (modelName, modelData) => {
         return false;
       }
     } else if (node.type === "custominput") {
-      if (!node.data.params["dim-1"] || node.data.params["dim-1"] === "") {
+      const dim1 = Number(node.data.params["dim-1"]);
+      if (
+        !node.data.params["dim-1"] ||
+        node.data.params["dim-1"] === "" ||
+        dim1 < 1 ||
+        !Number.isInteger(dim1)
+      ) {
         return false;
       }
     } else if (node.type === "customconv") {
@@ -25,27 +30,33 @@ export const canSaveModel = (modelName, modelData) => {
       if (!p.filter || !p.kernelX || !p.kernelY || !p.strideX || !p.strideY) {
         return false;
       }
+    } else if (node.type === "custommaxpool") {
+      const p = node.data.params;
+      if (!p.pool_size || !p.stride) {
+        return false;
+      }
+    } else if (node.type === "customdropout") {
+      const rate = parseFloat(node.data.params.rate);
+      if (node.data.params.rate === "" || isNaN(rate) || rate < 0 || rate >= 1) {
+        return false;
+      }
     }
-    // customflatten has no params to validate
+    // customflatten and customdropout have no required params to validate
   }
-
   return isGraphConnected(modelData);
 };
 
 const isGraphConnected = (graph) => {
   if (!graph.nodes || graph.nodes.length === 0) return false;
-
   const visited = new Set();
   const firstNodeId = graph.nodes[0].id;
   const queue = [firstNodeId];
   visited.add(firstNodeId);
-
   while (queue.length > 0) {
     const currentNodeId = queue.shift();
     const adjacentNodes = graph.edges
       .filter((edge) => edge.source === currentNodeId || edge.target === currentNodeId)
       .map((edge) => (edge.source === currentNodeId ? edge.target : edge.source));
-
     for (const nodeId of adjacentNodes) {
       if (!visited.has(nodeId)) {
         queue.push(nodeId);
@@ -67,11 +78,9 @@ export const generateModelJSON = (modelData) => {
     position: node.position,
     data: { params: node.data.params },
   }));
-
   const edges = modelData.edges.map((edge) => ({
     source: edge.source,
     target: edge.target,
   }));
-
   return { nodes, edges };
 };

@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Form, Query, UploadFile
 from fastapi.responses import JSONResponse
 from sqlmodel import Session
 
+from app.config import get_settings
 from app.database import get_db
 from app.services.data_upload import (
     add_file_service,
@@ -13,21 +14,24 @@ from app.services.data_upload import (
 from app.shared.logging_config import get_logger
 
 logger = get_logger(__name__)
-
 router = APIRouter(tags=["data-upload"])
-
 ALLOWED_EXTENSIONS = {"csv"}
 
 
 class _UploadFileWrapper:
-    """Wraps FastAPI UploadFile to match the interface expected by service functions."""
+    """Wraps FastAPI UploadFile to match the interface expected by service functions.
+
+    The service reads the underlying stream via ``.file`` (Werkzeug-style) for its
+    size check, so expose it directly rather than keeping a private ``._file``.
+    """
 
     def __init__(self, upload_file: UploadFile):
-        self._file = upload_file
+        self.file = upload_file.file
         self.filename = upload_file.filename
 
     def save(self, path: str) -> None:
-        content = self._file.file.read()
+        self.file.seek(0)
+        content = self.file.read()
         with open(path, "wb") as f:
             f.write(content)
 
@@ -40,6 +44,7 @@ def upload_file(
 ):
     """Upload a CSV file and persist its metadata."""
     logger.debug("Upload request: filename=%s, project_id=%s", data.filename, project_id)
+
     if not data.filename:
         return JSONResponse(
             status_code=400,
@@ -56,6 +61,30 @@ def upload_file(
                 "data": None,
             },
         )
+
+    max_size = get_settings().max_content_length
+
+    # Enforce the size limit without loading the entire file into memory.
+    total_read = 0
+    chunk_size = 1024 * 1024  # 1 MB
+
+    while True:
+        chunk = data.file.read(chunk_size)
+        if not chunk:
+            break
+        total_read += len(chunk)
+        if total_read > max_size:
+            return JSONResponse(
+                status_code=413,
+                content={
+                    "success": False,
+                    "message": f"File too large. Maximum allowed size is {max_size // (1024 * 1024)} MB.",
+                    "data": None,
+                },
+            )
+
+    # Rewind the file so downstream code can re-read it from the beginning.
+    data.file.seek(0)
 
     wrapper = _UploadFileWrapper(data)
     body, status_code = add_file_service(db, wrapper, project_id=project_id)

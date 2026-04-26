@@ -33,6 +33,10 @@
     "prettier": "prettier . --write",
     "test": "vitest run"
   },
+  "engines": {
+    "node": ">=22.12.0",
+    "npm": ">=11.7.0"
+  },
   "browserslist": {
     "production": [
       ">0.2%",

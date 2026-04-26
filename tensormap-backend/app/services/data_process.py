@@ -286,9 +286,10 @@ def _one_hot_encode(df: pd.DataFrame, col: str, _params: dict | None) -> pd.Data
 
 
 def _categorical_to_numerical(df: pd.DataFrame, col: str, _params: dict | None) -> pd.DataFrame:
-    codes = pd.Categorical(df[col]).codes.astype(float)
-    codes[codes == -1] = float("nan")
-    df[col] = codes
+    # Preserve integer dtype so downstream consumers see a proper int column.
+    # pd.Categorical.codes returns int with -1 for NaNs — keep that convention
+    # rather than promoting to float just to hold NaN.
+    df[col] = pd.Categorical(df[col]).codes
     return df
 
 

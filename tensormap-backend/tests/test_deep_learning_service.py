@@ -90,9 +90,11 @@ class TestDeleteModelService:
         mock_db.delete.assert_called_once_with(sample_model)
 
     def test_db_error_rolls_back(self, mock_db, sample_model):
-        """A database exception triggers a rollback and returns 500."""
+        """A database IntegrityError triggers a rollback and returns 500."""
+        from sqlalchemy.exc import IntegrityError
+
         mock_db.get.return_value = sample_model
-        mock_db.commit.side_effect = Exception("DB failure")
+        mock_db.commit.side_effect = IntegrityError("stmt", {}, Exception("DB failure"))
 
         body, status_code = delete_model_service(mock_db, model_id=1)
 

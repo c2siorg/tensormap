@@ -1,3 +1,5 @@
+from pathlib import Path
+
 """String constants for file paths, model keys, and Socket.IO events."""
 
 TEMPLATE_ROOT = "./templates"
@@ -24,3 +26,11 @@ IMG_SIZE = "image_size"
 BATCH_SIZE = "batch_size"
 COLOR_MODE = "color_mode"
 LABEL_MODE = "label_mode"
+
+
+_APP_DIR = Path(__file__).resolve().parent.parent
+TEMPLATE_ROOT = _APP_DIR.parent / "templates"
+LAYER_REGISTRY_LOCATION = TEMPLATE_ROOT / "layer_registry.json"
+
+# Used downstream by the model-generation service
+MODEL_GENERATION_LOCATION = TEMPLATE_ROOT / "json-model"

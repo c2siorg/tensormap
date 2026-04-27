@@ -234,36 +234,15 @@ def get_correlation_matrix(db: Session, file_id: uuid_pkg.UUID) -> tuple:
     )
 
 
-def get_file_data(db: Session, file_id: uuid_pkg.UUID, page: int = 1, page_size: int = 50) -> tuple:
-    """Read and return the paginated contents of a CSV file as JSON."""
+def get_file_data(db: Session, file_id: uuid_pkg.UUID) -> tuple:
+    """Read and return the full contents of a CSV file as JSON."""
     file = db.exec(select(DataFile).where(DataFile.id == file_id)).first()
     if not file:
-        return _resp(400, False, "Unable to open file")
+        return _resp(400, False, "File doesn't exist in DB")
 
     file_path = _get_file_path(file)
-
     try:
-        with open(file_path, "rb") as f:
-            total_rows = sum(1 for _ in f) - 1
-        total_rows = max(total_rows, 0)
-    except FileNotFoundError:
-        return _resp(500, False, f"File not found: {file_path}")
-    except Exception as e:
-        return _resp(500, False, f"Error reading file count: {e}")
-
-    total_pages = (total_rows + page_size - 1) // page_size if page_size > 0 else 0
-
-    if total_rows > 0 and page > total_pages:
-        return _resp(400, False, f"Page {page} exceeds total pages ({total_pages})")
-
-    if total_rows == 0:
-        return _paginated_resp([], {"page": page, "page_size": page_size, "total_rows": 0, "total_pages": 0})
-
-    start_idx = (page - 1) * page_size
-    skip = list(range(1, start_idx + 1)) if start_idx > 0 else None
-
-    try:
-        df_page = pd.read_csv(file_path, skiprows=skip, nrows=page_size)
+        df = pd.read_csv(file_path)
     except FileNotFoundError:
         return _resp(500, False, f"File not found: {file_path}")
     except pd.errors.ParserError as e:
@@ -273,12 +252,31 @@ def get_file_data(db: Session, file_id: uuid_pkg.UUID, page: int = 1, page_size:
         logger.exception("Error reading file: %s", str(e))
         return _resp(500, False, f"Error reading CSV: {e}")
 
-    # For empty or any dataframe slice, to_dict will convert to list of plain dict elements avoiding json strings
-    data_list = df_page.to_dict(orient="records")
+    total_rows = len(df)
+    total_cols = len(df.columns)
 
-    return _paginated_resp(
-        data_list, {"page": page, "page_size": page_size, "total_rows": total_rows, "total_pages": total_pages}
-    )
+    def _safe_float(v) -> float | None:
+        """Return float(v) if v is a finite number, else None."""
+        return float(v) if pd.notna(v) else None
+
+    numeric_cols = df.select_dtypes(include="number").columns
+    columns = []
+    for col in df.columns:
+        is_numeric = col in numeric_cols
+        null_count = int(df[col].isnull().sum())
+        entry: dict = {
+            "column": col,
+            "dtype": str(df[col].dtype),
+            "count": int(df[col].count()),
+            "null_count": null_count,
+            "mean": _safe_float(df[col].mean()) if is_numeric else None,
+            "min": _safe_float(df[col].min()) if is_numeric else None,
+            "max": _safe_float(df[col].max()) if is_numeric else None,
+        }
+        columns.append(entry)
+
+    data = {"total_rows": total_rows, "total_cols": total_cols, "columns": columns}
+    return _resp(200, True, "Column statistics generated successfully", data)
 
 
 def _one_hot_encode(df: pd.DataFrame, col: str, _params: dict | None) -> pd.DataFrame:
@@ -347,6 +345,9 @@ _TRANSFORMATION_REGISTRY: dict[str, Callable[..., pd.DataFrame]] = {
     "Log Transform": _log_transform,
     "Fill Missing Values": _fill_missing,
 }
+
+
+_VALID_TRANSFORMATIONS = {"One Hot Encoding", "Categorical to Numerical", "Drop Column"}
 
 
 def preprocess_data(db: Session, file_id: uuid_pkg.UUID, transformations: list) -> tuple:

@@ -1,0 +1,50 @@
+{
+  "version": "1.0.0",
+  "layers": {
+    "input": {
+      "display_name": "Input",
+      "description": "The entry point for the neural network, defining the shape of the incoming data.",
+      "_note": "tf.keras.Input is a function, not a layers.* class.",
+      "category": "core",
+      "keras_mapping": "tf.keras.Input",
+      "params": {
+        "input_shape": {
+          "type": "array",
+          "default": [28, 28, 1],
+          "required": true,
+          "description": "Array of dimensions, e.g. [28, 28, 1]"
+        }
+      }
+    },
+    "dense": {
+      "display_name": "Dense",
+      "description": "A fully connected layer that maps inputs to outputs using learnable weights and bias.",
+      "category": "core",
+      "keras_mapping": "tf.keras.layers.Dense",
+      "params": {
+        "units": { "type": "number", "default": 32, "min": 1, "required": true },
+        "activation": { "type": "select", "options": ["relu", "sigmoid", "softmax", "linear"], "default": "relu", "required": false }
+      }
+    },
+    "flatten": {
+      "display_name": "Flatten",
+      "description": "Flattens multi-dimensional input into a 1D vector while preserving batch size.",
+      "category": "core",
+      "keras_mapping": "tf.keras.layers.Flatten",
+      "params": {}
+    },
+    "conv2d": {
+      "display_name": "Conv2D",
+      "description": "2D convolution layer (e.g. spatial convolution over images).",
+      "category": "convolutional",
+      "keras_mapping": "tf.keras.layers.Conv2D",
+      "params": {
+        "filters": { "type": "number", "default": 32, "min": 1, "required": true, "description": "The dimensionality of the output space." },
+        "kernel_size": { "type": "array", "default": [3, 3], "required": true, "description": "Height and width of the 2D convolution window." },
+        "strides": { "type": "array", "default": [1, 1], "required": false, "description": "The strides of the convolution along the height and width." },
+        "padding": { "type": "select", "options": ["valid", "same"], "default": "valid", "required": false, "description": "Padding method: 'valid' or 'same'." },
+        "activation": { "type": "select", "options": ["relu", "sigmoid", "softmax", "linear"], "default": "relu", "required": false, "description": "Activation function to use." }
+      }
+    }
+  }
+}

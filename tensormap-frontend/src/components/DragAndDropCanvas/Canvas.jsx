@@ -245,7 +245,7 @@ function Canvas() {
     return () => {
       cancelled = true;
     };
-  }, [projectId, setNodes, setEdges, setTrainingHistory, draftKey]);
+  }, [projectId, setNodes, setEdges, draftKey, setTrainingHistory]);
 
   // Handle debounced saving of draft
   useEffect(() => {
@@ -284,6 +284,32 @@ function Canvas() {
     setEdges([]);
     setModelName("");
   }, [draftKey, setNodes, setEdges]);
+
+  // Handle debounced saving of draft
+  useEffect(() => {
+    if (!isLoaded.current) return;
+
+    const timer = setTimeout(() => {
+      if (nodes.length === 0 && edges.length === 0 && !modelName) {
+        try {
+          localStorage.removeItem(draftKey);
+        } catch (e) {
+          logger.error("Failed to remove draft:", e);
+        }
+        setHasDraft(false);
+        return;
+      }
+
+      try {
+        localStorage.setItem(draftKey, JSON.stringify({ nodes, edges, modelName }));
+        setHasDraft(true);
+      } catch (e) {
+        logger.error("Failed to save draft:", e);
+      }
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [nodes, edges, modelName, draftKey]);
 
   const onConnect = useCallback(
     (params) => {

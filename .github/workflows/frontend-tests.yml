@@ -1,0 +1,29 @@
+name: Frontend Tests
+
+on:
+  pull_request_target:
+    branches: [main]
+
+jobs:
+  frontend-unit-tests:
+    name: Frontend Unit Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tensormap-frontend
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event.pull_request.head.sha || '' }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: tensormap-frontend/package-lock.json
+
+      - run: npm ci
+
+      - name: Run frontend unit tests
+        run: npm run test:ci

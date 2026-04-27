@@ -1,5 +1,6 @@
 import PropTypes from "prop-types";
 import { Handle, Position } from "reactflow";
+import NodeDeleteButton from "../shared/NodeDeleteButton";
 
 function ConvNode({ data, id }) {
   const p = data.params;
@@ -16,8 +17,9 @@ function ConvNode({ data, id }) {
   return (
     <div className="w-48 rounded-lg border bg-white shadow-sm">
       <Handle type="target" position={Position.Left} isConnectable id={`${id}_in`} />
-      <div className="rounded-t-lg bg-node-conv px-3 py-1.5 text-xs font-bold text-white">
-        Conv2D
+      <div className="flex items-center justify-between rounded-t-lg bg-node-conv px-3 py-1.5 text-xs font-bold text-white">
+        <span>Conv2D</span>
+        <NodeDeleteButton id={id} testId="conv-node-delete-button" />
       </div>
       <div className="px-3 py-2 text-xs text-muted-foreground">{parts || "Not configured"}</div>
       <Handle type="source" position={Position.Right} isConnectable id={`${id}_out`} />

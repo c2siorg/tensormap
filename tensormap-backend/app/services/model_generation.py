@@ -114,6 +114,33 @@ def _build_layer(node: dict, input_tensor):
             name=name,
         )(input_tensor)
 
+    elif node_type == "customlstm":
+        # LSTM requires 3D input: (batch_size, timesteps, features)
+        if len(input_tensor.shape) != 3:
+            raise ValueError(
+                f"LSTM requires 3D input (batch, timesteps, features), "
+                f"got shape {input_tensor.shape}. Insert a Reshape layer before LSTM."
+            )
+
+        # return_sequences is stored as a string ("true"/"false") from frontend Select.
+        # Activation params are also strings; convert "none" to "linear" for TensorFlow.
+        try:
+            units = int(params.get("units", 0) or 0)
+            if units <= 0:
+                raise ValueError("LSTM units must be a positive integer")
+        except (ValueError, TypeError) as exc:
+            raise ValueError(f"Invalid LSTM units parameter: {exc}") from exc
+
+        activation = params.get("activation", "tanh")
+        recurrent_activation = params.get("recurrentActivation", "sigmoid")
+        return tf.keras.layers.LSTM(
+            units=units,
+            activation="linear" if activation == "none" else activation,
+            recurrent_activation="linear" if recurrent_activation == "none" else recurrent_activation,
+            return_sequences=params.get("returnSequences") in (True, "true", 1),
+            name=name,
+        )(input_tensor)
+
     elif node_type == "customdropout":
         rate = float(params.get("rate", 0.5))
         if not 0.0 <= rate < 1.0:

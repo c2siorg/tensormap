@@ -44,6 +44,7 @@ export default {
         "node-flatten": { DEFAULT: "rgb(247, 173, 20)", header: "rgb(170, 121, 24)" },
         "node-conv": { DEFAULT: "rgb(255, 128, 43)", header: "rgb(255, 128, 43)" },
         "node-dropout": { DEFAULT: "rgb(220, 80, 80)", header: "rgb(180, 50, 50)" },
+        "node-alphadropout": { DEFAULT: "rgb(220, 53, 153)", header: "rgb(190, 24, 93)" },
         "node-maxpool": { DEFAULT: "rgb(34, 182, 176)", header: "rgb(20, 140, 135)" },
       },
       borderRadius: {

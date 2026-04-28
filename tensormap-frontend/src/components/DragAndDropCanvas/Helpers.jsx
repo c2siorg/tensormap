@@ -40,8 +40,13 @@ export const canSaveModel = (modelName, modelData) => {
       if (node.data.params.rate === "" || isNaN(rate) || rate < 0 || rate >= 1) {
         return false;
       }
+    } else if (node.type === "customalphadropout") {
+      const rate = parseFloat(node.data.params.rate);
+      if (node.data.params.rate === "" || isNaN(rate) || rate <= 0 || rate >= 1) {
+        return false;
+      }
     }
-    // customflatten and customdropout have no required params to validate
+    // customflatten has no required params to validate; customdropout rate is validated above
   }
   return isGraphConnected(modelData);
 };

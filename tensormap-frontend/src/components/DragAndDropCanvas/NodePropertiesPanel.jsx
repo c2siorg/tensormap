@@ -282,6 +282,78 @@ function NodePropertiesPanel({
     );
   }
 
+  if (type === "customlstm") {
+    return (
+      <Card className="h-fit">
+        <CardHeader>
+          <CardTitle className="text-sm">LSTM Layer</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="space-y-1">
+            <Label>Units</Label>
+            <Input
+              type="number"
+              min="1"
+              max="10000"
+              placeholder="Number of units"
+              value={params.units}
+              onChange={(e) => updateParam("units", e.target.value)}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label>Activation</Label>
+            <Select
+              value={params.activation || "tanh"}
+              onValueChange={(v) => updateParam("activation", v)}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Activation" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="tanh">Tanh</SelectItem>
+                <SelectItem value="relu">ReLU</SelectItem>
+                <SelectItem value="sigmoid">Sigmoid</SelectItem>
+                <SelectItem value="none">Linear</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <Label>Recurrent Activation</Label>
+            <Select
+              value={params.recurrentActivation || "sigmoid"}
+              onValueChange={(v) => updateParam("recurrentActivation", v)}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Recurrent activation" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="sigmoid">Sigmoid</SelectItem>
+                <SelectItem value="tanh">Tanh</SelectItem>
+                <SelectItem value="relu">ReLU</SelectItem>
+                <SelectItem value="none">Linear</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <Label>Return Sequences</Label>
+            <Select
+              value={params.returnSequences}
+              onValueChange={(v) => updateParam("returnSequences", v)}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Return sequences" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="false">False</SelectItem>
+                <SelectItem value="true">True</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
   if (type === "customdropout") {
     return (
       <Card className="h-fit">

@@ -35,6 +35,11 @@ export const canSaveModel = (modelName, modelData) => {
       if (!p.pool_size || !p.stride) {
         return false;
       }
+    } else if (node.type === "customlstm") {
+      const units = Number(node.data.params.units);
+      if (!units || units <= 0 || units > 10000 || isNaN(units)) {
+        return false; // Reject values outside [1, 10000]
+      }
     } else if (node.type === "customdropout") {
       const rate = parseFloat(node.data.params.rate);
       if (node.data.params.rate === "" || isNaN(rate) || rate < 0 || rate >= 1) {

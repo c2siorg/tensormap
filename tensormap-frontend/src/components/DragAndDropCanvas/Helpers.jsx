@@ -41,7 +41,7 @@ export const canSaveModel = (modelName, modelData) => {
         return false;
       }
     }
-    // customflatten and customdropout have no required params to validate
+    // customflatten has no required params to validate
   }
   return isGraphConnected(modelData);
 };

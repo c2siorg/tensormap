@@ -46,6 +46,13 @@ function Sidebar() {
           Dropout
         </div>
         <div
+          className="cursor-grab rounded-md border border-l-4 border-l-node-alphadropout bg-white px-3 py-2 text-xs font-medium"
+          onDragStart={(e) => onDragStart(e, "customalphadropout")}
+          draggable
+        >
+          AlphaDropout
+        </div>
+        <div
           className="cursor-grab rounded-md border border-l-4 border-l-node-conv bg-white px-3 py-2 text-xs font-medium"
           onDragStart={(e) => onDragStart(e, "custommaxpool")}
           draggable

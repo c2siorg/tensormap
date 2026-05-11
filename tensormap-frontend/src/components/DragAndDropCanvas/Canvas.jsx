@@ -31,6 +31,7 @@ import DenseNode from "./CustomNodes/DenseNode/DenseNode";
 import FlattenNode from "./CustomNodes/FlattenNode/FlattenNode";
 import ConvNode from "./CustomNodes/ConvNode/ConvNode";
 import DropoutNode from "./CustomNodes/DropoutNode/DropoutNode";
+import AlphaDropoutNode from "./CustomNodes/AlphaDropoutNode/AlphaDropoutNode";
 import MaxPoolingNode from "./CustomNodes/MaxPoolingNode/MaxPoolingNode";
 import Sidebar from "./Sidebar";
 import NodePropertiesPanel from "./NodePropertiesPanel";
@@ -55,6 +56,7 @@ const nodeTypes = {
   customflatten: FlattenNode,
   customconv: ConvNode,
   customdropout: DropoutNode,
+  customalphadropout: AlphaDropoutNode,
   custommaxpool: MaxPoolingNode,
   customglobalavgpool: GlobalAvgPoolNode,
 };
@@ -602,6 +604,7 @@ function Canvas() {
           kernelY: "",
         },
         customdropout: { rate: "" },
+        customalphadropout: { rate: "" },
         custommaxpool: { pool_size: "", stride: "", padding: "valid" },
         customglobalavgpool: {},
       };

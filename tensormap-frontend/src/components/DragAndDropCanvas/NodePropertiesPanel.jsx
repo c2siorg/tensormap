@@ -282,6 +282,33 @@ function NodePropertiesPanel({
     );
   }
 
+  if (type === "customalphadropout") {
+    return (
+      <Card className="h-fit">
+        <CardHeader>
+          <CardTitle className="text-sm">AlphaDropout</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="space-y-1">
+            <Label>Rate (exclusive: 0 &lt; rate &lt; 1)</Label>
+            <Input
+              type="number"
+              min="0.001"
+              max="0.999"
+              step="0.01"
+              value={params.rate ?? ""}
+              onChange={(e) => doUpdate("rate", e.target.value)}
+              placeholder="0.5"
+            />
+            <p className="text-xs text-muted-foreground">
+              Keeps mean and variance of inputs. Best used with SELU activations.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
   if (type === "customdropout") {
     return (
       <Card className="h-fit">
@@ -290,14 +317,14 @@ function NodePropertiesPanel({
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="space-y-1">
-            <Label>Rate (0–1)</Label>
+            <Label>Rate (0 ≤ rate &lt; 1)</Label>
             <Input
               type="number"
               min="0"
-              max="1"
-              step="0.1"
-              value={params.rate}
-              onChange={(e) => updateParam("rate", e.target.value)}
+              max="0.999"
+              step="0.01"
+              value={params.rate ?? ""}
+              onChange={(e) => doUpdate("rate", e.target.value)}
             />
           </div>
         </CardContent>

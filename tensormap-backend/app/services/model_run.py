@@ -1,5 +1,6 @@
 import asyncio
 import os
+import time
 
 import pandas as pd
 import tensorflow as tf
@@ -92,18 +93,50 @@ class CustomProgressBar(tf.keras.callbacks.Callback):
         _model_result("Finish", 4)
 
 
-def _model_result(message: str, test: int) -> None:
-    """Emit a Socket.IO event with a training progress message."""
-    data = {"message": message, "test": test}
-    if _main_loop is not None and _main_loop.is_running():
+def _emit_with_retry(data: dict, max_attempts: int = 3) -> None:
+    """Try to emit a Socket.IO event, retrying with back-off on failure.
+
+    After all retries are exhausted an explicit error event is pushed to the
+    client so it can show a 'connection lost' state instead of waiting forever.
+    """
+
+    for attempt in range(1, max_attempts + 1):
         future = asyncio.run_coroutine_threadsafe(
             sio.emit(SOCKETIO_LISTENER, data, namespace=SOCKETIO_DL_NAMESPACE),
             _main_loop,
         )
         try:
             future.result(timeout=5)
-        except Exception:
-            logger.warning("Failed to emit Socket.IO event: %s", message)
+            return
+        except Exception as exc:
+            logger.warning(
+                "Socket.IO emit failed (attempt %d/%d): %s — %s",
+                attempt,
+                max_attempts,
+                data.get("message", ""),
+                exc,
+            )
+            if attempt < max_attempts:
+                time.sleep(0.5 * attempt)
+    try:
+        err_future = asyncio.run_coroutine_threadsafe(
+            sio.emit(
+                SOCKETIO_LISTENER,
+                {"message": "Progress updates unavailable — check server logs.", "test": -1},
+                namespace=SOCKETIO_DL_NAMESPACE,
+            ),
+            _main_loop,
+        )
+        err_future.result(timeout=5)
+    except Exception:
+        logger.error("Could not deliver Socket.IO error notification to client.")
+
+
+def _model_result(message: str, test: int) -> None:
+    """Emit a Socket.IO event with a training progress message."""
+    data = {"message": message, "test": test}
+    if _main_loop is not None and _main_loop.is_running():
+        _emit_with_retry(data)
     else:
         logger.warning("No running event loop for Socket.IO emit: %s", message)
 
@@ -112,9 +145,20 @@ def _helper_generate_file_location(db: Session, file_id) -> str:
     """Resolve the on-disk path for a dataset file by its DB ID."""
     upload_folder = get_settings().upload_folder
     file = db.exec(select(DataFile).where(DataFile.id == file_id)).first()
+    if file is None:
+        raise ValueError(f"DataFile with id={file_id} not found.")
+    file_name = file.file_name
+    if ".." in file_name or file_name.startswith("/") or file_name.startswith("\\"):
+        raise ValueError(f"Invalid file_name detected: {file_name!r}")
+    base_path = os.path.realpath(upload_folder)
     if file.file_type == "zip":
-        return upload_folder + "/" + file.file_name
-    return upload_folder + "/" + file.file_name + "." + file.file_type
+        candidate = os.path.join(base_path, file_name)
+    else:
+        candidate = os.path.join(base_path, f"{file_name}.{file.file_type}")
+    resolved = os.path.realpath(candidate)
+    if not resolved.startswith(base_path + os.sep):
+        raise ValueError(f"Resolved path escapes upload folder: {resolved!r}")
+    return resolved
 
 
 def _helper_generate_json_model_file_location(model_name: str) -> str:

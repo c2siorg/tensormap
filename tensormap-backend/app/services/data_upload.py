@@ -4,6 +4,7 @@ import uuid as uuid_pkg
 from typing import Any
 
 import pandas as pd
+from fastapi import UploadFile
 from sqlalchemy import func
 from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session, select
@@ -21,7 +22,7 @@ def _resp(status_code: int, success: bool, message: str, data: Any = None) -> tu
     return {"success": success, "message": message, "data": data}, status_code
 
 
-def add_file_service(db: Session, file_wrapper: Any, project_id: uuid_pkg.UUID | None = None) -> tuple:
+def add_file_service(db: Session, file_wrapper: UploadFile, project_id: uuid_pkg.UUID | None = None) -> tuple:
     """Save an uploaded file to disk and create a DataFile record."""
     settings = get_settings()
     upload_folder = settings.upload_folder
@@ -62,8 +63,21 @@ def add_file_service(db: Session, file_wrapper: Any, project_id: uuid_pkg.UUID |
             df_header = pd.read_csv(file_path, nrows=0)
             columns_list = list(df_header.columns)
             row_count = sum(chunk.shape[0] for chunk in pd.read_csv(file_path, chunksize=10_000))
-        except (pd.errors.ParserError, OSError, UnicodeDecodeError, MemoryError):
-            logger.warning("Could not extract columns/row_count from %s", file_path)
+        except UnicodeDecodeError as exc:
+            logger.error("CSV encoding error for %s: %s", file_path, exc)
+            return (
+                {"error": "Invalid CSV encoding. Please re-save the file as UTF-8 and try again."},
+                400,
+            )
+        except pd.errors.ParserError as exc:
+            logger.error("CSV parse error for %s: %s", file_path, exc)
+            return (
+                {"error": "The uploaded CSV file could not be parsed. Please verify it is a valid, well-formed CSV."},
+                400,
+            )
+        except (OSError, MemoryError) as exc:
+            logger.error("I/O or memory error reading CSV %s: %s", file_path, exc)
+            return ({"error": "Failed to read the uploaded file. Please try again."}, 500)
 
     record = DataFile(
         file_name=file_name_db,

@@ -26,3 +26,4 @@ export const BACKEND_UPDATE_TRAINING_CONFIG = "/model/training-config";
 export const BACKEND_DELETE_MODEL = "/model";
 export const BACKEND_PROJECT = "/project";
 export const BACKEND_GET_COLUMN_STATS = "/data/process/stats/";
+export const BACKEND_DOWNLOAD_WEIGHTS = "/model";

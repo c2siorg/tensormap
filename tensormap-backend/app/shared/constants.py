@@ -2,6 +2,7 @@
 
 TEMPLATE_ROOT = "./templates"
 MODEL_GENERATION_LOCATION = TEMPLATE_ROOT + "/json-model/"
+MODEL_WEIGHTS_LOCATION = TEMPLATE_ROOT + "/weights/"
 MODEL_GENERATION_TYPE = ".json"
 MODEL_NAME = "model_name"
 CODE_TEMPLATE_FOLDER = "code-templates/"

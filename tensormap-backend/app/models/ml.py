@@ -8,6 +8,7 @@ from sqlmodel import Field, Relationship, SQLModel
 
 if TYPE_CHECKING:
     from app.models.project import Project
+    from app.models.training_run import ModelTrainingRun
 
 
 class ModelBasic(SQLModel, table=True):
@@ -43,6 +44,10 @@ class ModelBasic(SQLModel, table=True):
 
     project: Optional["Project"] = Relationship(back_populates="models")
     file: Optional["DataFile"] = Relationship(back_populates="model_basic")
+    training_runs: list["ModelTrainingRun"] = Relationship(
+        back_populates="model",
+        sa_relationship_kwargs={"cascade": "all,delete"},
+    )
     configs: list["ModelConfigs"] = Relationship(
         back_populates="model",
         sa_relationship_kwargs={"cascade": "all,delete"},

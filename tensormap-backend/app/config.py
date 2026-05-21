@@ -17,7 +17,9 @@ class Settings(BaseSettings):
     max_content_length: int = 200 * 1024 * 1024
     api_base: str = "/api/v1"
     debug: bool = False
-    model_config = {"env_file": ".env"}
+
+    # Ignore unrelated environment variables injected by CI/container runtimes.
+    model_config = {"env_file": ".env", "extra": "ignore"}
 
     @field_validator("database_url")
     @classmethod

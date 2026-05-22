@@ -20,7 +20,8 @@ RUN chown -R appuser:appuser /app \
     # chmod ensures appuser can write Keras JSON during seed migration (f4a8c2e91b37)
     && chmod u+w /app/templates/json-model
 
-ENV PATH="/app/.venv/bin:$PATH"
+ENV PATH="/app/.venv/bin:$PATH" \
+    PYTHONUNBUFFERED=1
 
 EXPOSE 4300
 

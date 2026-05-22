@@ -9,7 +9,7 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U c2si -d c2si_db"]
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -22,8 +22,10 @@ services:
     env_file:
       - ./tensormap-backend/.env
     environment:
-      # Override DATABASE_URL to use Docker service name instead of localhost
-      DATABASE_URL: postgresql+psycopg2://c2si:c2si@db:5432/c2si_db
+      # Override DATABASE_URL to use Docker service name instead of localhost.
+      # Credentials are interpolated from the root .env so they stay in sync
+      # with the db service's POSTGRES_USER/POSTGRES_PASSWORD/POSTGRES_DB.
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
     depends_on:
       db:
         condition: service_healthy

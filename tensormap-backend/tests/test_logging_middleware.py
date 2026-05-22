@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
 
-from app.middleware import RequestLoggingMiddleware
+from app.middleware import RequestIDMiddleware, RequestLoggingMiddleware
 
 
 @pytest.fixture()
@@ -66,3 +66,50 @@ def test_existing_handlers_unaffected(client):
     response = client.get("/health")
     assert response.status_code == 200
     assert response.json() == {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# RequestIDMiddleware
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def id_client():
+    """Minimal app with RequestIDMiddleware only."""
+    test_app = FastAPI()
+    test_app.add_middleware(RequestIDMiddleware)
+
+    @test_app.get("/test")
+    def test_route():
+        return {"ok": True}
+
+    return TestClient(test_app)
+
+
+def test_request_id_added_to_response(id_client):
+    """Every response should receive an X-Request-ID header."""
+    response = id_client.get("/test")
+    assert "X-Request-ID" in response.headers
+
+
+def test_request_id_is_valid_uuid(id_client):
+    """The generated request ID should be a valid UUID string."""
+    response = id_client.get("/test")
+    request_id = response.headers["X-Request-ID"]
+    parts = request_id.split("-")
+    assert len(parts) == 5
+    assert all(len(p) in (8, 4, 4, 4, 12) for p in parts)
+
+
+def test_request_id_preserves_client_value(id_client):
+    """If the client sends X-Request-ID, the same value should be returned."""
+    client_id = "my-custom-trace-id"
+    response = id_client.get("/test", headers={"X-Request-ID": client_id})
+    assert response.headers["X-Request-ID"] == client_id
+
+
+def test_request_id_unique_per_request(id_client):
+    """Each request should get a different request ID when none is provided."""
+    r1 = id_client.get("/test")
+    r2 = id_client.get("/test")
+    assert r1.headers["X-Request-ID"] != r2.headers["X-Request-ID"]

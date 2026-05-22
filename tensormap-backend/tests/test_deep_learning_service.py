@@ -17,7 +17,11 @@ sys.modules.setdefault("tensorflow", _tf_stub)
 sys.modules.setdefault("flatten_json", MagicMock())
 
 from app.models.ml import ModelBasic  # noqa: E402
-from app.services.deep_learning import check_model_name_service, delete_model_service, get_model_count_service  # noqa: E402
+from app.services.deep_learning import (  # noqa: E402
+    check_model_name_service,
+    delete_model_service,
+    get_model_count_service,
+)
 
 # ---------------------------------------------------------------------------
 # Fixtures

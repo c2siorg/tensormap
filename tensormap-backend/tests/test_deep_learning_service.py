@@ -17,7 +17,7 @@ sys.modules.setdefault("tensorflow", _tf_stub)
 sys.modules.setdefault("flatten_json", MagicMock())
 
 from app.models.ml import ModelBasic  # noqa: E402
-from app.services.deep_learning import delete_model_service  # noqa: E402
+from app.services.deep_learning import check_model_name_service, delete_model_service, get_model_count_service  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -113,3 +113,61 @@ class TestDeleteModelService:
             delete_model_service(mock_db, model_id=42)
 
         mock_db.get.assert_called_once_with(ModelBasic, 42)
+
+
+# ---------------------------------------------------------------------------
+# check_model_name_service
+# ---------------------------------------------------------------------------
+
+
+class TestCheckModelNameService:
+    def test_returns_available_when_name_not_taken(self, mock_db):
+        """A model name that doesn't exist should be reported as available."""
+        mock_db.exec.return_value.first.return_value = None
+        body, status_code = check_model_name_service(mock_db, "new_model")
+        assert status_code == 200
+        assert body["success"] is True
+        assert body["data"]["available"] is True
+
+    def test_returns_unavailable_when_name_taken(self, mock_db):
+        """A model name that already exists should be reported as unavailable."""
+        mock_db.exec.return_value.first.return_value = MagicMock()
+        body, status_code = check_model_name_service(mock_db, "existing_model")
+        assert status_code == 200
+        assert body["success"] is False
+        assert body["data"]["available"] is False
+
+    def test_filters_by_project_id(self, mock_db):
+        """When project_id is provided, the query should include it."""
+        mock_db.exec.return_value.first.return_value = None
+        check_model_name_service(mock_db, "my_model", project_id="proj-1")
+        call_stmt = mock_db.exec.call_args[0][0]
+        assert "project_id" in str(call_stmt)
+
+
+# ---------------------------------------------------------------------------
+# get_model_count_service
+# ---------------------------------------------------------------------------
+
+
+class TestGetModelCountService:
+    def test_returns_zero_when_no_models(self, mock_db):
+        """Count should be 0 when no models exist."""
+        mock_db.exec.return_value.one.return_value = 0
+        body, status_code = get_model_count_service(mock_db)
+        assert status_code == 200
+        assert body["data"]["count"] == 0
+
+    def test_returns_correct_count(self, mock_db):
+        """Count should match the number of models in the database."""
+        mock_db.exec.return_value.one.return_value = 5
+        body, status_code = get_model_count_service(mock_db)
+        assert status_code == 200
+        assert body["data"]["count"] == 5
+
+    def test_filters_by_project_id(self, mock_db):
+        """When project_id is provided, the query should include it."""
+        mock_db.exec.return_value.one.return_value = 2
+        get_model_count_service(mock_db, project_id="proj-1")
+        call_stmt = mock_db.exec.call_args[0][0]
+        assert "project_id" in str(call_stmt)

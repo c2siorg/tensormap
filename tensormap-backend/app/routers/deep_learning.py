@@ -9,9 +9,11 @@ from sqlmodel import Session
 from app.database import get_db
 from app.schemas.deep_learning import ModelNameRequest, ModelSaveRequest, ModelValidateRequest, TrainingConfigRequest
 from app.services.deep_learning import (
+    check_model_name_service,
     delete_model_service,
     get_available_model_list,
     get_code_service,
+    get_model_count_service,
     get_model_graph_service,
     get_training_history_service,
     model_save_service,
@@ -123,4 +125,25 @@ def get_training_history(
 ):
     """Return a paginated list of models with enriched metadata for training history view."""
     body, status_code = get_training_history_service(db, project_id=project_id, offset=offset, limit=limit)
+    return JSONResponse(status_code=status_code, content=body)
+
+
+@router.get("/model/check-name")
+def check_model_name(
+    model_name: str = Query(),
+    project_id: uuid_pkg.UUID | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Check if a model name is available."""
+    body, status_code = check_model_name_service(db, model_name=model_name, project_id=project_id)
+    return JSONResponse(status_code=status_code, content=body)
+
+
+@router.get("/model/count")
+def get_model_count(
+    project_id: uuid_pkg.UUID | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Get the total count of saved models."""
+    body, status_code = get_model_count_service(db, project_id=project_id)
     return JSONResponse(status_code=status_code, content=body)

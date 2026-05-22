@@ -42,6 +42,14 @@ def add_target_service(db: Session, file_id: uuid_pkg.UUID, target: str) -> tupl
         file = db.exec(select(DataFile).where(DataFile.id == file_id)).first()
         if not file:
             return _resp(400, False, "File doesn't exist in DB")
+        if file.file_type != "csv":
+            return _resp(400, False, "Only CSV files support target field assignment")
+        if file.columns is not None and target not in file.columns:
+            return _resp(
+                400,
+                False,
+                f"Target column '{target}' not found in dataset columns",
+            )
 
         data_process = DataProcess(file_id=file_id, target=target)
         db.add(data_process)

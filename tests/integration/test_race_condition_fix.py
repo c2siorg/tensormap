@@ -5,11 +5,7 @@ overwrite the same global _main_loop variable.
 """
 
 import asyncio
-import sys
 from unittest.mock import MagicMock, patch
-
-# Add backend to path
-sys.path.insert(0, r"path to backend")
 
 from app.services.model_run import _training_loop_ctx, _model_result
 
@@ -87,7 +83,7 @@ def test_model_result_with_context_var():
     token = _training_loop_ctx.set(mock_loop)
     
     try:
-        with patch("app.services.model_run.sio.emit") as mock_emit:
+        with patch("app.services.model_run.sio.emit", new_callable=MagicMock):
             with patch("asyncio.run_coroutine_threadsafe") as mock_threadsafe:
                 mock_future = MagicMock()
                 mock_future.result.return_value = None

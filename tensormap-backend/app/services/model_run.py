@@ -1,4 +1,5 @@
 import asyncio
+import contextvars
 import os
 
 import pandas as pd
@@ -50,7 +51,11 @@ def _validate_training_params(batch_size, epochs, training_split):
         raise ValueError("Invalid training parameters: " + "; ".join(errors))
 
 
-_main_loop: asyncio.AbstractEventLoop | None = None
+# Context variable holding the event loop for each concurrent training task,
+# so concurrent requests do not overwrite each other's loop reference (Issue #341).
+_training_loop_ctx: contextvars.ContextVar[asyncio.AbstractEventLoop | None] = contextvars.ContextVar(
+    "_training_loop_ctx", default=None
+)
 
 
 class CustomProgressBar(tf.keras.callbacks.Callback):
@@ -99,12 +104,17 @@ class CustomProgressBar(tf.keras.callbacks.Callback):
 
 
 def _model_result(message: str, test: int) -> None:
-    """Emit a Socket.IO event with a training progress message."""
+    """Emit a Socket.IO event with a training progress message.
+
+    Reads the per-task event loop from a ContextVar so concurrent training
+    requests stay isolated.
+    """
     data = {"message": message, "test": test}
-    if _main_loop is not None and _main_loop.is_running():
+    loop = _training_loop_ctx.get()
+    if loop is not None and loop.is_running():
         future = asyncio.run_coroutine_threadsafe(
             sio.emit(SOCKETIO_LISTENER, data, namespace=SOCKETIO_DL_NAMESPACE),
-            _main_loop,
+            loop,
         )
         try:
             future.result(timeout=5)
@@ -135,15 +145,20 @@ def _helper_generate_json_model_file_location(model_name: str) -> str:
 
 
 def model_run(model_name: str, db: Session, loop: asyncio.AbstractEventLoop | None = None) -> None:
-    """Load, compile, and train a Keras model, emitting progress via Socket.IO."""
-    global _main_loop
-    _main_loop = loop
+    """Load, compile, and train a Keras model, emitting progress via Socket.IO.
+
+    Stores the caller's event loop in a ContextVar so concurrent requests
+    each see their own loop instead of racing on a shared global (Issue #341).
+    """
+    token = _training_loop_ctx.set(loop)
     try:
         _run(model_name, db)
     except Exception as e:
         logger.exception("Training failed for model '%s': %s", model_name, str(e))
         _model_result(f"Training failed: {e}", -1)
         raise
+    finally:
+        _training_loop_ctx.reset(token)
 
 
 def _prepare_training_data(features, target_field, training_split):

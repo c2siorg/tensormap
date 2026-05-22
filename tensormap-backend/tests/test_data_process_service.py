@@ -110,6 +110,45 @@ class TestAddTargetService:
         assert body["success"] is False
         assert "doesn't exist" in body["message"]
 
+    def test_rejects_non_csv_file(self, mock_db, file_id):
+        zip_file = MagicMock(spec=DataFile)
+        zip_file.id = file_id
+        zip_file.file_type = "zip"
+        mock_db.exec.return_value.first.return_value = zip_file
+
+        body, status = add_target_service(mock_db, file_id, "species")
+
+        assert status == 400
+        assert body["success"] is False
+        assert "CSV" in body["message"]
+
+    def test_rejects_column_not_in_dataset(self, mock_db, file_id):
+        csv_file = MagicMock(spec=DataFile)
+        csv_file.id = file_id
+        csv_file.file_type = "csv"
+        csv_file.columns = ["sepal_length", "sepal_width", "species"]
+        mock_db.exec.return_value.first.return_value = csv_file
+
+        body, status = add_target_service(mock_db, file_id, "nonexistent_column")
+
+        assert status == 400
+        assert body["success"] is False
+        assert "not found" in body["message"]
+
+    def test_accepts_column_in_dataset(self, mock_db, file_id):
+        csv_file = MagicMock(spec=DataFile)
+        csv_file.id = file_id
+        csv_file.file_type = "csv"
+        csv_file.columns = ["sepal_length", "sepal_width", "species"]
+        mock_db.exec.return_value.first.return_value = csv_file
+
+        body, status = add_target_service(mock_db, file_id, "species")
+
+        assert status == 201
+        assert body["success"] is True
+        mock_db.add.assert_called_once()
+        mock_db.commit.assert_called_once()
+
 
 # ---------------------------------------------------------------------------
 # get_one_target_by_id_service

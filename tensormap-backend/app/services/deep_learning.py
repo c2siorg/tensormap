@@ -554,14 +554,21 @@ def get_available_model_list(
 
 
 def check_model_name_service(db: Session, model_name: str, project_id: uuid_pkg.UUID | None = None) -> tuple:
-    """Check if a model name is available."""
-    stmt = select(ModelBasic).where(ModelBasic.model_name == model_name)
-    if project_id is not None:
-        stmt = stmt.where(ModelBasic.project_id == project_id)
-    existing = db.exec(stmt).first()
+    """Check if a model name is available.
+
+    Mirrors the uniqueness check in model_save_service (global scope, no
+    project_id filter) and applies the same _sanitize_model_name validation
+    so the answer matches save-time behaviour.
+    """
+    try:
+        model_name = _sanitize_model_name(model_name)
+    except ValueError as e:
+        return _resp(400, False, str(e))
+
+    existing = db.exec(select(ModelBasic).where(ModelBasic.model_name == model_name)).first()
     if existing:
-        return {"success": False, "message": "Model name already in use", "data": {"available": False}}, 200
-    return {"success": True, "message": "Model name is available", "data": {"available": True}}, 200
+        return _resp(200, False, "Model name already in use", {"available": False})
+    return _resp(200, True, "Model name is available", {"available": True})
 
 
 def get_model_count_service(db: Session, project_id: uuid_pkg.UUID | None = None) -> tuple:
@@ -570,7 +577,7 @@ def get_model_count_service(db: Session, project_id: uuid_pkg.UUID | None = None
     if project_id is not None:
         stmt = stmt.where(ModelBasic.project_id == project_id)
     total = db.exec(stmt).one()
-    return {"success": True, "message": "Model count retrieved", "data": {"count": total}}, 200
+    return _resp(200, True, "Model count retrieved", {"count": total})
 
 
 def get_training_history_service(

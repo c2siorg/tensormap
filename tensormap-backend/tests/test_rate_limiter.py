@@ -3,13 +3,13 @@
 import time
 from unittest.mock import MagicMock, patch
 
-from fastapi.testclient import TestClient
 import pytest
+from fastapi.testclient import TestClient
 from starlette.applications import Starlette
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
-from app.rate_limiter import RateLimitExceeded, RateLimiter, RateLimitMiddleware
+from app.rate_limiter import RateLimiter, RateLimitExceeded, RateLimitMiddleware
 
 
 class TestRateLimiter:

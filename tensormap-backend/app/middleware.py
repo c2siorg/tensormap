@@ -1,8 +1,10 @@
 """HTTP request/response logging and tracing middleware."""
 
+import logging
 import re
 import time
 import uuid
+from contextvars import ContextVar
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -15,15 +17,38 @@ logger = get_logger(__name__)
 _UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.IGNORECASE)
 _INT_SEGMENT_RE = re.compile(r"(?<=/)\d+(?=/|$)")
 
+request_id_var: ContextVar[str] = ContextVar("request_id", default="")
+
+
+class RequestIDFilter(logging.Filter):
+    """Inject the current request ID into every log record as ``request_id``."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.request_id = request_id_var.get()
+        return True
+
+
+# Register the filter on the root logger so every module benefits.
+logging.getLogger().addFilter(RequestIDFilter())
+
 
 class RequestIDMiddleware(BaseHTTPMiddleware):
     """Attach a unique X-Request-ID header to every response for request tracing."""
 
     async def dispatch(self, request: Request, call_next) -> Response:
-        request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
-        response = await call_next(request)
-        response.headers["X-Request-ID"] = request_id
-        return response
+        raw_id = request.headers.get("X-Request-ID", "")
+        if raw_id and _UUID_RE.fullmatch(raw_id):
+            request_id = raw_id
+        else:
+            request_id = str(uuid.uuid4())
+
+        token = request_id_var.set(request_id)
+        try:
+            response = await call_next(request)
+            response.headers["X-Request-ID"] = request_id
+            return response
+        finally:
+            request_id_var.reset(token)
 
 
 def _sanitize_path(path: str) -> str:
@@ -47,10 +72,12 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
             route = request.scope.get("route")
             path = route.path if route is not None else _sanitize_path(request.url.path)
             status = response.status_code if response is not None else 500
+            req_id = request_id_var.get()
             logger.info(
-                "%s %s → %d (%.1fms)",
+                "%s %s → %d (%.1fms) [request_id=%s]",
                 request.method,
                 path,
                 status,
                 duration_ms,
+                req_id,
             )

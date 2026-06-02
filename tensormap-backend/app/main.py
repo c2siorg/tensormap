@@ -51,8 +51,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-app.add_middleware(RequestIDMiddleware)
 app.add_middleware(RequestLoggingMiddleware)
+app.add_middleware(RequestIDMiddleware)
 
 app.add_exception_handler(AppException, app_exception_handler)
 app.add_exception_handler(IntegrityError, integrity_error_handler)

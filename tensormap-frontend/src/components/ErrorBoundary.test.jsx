@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, it, expect, vi } from "vitest";
 import ErrorBoundary, { ErrorFallback, PageLoader } from "./ErrorBoundary";
@@ -94,16 +95,26 @@ describe("ErrorBoundary", () => {
     expect(screen.getByText("Boom!")).toBeDefined();
   });
 
-  it("recovers after retry resets state", () => {
-    const ErrorBoundaryInstance = new ErrorBoundary({ children: null });
+  it("recovers after retry resets state", async () => {
+    let shouldThrow = true;
+    function FlakyComponent() {
+      if (shouldThrow) throw new Error("Boom!");
+      return <div>Recovered</div>;
+    }
 
-    expect(ErrorBoundaryInstance.state.hasError).toBe(false);
+    render(
+      <MemoryRouter>
+        <ErrorBoundary>
+          <FlakyComponent />
+        </ErrorBoundary>
+      </MemoryRouter>,
+    );
 
-    ErrorBoundaryInstance.setState({ hasError: true, error: new Error("test") });
+    expect(screen.getByText(/something went wrong/i)).toBeDefined();
 
-    ErrorBoundaryInstance.handleRetry();
+    shouldThrow = false;
+    await userEvent.click(screen.getByText("Try again"));
 
-    expect(ErrorBoundaryInstance.state.hasError).toBe(false);
-    expect(ErrorBoundaryInstance.state.error).toBeNull();
+    expect(screen.getByText("Recovered")).toBeDefined();
   });
 });

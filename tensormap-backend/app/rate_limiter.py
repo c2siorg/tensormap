@@ -29,9 +29,8 @@ class RateLimiter:
 
     def _get_client_id(self, request: Request) -> str:
         forwarded = request.headers.get("X-Forwarded-For")
-        if forwarded and self.trusted_proxies:
-            if request.client and request.client.host in self.trusted_proxies:
-                return forwarded.split(",")[0].strip()
+        if forwarded and self.trusted_proxies and request.client and request.client.host in self.trusted_proxies:
+            return forwarded.split(",")[0].strip()
         client_host = request.client.host if request.client else "unknown"
         return client_host
 

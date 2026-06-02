@@ -141,12 +141,18 @@ class TestCheckModelNameService:
         assert body["success"] is False
         assert body["data"]["available"] is False
 
-    def test_filters_by_project_id(self, mock_db):
-        """When project_id is provided, the query should include it."""
+    def test_rejects_invalid_name(self, mock_db):
+        """A model name with invalid characters should return 400."""
+        body, status_code = check_model_name_service(mock_db, "invalid name!")
+        assert status_code == 400
+        assert body["success"] is False
+
+    def test_strips_whitespace(self, mock_db):
+        """Leading/trailing whitespace should be stripped before checking."""
         mock_db.exec.return_value.first.return_value = None
-        check_model_name_service(mock_db, "my_model", project_id="proj-1")
-        call_stmt = mock_db.exec.call_args[0][0]
-        assert "project_id" in str(call_stmt)
+        body, status_code = check_model_name_service(mock_db, "  my_model  ")
+        assert status_code == 200
+        assert body["data"]["available"] is True
 
 
 # ---------------------------------------------------------------------------

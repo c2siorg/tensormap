@@ -4,13 +4,12 @@ import time
 from unittest.mock import MagicMock, patch
 
 import pytest
-from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from starlette.applications import Starlette
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
-from app.rate_limiter import RateLimiter, RateLimitMiddleware
+from app.rate_limiter import RateLimitExceeded, RateLimiter, RateLimitMiddleware
 
 
 class TestRateLimiter:
@@ -34,9 +33,8 @@ class TestRateLimiter:
         for _ in range(3):
             limiter.check(mock_request)
 
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(RateLimitExceeded):
             limiter.check(mock_request)
-        assert exc.value.status_code == 429
 
     def test_allows_requests_after_window_expires(self):
         """After the window expires, requests should be allowed again."""
@@ -48,7 +46,7 @@ class TestRateLimiter:
         limiter.check(mock_request)
         limiter.check(mock_request)
 
-        with pytest.raises(HTTPException):
+        with pytest.raises(RateLimitExceeded):
             limiter.check(mock_request)
 
         future = time.time() + 120
@@ -56,14 +54,15 @@ class TestRateLimiter:
             limiter.check(mock_request)
 
     def test_uses_forwarded_for_header(self):
-        """If X-Forwarded-For is present, it should be used as the client ID."""
-        limiter = RateLimiter(requests_per_minute=1, window_seconds=60)
+        """If X-Forwarded-For is present from a trusted proxy, it should be used as the client ID."""
+        limiter = RateLimiter(requests_per_minute=1, window_seconds=60, trusted_proxies={"1.2.3.4"})
         mock_request = MagicMock()
         mock_request.headers = {"X-Forwarded-For": "5.6.7.8, 9.10.11.12"}
         mock_request.client.host = "1.2.3.4"
 
         limiter.check(mock_request)
-        with pytest.raises(HTTPException):
+        # Second request from the forwarded IP should be blocked (separate from proxy's own rate limit)
+        with pytest.raises(RateLimitExceeded):
             limiter.check(mock_request)
 
     def test_different_clients_have_separate_limits(self):
@@ -81,7 +80,7 @@ class TestRateLimiter:
         limiter.check(client_a)
         limiter.check(client_a)
 
-        with pytest.raises(HTTPException):
+        with pytest.raises(RateLimitExceeded):
             limiter.check(client_a)
 
         limiter.check(client_b)

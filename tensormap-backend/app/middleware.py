@@ -37,10 +37,7 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next) -> Response:
         raw_id = request.headers.get("X-Request-ID", "")
-        if raw_id and _UUID_RE.fullmatch(raw_id):
-            request_id = raw_id
-        else:
-            request_id = str(uuid.uuid4())
+        request_id = raw_id if raw_id and _UUID_RE.fullmatch(raw_id) else str(uuid.uuid4())
 
         token = request_id_var.set(request_id)
         try:

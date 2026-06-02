@@ -44,6 +44,7 @@ def sample_file(file_id):
     f.file_name = "iris"
     f.file_type = "csv"
     f.row_count = None
+    f.columns = None
     return f
 
 

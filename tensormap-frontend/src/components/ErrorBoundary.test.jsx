@@ -1,5 +1,4 @@
-import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { describe, it, expect, vi } from "vitest";
 import ErrorBoundary, { ErrorFallback, PageLoader } from "./ErrorBoundary";
@@ -113,7 +112,7 @@ describe("ErrorBoundary", () => {
     expect(screen.getByText(/something went wrong/i)).toBeDefined();
 
     shouldThrow = false;
-    await userEvent.click(screen.getByText("Try again"));
+    fireEvent.click(screen.getByText("Try again"));
 
     expect(screen.getByText("Recovered")).toBeDefined();
   });

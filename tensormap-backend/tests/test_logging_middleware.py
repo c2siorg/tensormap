@@ -1,5 +1,7 @@
 """Tests for RequestLoggingMiddleware — verifies every request is logged."""
 
+import uuid
+
 import pytest
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
@@ -86,6 +88,20 @@ def id_client():
     return TestClient(test_app)
 
 
+@pytest.fixture()
+def id_logging_client():
+    """Minimal app with both middlewares, ordered as in production."""
+    test_app = FastAPI()
+    test_app.add_middleware(RequestLoggingMiddleware)
+    test_app.add_middleware(RequestIDMiddleware)
+
+    @test_app.get("/test")
+    def test_route():
+        return {"ok": True}
+
+    return TestClient(test_app)
+
+
 def test_request_id_added_to_response(id_client):
     """Every response should receive an X-Request-ID header."""
     response = id_client.get("/test")
@@ -96,14 +112,13 @@ def test_request_id_is_valid_uuid(id_client):
     """The generated request ID should be a valid UUID string."""
     response = id_client.get("/test")
     request_id = response.headers["X-Request-ID"]
-    parts = request_id.split("-")
-    assert len(parts) == 5
-    assert all(len(p) in (8, 4, 4, 4, 12) for p in parts)
+    parsed = uuid.UUID(request_id)
+    assert str(parsed) == request_id
 
 
 def test_request_id_preserves_client_value(id_client):
-    """If the client sends X-Request-ID, the same value should be returned."""
-    client_id = "my-custom-trace-id"
+    """If the client sends a valid UUID X-Request-ID, the same value should be echoed."""
+    client_id = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
     response = id_client.get("/test", headers={"X-Request-ID": client_id})
     assert response.headers["X-Request-ID"] == client_id
 
@@ -113,3 +128,18 @@ def test_request_id_unique_per_request(id_client):
     r1 = id_client.get("/test")
     r2 = id_client.get("/test")
     assert r1.headers["X-Request-ID"] != r2.headers["X-Request-ID"]
+
+
+def test_invalid_client_id_is_overridden(id_client):
+    """A non-UUID client X-Request-ID should be replaced with a new UUID."""
+    response = id_client.get("/test", headers={"X-Request-ID": "not-a-uuid"})
+    raw = response.headers["X-Request-ID"]
+    parsed = uuid.UUID(raw)
+    assert str(parsed) == raw
+
+
+def test_request_id_in_logs(id_logging_client, caplog):
+    """Request ID should appear in the middleware log line."""
+    with caplog.at_level("INFO", logger="app.middleware"):
+        id_logging_client.get("/test")
+    assert "request_id=" in caplog.text

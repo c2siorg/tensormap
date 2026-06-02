@@ -37,7 +37,7 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || '' }}
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: "22.12"
           cache: npm
           cache-dependency-path: tensormap-frontend/package-lock.json
       - run: npm ci

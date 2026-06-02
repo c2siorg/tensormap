@@ -31,8 +31,7 @@
     "lint": "eslint . --ext js,jsx --report-unused-disable-directives --max-warnings 0",
     "lint:fix": "eslint . --ext js,jsx --fix",
     "prettier": "prettier . --write",
-    "test": "vitest run",
-    "test:ci": "vitest run --reporter=default"
+    "test": "vitest run"
   },
   "engines": {
     "node": ">=22.12.0",

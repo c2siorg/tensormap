@@ -17,7 +17,9 @@ dist/
 # Testing
 .pytest_cache/
 .coverage
+coverage.xml
 htmlcov/
+data/test_*.csv
 
 # Type checking / linting
 .mypy_cache/
@@ -37,3 +39,6 @@ templates/json-model/*.json
 __pycache__/
 *.pyc
 *.pyo
+
+# Temporary scripts
+fix_*.py

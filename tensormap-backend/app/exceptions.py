@@ -41,14 +41,41 @@ async def integrity_error_handler(request: Request, exc: IntegrityError) -> JSON
 
 
 async def validation_exception_handler(request: Request, exc: ValidationError) -> JSONResponse:
-    """Handle Pydantic ValidationError and return a 422 response with field-level details."""
-    logger.warning("Validation error on %s %s: %s", request.method, request.url.path, exc.errors())
+    """Handle Pydantic ValidationError and FastAPI RequestValidationError,
+    returning a 422 response with field-level details."""
+    # Both ValidationError and RequestValidationError have .errors() method
+    try:
+        errors = exc.errors()
+    except Exception:
+        # Fallback if errors() doesn't exist or fails
+        errors = [{"type": "value_error", "msg": str(exc)}]
+
+    logger.warning("Validation error on %s %s: %s", request.method, request.url.path, errors)
+
+    # Sanitize errors to ensure JSON serializability
+    sanitized_errors = []
+    for error in errors:
+        sanitized_error = {
+            "type": error.get("type"),
+            "loc": error.get("loc"),
+            "msg": error.get("msg"),
+            "input": error.get("input"),
+        }
+        # Convert ctx values to strings to avoid serialization issues
+        if "ctx" in error and error["ctx"] is not None:
+            try:
+                sanitized_error["ctx"] = {k: str(v) for k, v in error["ctx"].items()}
+            except (AttributeError, TypeError):
+                # If ctx isn't a dict or can't be iterated, convert it to string
+                sanitized_error["ctx"] = str(error["ctx"])
+        sanitized_errors.append(sanitized_error)
+
     return JSONResponse(
         status_code=422,
         content={
             "success": False,
             "message": "Validation failed.",
-            "data": exc.errors(),
+            "data": sanitized_errors,
         },
     )
 

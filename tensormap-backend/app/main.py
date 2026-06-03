@@ -3,6 +3,7 @@ Creates the FastAPI app, configures CORS and exception handlers, mounts
 routers, and wraps the ASGI app with Socket.IO for real-time training progress.
 """
 
+import os
 from contextlib import asynccontextmanager
 
 import socketio
@@ -34,10 +35,13 @@ async def lifespan(app: FastAPI):
     from alembic import command
     from alembic.config import Config
 
-    logger.info("Running Alembic migrations...")
-    alembic_cfg = Config("alembic.ini")
-    command.upgrade(alembic_cfg, "head")
-    logger.info("Alembic migrations complete")
+    if os.environ.get("TESTING"):
+        logger.info("TESTING mode — skipping Alembic migrations")
+    else:
+        logger.info("Running Alembic migrations...")
+        alembic_cfg = Config("alembic.ini")
+        command.upgrade(alembic_cfg, "head")
+        logger.info("Alembic migrations complete")
     yield
 
 

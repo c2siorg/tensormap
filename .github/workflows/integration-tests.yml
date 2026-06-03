@@ -24,6 +24,9 @@ jobs:
 
       - name: Run backend unit tests
         working-directory: tensormap-backend
+        env:
+          DATABASE_URL: sqlite:///./test.db
+          SECRET_KEY: ci-test-secret-key-for-testing
         run: uv run pytest tests/ -v --tb=short
 
   integration-test:
@@ -45,4 +48,7 @@ jobs:
 
       - name: Run integration tests
         working-directory: tensormap-backend
+        env:
+          DATABASE_URL: sqlite:///./test.db
+          SECRET_KEY: ci-test-secret-key-for-testing
         run: uv run pytest ../tests/integration/ -v

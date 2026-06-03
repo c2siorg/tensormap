@@ -1,47 +1,109 @@
-import atexit
+"""
+Pytest configuration and fixtures for TensorMap backend tests.
+
+This module provides test fixtures for database sessions, HTTP clients,
+and test environment configuration with support for both PostgreSQL (CI)
+and SQLite (local development) backends.
+"""
+
 import os
-import shutil
-import tempfile
 
-_upload_dir = tempfile.mkdtemp(prefix="tensormap_test_")
-atexit.register(shutil.rmtree, _upload_dir, True)
-os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
-os.environ.setdefault("SECRET_KEY", "test-secret-key")
-os.environ.setdefault("UPLOAD_FOLDER", _upload_dir)
+# Set TESTING flag *before* importing the app so the lifespan skips Alembic
+# migrations — test fixtures manage the schema via SQLModel.metadata.create_all.
+os.environ["TESTING"] = "1"
 
-from unittest.mock import patch  # noqa: E402
+# Set required environment variables for Settings validation if not already set
+if "DATABASE_URL" not in os.environ:
+    os.environ["DATABASE_URL"] = "sqlite:///./test.db"
+if "SECRET_KEY" not in os.environ:
+    os.environ["SECRET_KEY"] = "test-secret-key-for-testing-only"
 
-import pytest  # noqa: E402
-from fastapi.testclient import TestClient  # noqa: E402
-from sqlalchemy.pool import StaticPool  # noqa: E402
-from sqlmodel import Session, SQLModel, create_engine  # noqa: E402
+from collections.abc import Generator
 
-import app.database as db_module  # noqa: E402
-import app.models  # noqa: E402, F401
-from app.database import get_db  # noqa: E402
-from app.main import app  # noqa: E402
+import pytest
+from fastapi.testclient import TestClient
+from sqlmodel import Session, SQLModel, create_engine
+from sqlmodel.pool import StaticPool
 
-_TEST_ENGINE = create_engine(
-    "sqlite:///:memory:",
-    connect_args={"check_same_thread": False},
-    poolclass=StaticPool,
-)
-
-db_module.engine = _TEST_ENGINE
+from app.database import get_db
+from app.main import app
 
 
-@pytest.fixture(name="client", scope="function")
-def client_fixture():
-    SQLModel.metadata.drop_all(_TEST_ENGINE)
-    SQLModel.metadata.create_all(_TEST_ENGINE)
+@pytest.fixture(scope="session")
+def anyio_backend() -> str:
+    """Configure anyio to use asyncio backend for async tests."""
+    return "asyncio"
 
-    def override_get_db():
-        with Session(_TEST_ENGINE) as session:
-            yield session
+
+@pytest.fixture(scope="session")
+def test_db_url() -> str:
+    """
+    Get database URL for tests.
+
+    Returns PostgreSQL URL from DATABASE_URL env var if set (for CI),
+    otherwise falls back to in-memory SQLite for local development.
+    """
+    return os.getenv("DATABASE_URL", "sqlite:///./test.db")
+
+
+@pytest.fixture(scope="function")
+def db_session(test_db_url: str) -> Generator[Session, None, None]:
+    """
+    Provide a clean database session for each test.
+
+    Creates all tables before the test and drops them after,
+    ensuring test isolation.
+
+    Args:
+        test_db_url: Database connection URL from test_db_url fixture
+
+    Yields:
+        Session: SQLModel database session
+    """
+    # Create engine with appropriate settings for SQLite vs PostgreSQL
+    if test_db_url.startswith("sqlite"):
+        engine = create_engine(
+            test_db_url,
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+    else:
+        engine = create_engine(test_db_url, echo=False)
+
+    # Create all tables
+    SQLModel.metadata.create_all(engine)
+
+    # Provide session to test
+    with Session(engine) as session:
+        yield session
+
+    # Clean up: drop all tables after test
+    SQLModel.metadata.drop_all(engine)
+    engine.dispose()
+
+
+@pytest.fixture(scope="function")
+def client(db_session: Session) -> Generator[TestClient, None, None]:
+    """
+    Provide a test HTTP client for testing FastAPI endpoints.
+
+    Overrides the app's database session dependency with the test session
+    to ensure tests use the isolated test database.
+
+    Args:
+        db_session: Test database session from db_session fixture
+
+    Yields:
+        TestClient: FastAPI test client configured for the app
+    """
+
+    def override_get_db() -> Generator[Session, None, None]:
+        yield db_session
 
     app.dependency_overrides[get_db] = override_get_db
 
-    with patch("alembic.command.upgrade"), TestClient(app) as c:
-        yield c
+    with TestClient(app) as test_client:
+        yield test_client
 
-    app.dependency_overrides.pop(get_db, None)
+    # Clean up dependency override
+    app.dependency_overrides.clear()

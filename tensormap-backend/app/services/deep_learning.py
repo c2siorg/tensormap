@@ -269,6 +269,8 @@ def model_save_service(db: Session, incoming: dict, model_name: str, project_id:
     # If file write fails, DB is never touched. If DB fails, file is cleaned up.
     model_path = _validate_model_path(model_name)  # Issue #1
     try:
+        # Ensure the directory exists before writing
+        os.makedirs(os.path.dirname(model_path), exist_ok=True)
         with open(model_path, "w+") as f:
             f.write(json.dumps(model_generated) + "\n")
         logger.info("Model JSON written to %s", model_path)

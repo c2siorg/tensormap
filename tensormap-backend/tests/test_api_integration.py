@@ -121,7 +121,21 @@ def test_validate_model_missing_body(client: TestClient):
     assert resp.status_code == 422
 
 
-def test_validate_model_valid(client: TestClient):
+def test_validate_model_valid(client: TestClient, db_session):
+    # Create a data file first to satisfy the foreign key constraint
+    from app.models.data import DataFile
+
+    file_id = uuid.uuid4()
+    data_file = DataFile(
+        id=file_id,
+        file_name="test_data.csv",
+        disk_name="test_disk_12345.csv",
+        file_type="csv",
+        columns=["col1", "col2"],
+    )
+    db_session.add(data_file)
+    db_session.commit()
+
     payload = {
         "model": {
             "nodes": [{"id": "input-1", "type": "custominput", "data": {"params": {"dim-1": 4}}}],
@@ -130,7 +144,7 @@ def test_validate_model_valid(client: TestClient):
         },
         "code": {
             "dataset": {
-                "file_id": str(uuid.uuid4()),
+                "file_id": str(file_id),
                 "target_field": "col1",
                 "training_split": 80,
             },

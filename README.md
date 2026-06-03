@@ -1,6 +1,7 @@
 # TensorMap
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![CI Build Status](https://github.com/c2siorg/tensormap/actions/workflows/test.yml/badge.svg)](https://github.com/c2siorg/tensormap/actions/workflows/test.yml)
 
 A web application for visually creating machine learning algorithms via drag-and-drop, with reverse engineering to TensorFlow code.
 
@@ -58,14 +59,31 @@ npm start
 | Frontend | 3300 |
 | Backend  | 4300 |
 
-## Running Tests
+## Branch Protection Rules
 
+To enforce code quality, ensure that you set up GitHub Branch Protection rules for the `main` branch. 
+1. Go to **Settings > Branches**.
+2. Add branch protection rule for `main`.
+3. Check **"Require status checks to pass before merging"**.
+4. Search and select `backend-tests` and `frontend-tests`.
+
+## Development Setup
+
+### Running Backend Tests
+To run the backend tests locally with SQLite (fallback):
 ```bash
-# Backend
-cd tensormap-backend && uv run pytest
+cd tensormap-backend && pytest tests/ -v
+```
+To run tests with PostgreSQL:
+```bash
+export DATABASE_URL=postgresql://test:test@localhost:5432/tensormap_test
+cd tensormap-backend && pytest tests/ -v
+```
 
-# Frontend
-cd tensormap-frontend && npm test
+### Running Frontend Tests
+To run frontend tests locally:
+```bash
+cd tensormap-frontend && npx vitest
 ```
 
 ## Project Structure

@@ -57,7 +57,6 @@ const metricOptions = [
 const problemTypeOptions = [
   { key: "prob_type_1", label: "Multi class classification", value: "1" },
   { key: "prob_type_2", label: "Linear Regression", value: "2" },
-  { key: "prob_type_3", label: "Image Classification", value: "3" },
 ];
 
 export default function Training() {

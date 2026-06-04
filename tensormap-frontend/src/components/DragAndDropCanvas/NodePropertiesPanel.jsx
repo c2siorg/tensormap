@@ -296,8 +296,8 @@ function NodePropertiesPanel({
               min="0"
               max="1"
               step="0.1"
-              value={params.rate}
-              onChange={(e) => updateParam("rate", e.target.value)}
+              value={params.rate ?? ""}
+              onChange={handleChange("rate")}
             />
           </div>
         </CardContent>
@@ -317,8 +317,8 @@ function NodePropertiesPanel({
               type="number"
               min="1"
               placeholder="Pool size"
-              value={params.pool_size}
-              onChange={(e) => updateParam("pool_size", Number(e.target.value))}
+              value={params.pool_size ?? ""}
+              onChange={handleChange("pool_size")}
             />
           </div>
           <div className="space-y-1">
@@ -327,13 +327,13 @@ function NodePropertiesPanel({
               type="number"
               min="1"
               placeholder="Stride"
-              value={params.stride}
-              onChange={(e) => updateParam("stride", Number(e.target.value))}
+              value={params.stride ?? ""}
+              onChange={handleChange("stride")}
             />
           </div>
           <div className="space-y-1">
             <Label>Padding</Label>
-            <Select value={params.padding} onValueChange={(v) => updateParam("padding", v)}>
+            <Select value={params.padding ?? ""} onValueChange={(v) => doUpdate("padding", v)}>
               <SelectTrigger>
                 <SelectValue placeholder="Padding" />
               </SelectTrigger>

@@ -130,9 +130,7 @@ def _helper_generate_file_location(db: Session, file_id) -> str:
     file = db.exec(select(DataFile).where(DataFile.id == file_id)).first()
     if file is None:
         raise ModelRunError(f"Dataset file not found (id={file_id})")
-    if file.file_type == "zip":
-        return upload_folder + "/" + file.file_name
-    return upload_folder + "/" + file.file_name + "." + file.file_type
+    return upload_folder + "/" + file.disk_name
 
 
 def _helper_generate_json_model_file_location(model_name: str) -> str:

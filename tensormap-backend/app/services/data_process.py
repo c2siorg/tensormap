@@ -33,7 +33,7 @@ def _paginated_resp(data: list, pagination: dict) -> tuple:
 def _get_file_path(file: DataFile) -> str:
     """Resolve the on-disk path for a DataFile record."""
     settings = get_settings()
-    return f"{settings.upload_folder}/{file.file_name}.{file.file_type}"
+    return f"{settings.upload_folder}/{file.disk_name}"
 
 
 def add_target_service(db: Session, file_id: uuid_pkg.UUID, target: str) -> tuple:

@@ -135,7 +135,7 @@ function DataUpload() {
       <input
         ref={fileInputRef}
         type="file"
-        accept=".csv"
+        accept=".csv,.zip"
         className="hidden"
         onChange={onFileChange}
       />

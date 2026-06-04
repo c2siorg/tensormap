@@ -15,7 +15,7 @@ from app.shared.logging_config import get_logger
 
 logger = get_logger(__name__)
 router = APIRouter(tags=["data-upload"])
-ALLOWED_EXTENSIONS = {"csv"}
+ALLOWED_EXTENSIONS = {"csv", "zip"}
 
 
 class _UploadFileWrapper:

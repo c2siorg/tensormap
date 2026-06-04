@@ -59,6 +59,7 @@ class TestHelperGenerateFileLocation:
         mock_file = MagicMock()
         mock_file.file_type = "csv"
         mock_file.file_name = "test_data"
+        mock_file.disk_name = "test_data.csv"
         mock_db.exec.return_value.first.return_value = mock_file
 
         with patch("app.services.model_run.get_settings") as mock_settings:
@@ -68,17 +69,18 @@ class TestHelperGenerateFileLocation:
         assert result == "/uploads/test_data.csv"
 
     def test_returns_path_for_zip_files(self, mock_db):
-        """Zip files don't append extension."""
+        """Zip files use disk_name."""
         mock_file = MagicMock()
         mock_file.file_type = "zip"
         mock_file.file_name = "images"
+        mock_file.disk_name = "images.zip"
         mock_db.exec.return_value.first.return_value = mock_file
 
         with patch("app.services.model_run.get_settings") as mock_settings:
             mock_settings.return_value.upload_folder = "/uploads"
             result = _helper_generate_file_location(mock_db, file_id=1)
 
-        assert result == "/uploads/images"
+        assert result == "/uploads/images.zip"
 
 
 # ---------------------------------------------------------------------------
@@ -102,6 +104,7 @@ class TestCodeGenFileLocation:
         mock_file = MagicMock()
         mock_file.file_type = "csv"
         mock_file.file_name = "test_data"
+        mock_file.disk_name = "test_data.csv"
         mock_db.exec.return_value.first.return_value = mock_file
 
         with patch("app.services.code_generation.get_settings") as mock_settings:

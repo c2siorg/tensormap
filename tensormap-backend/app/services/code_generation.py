@@ -93,4 +93,6 @@ def _file_location(file_id, db: Session) -> str:
     file = db.exec(select(DataFile).where(DataFile.id == file_id)).first()
     if file is None:
         raise CodeGenerationError(f"Dataset file not found (id={file_id})")
+    if file.file_type == "zip":
+        return f"{settings.upload_folder}/{file.disk_name.rsplit('.', 1)[0]}"
     return f"{settings.upload_folder}/{file.disk_name}"

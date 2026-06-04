@@ -57,7 +57,7 @@ def upload_file(
             status_code=400,
             content={
                 "success": False,
-                "message": "Only CSV files are supported.",
+                "message": "Only CSV and ZIP files are supported.",
                 "data": None,
             },
         )

@@ -130,6 +130,8 @@ def _helper_generate_file_location(db: Session, file_id) -> str:
     file = db.exec(select(DataFile).where(DataFile.id == file_id)).first()
     if file is None:
         raise ModelRunError(f"Dataset file not found (id={file_id})")
+    if file.file_type == "zip":
+        return upload_folder + "/" + file.disk_name.rsplit(".", 1)[0]
     return upload_folder + "/" + file.disk_name
 
 

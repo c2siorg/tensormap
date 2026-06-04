@@ -351,6 +351,94 @@ function NodePropertiesPanel({
     );
   }
 
+  if (type === "customdepthwiseconv") {
+    return (
+      <Card className="h-fit">
+        <CardHeader>
+          <CardTitle className="text-sm">DepthwiseConv2D Layer</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="space-y-1">
+            <Label>Kernel X</Label>
+            <Input
+              type="number"
+              min="1"
+              placeholder="Kernel X"
+              value={params.kernelX ?? ""}
+              onChange={handleChange("kernelX")}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label>Kernel Y</Label>
+            <Input
+              type="number"
+              min="1"
+              placeholder="Kernel Y"
+              value={params.kernelY ?? ""}
+              onChange={handleChange("kernelY")}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label>Stride X</Label>
+            <Input
+              type="number"
+              min="1"
+              placeholder="Stride X"
+              value={params.strideX ?? ""}
+              onChange={handleChange("strideX")}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label>Stride Y</Label>
+            <Input
+              type="number"
+              min="1"
+              placeholder="Stride Y"
+              value={params.strideY ?? ""}
+              onChange={handleChange("strideY")}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label>Padding</Label>
+            <Select
+              value={params.padding ?? ""}
+              onValueChange={(v) => doUpdate("padding", v || null)}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Padding" />
+              </SelectTrigger>
+              <SelectContent>
+                {convPaddings.map((p) => (
+                  <SelectItem key={p.value} value={p.value}>
+                    {p.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <Label>Activation</Label>
+            <Select
+              value={params.activation ?? ""}
+              onValueChange={(v) => doUpdate("activation", v || null)}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Activation" />
+              </SelectTrigger>
+              <SelectContent>
+                {ACTIVATIONS.map((a) => (
+                  <SelectItem key={a.value} value={a.value}>
+                    {a.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
   return null;
 }
 

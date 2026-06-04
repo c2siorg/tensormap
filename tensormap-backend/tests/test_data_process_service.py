@@ -43,6 +43,7 @@ def sample_file(file_id):
     f.id = file_id
     f.file_name = "iris"
     f.file_type = "csv"
+    f.disk_name = "iris.csv"
     f.row_count = None
     f.columns = None
     return f
@@ -295,6 +296,7 @@ class TestGetDataMetrics:
         reg_file.id = file_id
         reg_file.file_name = "housing"
         reg_file.file_type = "csv"
+        reg_file.disk_name = "housing.csv"
 
         mock_settings.return_value.upload_folder = str(regression_csv)
         mock_db.exec.return_value.first.return_value = reg_file
@@ -331,6 +333,7 @@ class TestGetDataMetrics:
         empty_file = MagicMock(spec=DataFile)
         empty_file.file_name = "empty"
         empty_file.file_type = "csv"
+        empty_file.disk_name = "empty.csv"
 
         mock_settings.return_value.upload_folder = str(tmp_path)
         mock_db.exec.return_value.first.return_value = empty_file
@@ -391,6 +394,7 @@ class TestGetFileData:
         empty_file = MagicMock(spec=DataFile)
         empty_file.file_name = "empty"
         empty_file.file_type = "csv"
+        empty_file.disk_name = "empty.csv"
         empty_file.row_count = None
 
         mock_settings.return_value.upload_folder = str(tmp_path)

@@ -23,6 +23,7 @@ def _fake_file(tmp_path, csv_content, file_name="test"):
     f = MagicMock()
     f.file_name = file_name
     f.file_type = "csv"
+    f.disk_name = f"{file_name}.csv"
     return f
 
 

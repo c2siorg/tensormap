@@ -1,6 +1,8 @@
 import contextlib
 import os
+import shutil
 import uuid as uuid_pkg
+import zipfile
 from typing import Any
 
 import pandas as pd
@@ -10,7 +12,7 @@ from sqlmodel import Session, select
 from werkzeug.utils import secure_filename
 
 from app.config import get_settings
-from app.models import DataFile
+from app.models import DataFile, ImageProperties
 from app.shared.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -54,6 +56,61 @@ def add_file_service(db: Session, file_wrapper: Any, project_id: uuid_pkg.UUID |
     file_type_db = original_ext
     logger.info("Saving file: %s (disk name: %s)", file_name_db, safe_filename)
 
+    file_id = uuid_pkg.uuid4()
+
+    # Extract ZIP archives for image datasets
+    if file_type_db == "zip":
+        extract_dir_name = safe_filename.rsplit(".", 1)[0]
+        extract_path = os.path.join(upload_folder, extract_dir_name)
+        os.makedirs(extract_path, exist_ok=True)
+
+        max_extracted = 2 * 1024 * 1024 * 1024  # 2 GB decompression-bomb limit
+        total_extracted = 0
+
+        with zipfile.ZipFile(file_path, "r") as zf:
+            for member in zf.namelist():
+                member_path = os.path.realpath(os.path.join(extract_path, member))
+                if not member_path.startswith(os.path.realpath(extract_path) + os.sep):
+                    zf.close()
+                    os.remove(file_path)
+                    shutil.rmtree(extract_path, ignore_errors=True)
+                    return _resp(400, False, "Invalid ZIP: path traversal detected")
+
+                total_extracted += zf.getinfo(member).file_size
+                if total_extracted > max_extracted:
+                    zf.close()
+                    os.remove(file_path)
+                    shutil.rmtree(extract_path, ignore_errors=True)
+                    return _resp(413, False, "ZIP too large after extraction. Maximum extracted size is 2 GB.")
+
+            zf.extractall(extract_path)
+
+        logger.info("Extracted ZIP to %s", extract_path)
+
+        record = DataFile(
+            id=file_id,
+            file_name=file_name_db,
+            file_type=file_type_db,
+            disk_name=safe_filename,
+            project_id=project_id,
+            columns=None,
+            row_count=None,
+        )
+        db.add(record)
+        db.flush()
+
+        db.add(
+            ImageProperties(
+                id=file_id,
+                image_size=224,
+                batch_size=32,
+                color_mode="rgb",
+                label_mode="int",
+            )
+        )
+        db.commit()
+        return _resp(201, True, "File saved successfully")
+
     # Cache column names and row count at upload time (CSV only)
     columns_list: list[str] | None = None
     row_count: int | None = None
@@ -66,6 +123,7 @@ def add_file_service(db: Session, file_wrapper: Any, project_id: uuid_pkg.UUID |
             logger.warning("Could not extract columns/row_count from %s", file_path)
 
     record = DataFile(
+        id=file_id,
         file_name=file_name_db,
         file_type=file_type_db,
         disk_name=safe_filename,
@@ -155,6 +213,13 @@ def delete_one_file_by_id_service(db: Session, file_id: uuid_pkg.UUID) -> tuple:
             os.remove(file_path)
         except FileNotFoundError:
             logger.warning("File already absent on disk: %s", file_path)
+
+        # Remove extracted ZIP directory if it exists
+        if file.file_type == "zip":
+            extract_dir_name = file.disk_name.rsplit(".", 1)[0]
+            extract_path = os.path.join(upload_folder, extract_dir_name)
+            shutil.rmtree(extract_path, ignore_errors=True)
+
         db.delete(file)
         db.commit()
         return _resp(200, True, "File deleted successfully")

@@ -41,6 +41,7 @@ import { trainingHistory as trainingHistoryAtom } from "../../shared/atoms";
 import ContextMenu from "./ContextMenu";
 import useUndoRedo from "../../hooks/useUndoRedo";
 import GlobalAvgPoolNode from "./CustomNodes/GlobalAvgPoolNode/GlobalAvgPoolNode";
+import DepthwiseConvNode from "./CustomNodes/DepthwiseConvNode/DepthwiseConvNode";
 
 const isMac =
   typeof navigator !== "undefined"
@@ -57,6 +58,7 @@ const nodeTypes = {
   customdropout: DropoutNode,
   custommaxpool: MaxPoolingNode,
   customglobalavgpool: GlobalAvgPoolNode,
+  customdepthwiseconv: DepthwiseConvNode,
 };
 
 // Keys MUST match nodeTypes above. Add a description when adding a node type.
@@ -68,6 +70,7 @@ const nodeDescriptions = {
   customdropout: "Randomly drops a fraction of inputs during training to reduce overfitting.",
   custommaxpool: "Downsamples by taking the maximum value in each pooling window.",
   customglobalavgpool: "Averages each feature map down to a single value.",
+  customdepthwiseconv: "Applies a depthwise convolution filter.",
 };
 
 const getTooltipStyle = (x, y) => {
@@ -604,6 +607,14 @@ function Canvas() {
         customdropout: { rate: "" },
         custommaxpool: { pool_size: "", stride: "", padding: "valid" },
         customglobalavgpool: {},
+        customdepthwiseconv: {
+          kernelX: "",
+          kernelY: "",
+          strideX: "",
+          strideY: "",
+          padding: "same",
+          activation: "none",
+        },
       };
 
       const newNode = {

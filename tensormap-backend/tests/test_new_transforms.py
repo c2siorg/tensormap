@@ -25,6 +25,8 @@ def _run(df: pd.DataFrame, transformation: str, feature: str, params: dict = Non
         patch("app.services.data_process.select"),
         patch("app.services.data_process.pd.read_csv", return_value=df.copy()),
         patch("app.services.data_process.get_settings") as mock_settings,
+        patch("app.services.data_process.shutil.copy2"),
+        patch("app.services.data_process.os.replace"),
         patch("pandas.DataFrame.to_csv"),
     ):
         mock_settings.return_value.upload_folder = "/tmp"
@@ -45,6 +47,8 @@ def _run_df(df: pd.DataFrame, transformation: str, feature: str, params: dict = 
         patch("app.services.data_process.select"),
         patch("app.services.data_process.pd.read_csv", return_value=df.copy()),
         patch("app.services.data_process.get_settings") as mock_settings,
+        patch("app.services.data_process.shutil.copy2"),
+        patch("app.services.data_process.os.replace"),
         patch.object(pd.DataFrame, "to_csv", capture),
     ):
         mock_settings.return_value.upload_folder = "/tmp"

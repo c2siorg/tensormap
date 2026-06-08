@@ -1,3 +1,6 @@
+import contextlib
+import os
+import shutil
 import uuid as uuid_pkg
 from datetime import UTC, datetime
 from typing import Any
@@ -6,10 +9,12 @@ from sqlalchemy import func
 from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session, select
 
+from app.config import get_settings
 from app.models.data import DataFile
 from app.models.ml import ModelBasic
 from app.models.project import Project
 from app.schemas.project import ProjectCreateRequest, ProjectUpdateRequest
+from app.shared.constants import MODEL_GENERATION_LOCATION, MODEL_GENERATION_TYPE
 from app.shared.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -147,14 +152,48 @@ def update_project_service(db: Session, project_id: uuid_pkg.UUID, data: Project
 
 
 def delete_project_service(db: Session, project_id: uuid_pkg.UUID) -> tuple:
-    """Delete a project and cascade-remove associated files and models."""
+    """Delete a project, cascade-remove associated DB records, and clean up disk files."""
     try:
         project = db.get(Project, project_id)
         if not project:
             return _resp(404, False, "Project not found")
 
+        settings = get_settings()
+        upload_folder = os.path.realpath(settings.upload_folder)
+        model_json_dir = os.path.realpath(MODEL_GENERATION_LOCATION)
+
+        # Collect disk paths *before* the DB cascade so we still have the records.
+        data_files = db.exec(select(DataFile).where(DataFile.project_id == project_id)).all()
+        models = db.exec(select(ModelBasic).where(ModelBasic.project_id == project_id)).all()
+
         db.delete(project)
         db.commit()
+
+        # Remove uploaded files from disk.
+        for file in data_files:
+            file_path = os.path.realpath(os.path.join(upload_folder, file.disk_name))
+            if not file_path.startswith(upload_folder + os.sep):
+                logger.warning("Path traversal blocked for disk_name=%s", file.disk_name)
+                continue
+            with contextlib.suppress(FileNotFoundError):
+                os.remove(file_path)
+
+            if file.file_type == "zip":
+                # The extraction directory is derived from the ZIP's disk_name by
+                # stripping the extension (e.g. data_abc123.zip -> data_abc123/).
+                # This mirrors the convention in add_file_service in data_upload.py.
+                extract_dir_name = file.disk_name.rsplit(".", 1)[0]
+                extract_path = os.path.realpath(os.path.join(upload_folder, extract_dir_name))
+                if extract_path.startswith(upload_folder + os.sep):
+                    shutil.rmtree(extract_path, ignore_errors=True)
+
+        # Remove generated model JSON files from disk.
+        for model in models:
+            if model.model_name:
+                json_path = os.path.realpath(os.path.join(model_json_dir, model.model_name + MODEL_GENERATION_TYPE))
+                if json_path.startswith(model_json_dir + os.sep):
+                    with contextlib.suppress(FileNotFoundError):
+                        os.remove(json_path)
     except SQLAlchemyError:
         db.rollback()
         logger.exception("Error deleting project")

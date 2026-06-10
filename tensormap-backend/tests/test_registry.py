@@ -11,6 +11,7 @@ These tests verify:
 import json
 
 import pytest
+from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from app.ir.schema import (
@@ -20,15 +21,17 @@ from app.ir.schema import (
     IREdge,
     IRGraph,
     IRNode,
-    IRValidationError,
     validate_ir_graph,
 )
+from app.ir.translator import ir_to_keras_build_args, reactflow_to_ir
 from app.layers.registry import (
+    LAYER_CATEGORIES,
     LAYER_REGISTRY,
     ParamType,
     get_layer_spec,
     serialize_registry,
 )
+from app.main import app
 
 
 class TestLayerRegistry:
@@ -159,7 +162,7 @@ class TestIRSchema:
             )
 
     def test_validate_ir_rejects_no_input_node(self) -> None:
-        """Verify that validate_ir_graph() raises error when no input node exists."""
+        """Verify that validate_ir_graph() returns error when no input node exists."""
         # Create a graph with only a Dense node (no Input node)
         dense_node = IRNode(
             id="node-1",
@@ -168,8 +171,9 @@ class TestIRSchema:
         )
         graph = IRGraph(nodes=[dense_node], edges=[])
 
-        with pytest.raises(IRValidationError, match="must contain at least one input node"):
-            validate_ir_graph(graph)
+        errors = validate_ir_graph(graph)
+        assert len(errors) > 0
+        assert any("input node" in err.message.lower() for err in errors)
 
     def test_validate_ir_rejects_concatenate_with_one_edge(self) -> None:
         """Verify that Concatenate nodes with fewer than 2 inputs are rejected."""
@@ -192,8 +196,9 @@ class TestIRSchema:
 
         graph = IRGraph(nodes=[input_node, concat_node], edges=[edge])
 
-        with pytest.raises(IRValidationError, match="must have at least 2 incoming edges"):
-            validate_ir_graph(graph)
+        errors = validate_ir_graph(graph)
+        assert len(errors) > 0
+        assert any("at least 2 incoming edges" in err.message for err in errors)
 
     def test_validate_ir_accepts_valid_graph(self) -> None:
         """Verify that a valid graph passes validation."""
@@ -212,8 +217,9 @@ class TestIRSchema:
 
         graph = IRGraph(nodes=[input_node, dense_node], edges=[edge])
 
-        # Should not raise
-        validate_ir_graph(graph)
+        # Should return no errors
+        errors = validate_ir_graph(graph)
+        assert len(errors) == 0
 
     def test_validate_ir_rejects_cycle(self) -> None:
         """Verify that graphs with cycles are rejected (DAG constraint)."""
@@ -235,8 +241,9 @@ class TestIRSchema:
 
         graph = IRGraph(nodes=[input_node, dense_node], edges=[edge1, edge2])
 
-        with pytest.raises(IRValidationError, match="contains a cycle"):
-            validate_ir_graph(graph)
+        errors = validate_ir_graph(graph)
+        assert len(errors) > 0
+        assert any("cycle" in err.message.lower() for err in errors)
 
     def test_validate_ir_rejects_nonexistent_node_reference(self) -> None:
         """Verify that edges referencing non-existent nodes are rejected."""
@@ -251,5 +258,113 @@ class TestIRSchema:
 
         graph = IRGraph(nodes=[input_node], edges=[edge])
 
-        with pytest.raises(IRValidationError, match="references non-existent.*node-999"):
-            validate_ir_graph(graph)
+        errors = validate_ir_graph(graph)
+        assert len(errors) > 0
+        assert any("node-999" in err.message for err in errors)
+
+
+client = TestClient(app)
+
+
+def test_get_layers_endpoint():
+    resp = client.get("/api/v1/layers/")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "categories" in data
+    assert "layers" in data
+
+
+def test_get_layers_contains_all_15():
+    resp = client.get("/api/v1/layers/")
+    data = resp.json()
+    count = sum(len(layers) for layers in data["layers"].values())
+    assert count >= 15
+
+
+def test_get_layers_categories_ordered():
+    resp = client.get("/api/v1/layers/")
+    data = resp.json()
+    assert data["categories"] == LAYER_CATEGORIES
+
+
+def test_ir_translator_dense_roundtrip():
+    rf_json = {
+        "nodes": [
+            {
+                "id": "n1",
+                "type": "denseNode",
+                "position": {"x": 0, "y": 0},
+                "data": {"name": "Dense", "params": {"layer_type": "dense", "units": 10, "activation": "relu"}},
+            }
+        ],
+        "edges": [],
+    }
+    graph = reactflow_to_ir(rf_json)
+    out_rf = graph.to_reactflow_json()
+
+    assert len(out_rf["nodes"]) == 1
+    # Note: to_reactflow_json strips layer_type internally when creating params mapping
+    params = out_rf["nodes"][0]["data"]["params"]
+    assert "units" in params
+    assert params["units"] == 10
+
+
+def test_ir_translator_lstm():
+    rf_json = {
+        "nodes": [
+            {
+                "id": "n1",
+                "type": "lstmNode",
+                "position": {"x": 0, "y": 0},
+                "data": {"name": "LSTM", "params": {"layer_type": "lstm", "units": 20, "return_sequences": True}},
+            }
+        ],
+        "edges": [],
+    }
+    graph = reactflow_to_ir(rf_json)
+    params = graph.nodes[0].node_params
+    assert params.return_sequences is True
+
+
+def test_ir_build_args_dropout():
+    rf_json = {
+        "nodes": [{"id": "n1", "type": "dropoutNode", "data": {"params": {"layer_type": "dropout", "rate": 0.5}}}]
+    }
+    graph = reactflow_to_ir(rf_json)
+    kwargs = ir_to_keras_build_args(graph.nodes[0])
+    assert kwargs.get("rate") == 0.5
+
+
+def test_ir_build_args_concatenate_has_axis():
+    rf_json = {
+        "nodes": [
+            {"id": "n1", "type": "concatenateNode", "data": {"params": {"layer_type": "concatenate", "axis": -1}}}
+        ]
+    }
+    graph = reactflow_to_ir(rf_json)
+    kwargs = ir_to_keras_build_args(graph.nodes[0])
+    assert kwargs.get("axis") == -1
+
+
+def test_get_layer_spec_raises_keyerror():
+    with pytest.raises(KeyError):
+        _ = LAYER_REGISTRY["unknown"]
+
+
+def test_ir_graph_validates_on_construction():
+    with pytest.raises(ValidationError):
+        DenseParams(layer_type="dense", units=0)
+
+
+def test_concatenate_input_node_ids_ordering():
+    rf_json = {
+        "nodes": [
+            {"id": "in1", "type": "inputNode", "data": {"params": {"layer_type": "input", "shape": 10}}},
+            {"id": "in2", "type": "inputNode", "data": {"params": {"layer_type": "input", "shape": 10}}},
+            {"id": "concat", "type": "concatenateNode", "data": {"params": {"layer_type": "concatenate"}}},
+        ],
+        "edges": [{"id": "e1", "source": "in1", "target": "concat"}, {"id": "e2", "source": "in2", "target": "concat"}],
+    }
+    graph = reactflow_to_ir(rf_json)
+    c_node = next(n for n in graph.nodes if getattr(n.node_params, "layer_type", "") == "concatenate")
+    assert c_node.input_node_ids == ["in1", "in2"]

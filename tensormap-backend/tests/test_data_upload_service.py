@@ -35,8 +35,10 @@ class TestDeleteOneFileById:
         assert body["success"] is False
 
     def test_happy_path_deletes_db_and_disk(self, mock_db, file_id, sample_file):
-        mock_db.exec.return_value.first.return_value = sample_file
-        mock_db.exec.return_value.all.return_value = []
+        r1, r2 = MagicMock(), MagicMock()
+        r1.first.return_value = sample_file
+        r2.all.return_value = []
+        mock_db.exec.side_effect = [r1, r2]
 
         with (
             patch("app.services.data_upload.os.remove") as mock_remove,
@@ -52,8 +54,10 @@ class TestDeleteOneFileById:
         mock_remove.assert_called_once()
 
     def test_disk_removed_after_db_commit(self, mock_db, file_id, sample_file):
-        mock_db.exec.return_value.first.return_value = sample_file
-        mock_db.exec.return_value.all.return_value = []
+        r1, r2 = MagicMock(), MagicMock()
+        r1.first.return_value = sample_file
+        r2.all.return_value = []
+        mock_db.exec.side_effect = [r1, r2]
 
         call_order = []
         mock_db.commit.side_effect = lambda: call_order.append("commit")
@@ -69,8 +73,10 @@ class TestDeleteOneFileById:
 
     def test_db_delete_failure_does_not_remove_disk(self, mock_db, file_id, sample_file):
         """If db.commit() raises, the disk file must NOT be removed."""
-        mock_db.exec.return_value.first.return_value = sample_file
-        mock_db.exec.return_value.all.return_value = []
+        r1, r2 = MagicMock(), MagicMock()
+        r1.first.return_value = sample_file
+        r2.all.return_value = []
+        mock_db.exec.side_effect = [r1, r2]
         mock_db.commit.side_effect = SQLAlchemyError("DB commit failed")
 
         removed = []
@@ -89,8 +95,10 @@ class TestDeleteOneFileById:
         mb1, mb2 = MagicMock(), MagicMock()
         mb1.file_id = file_id
         mb2.file_id = file_id
-        mock_db.exec.return_value.first.return_value = sample_file
-        mock_db.exec.return_value.all.return_value = [mb1, mb2]
+        r1, r2 = MagicMock(), MagicMock()
+        r1.first.return_value = sample_file
+        r2.all.return_value = [mb1, mb2]
+        mock_db.exec.side_effect = [r1, r2]
 
         with (
             patch("app.services.data_upload.os.remove"),

@@ -237,5 +237,6 @@ def delete_one_file_by_id_service(db: Session, file_id: uuid_pkg.UUID) -> tuple:
             shutil.rmtree(extract_path, ignore_errors=True)
     except OSError:
         logger.exception("Failed to remove disk file for id=%s", file_id)
+        return _resp(200, True, "File record deleted, but the physical file could not be removed from storage")
 
     return _resp(200, True, "File deleted successfully")

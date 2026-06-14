@@ -1,3 +1,4 @@
+import contextlib
 import os
 import shutil
 import uuid as uuid_pkg
@@ -406,8 +407,12 @@ def preprocess_data(db: Session, file_id: uuid_pkg.UUID, transformations: list) 
         # Write to a temp file, then atomically replace the original so an
         # interruption between writing and replacing never leaves a truncated CSV.
         tmp_path = file_path + ".tmp"
-        df.to_csv(tmp_path, index=False)
-        os.replace(tmp_path, file_path)
+        try:
+            df.to_csv(tmp_path, index=False)
+            os.replace(tmp_path, file_path)
+        finally:
+            with contextlib.suppress(OSError):
+                os.remove(tmp_path)
         return _resp(200, True, "Dataset preprocessed successfully")
     except ValueError as e:
         return _resp(422, False, str(e))

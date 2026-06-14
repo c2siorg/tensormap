@@ -74,7 +74,7 @@ class TestDeleteProjectService:
 
         with (
             patch("app.services.project.get_settings") as mock_settings,
-            patch("app.services.project.MODEL_GENERATION_LOCATION", str(tmp_path) + "/"),
+            patch("app.services.project.MODEL_GENERATION_LOCATION", str(tmp_path)),
             patch("app.services.project.MODEL_GENERATION_TYPE", ".json"),
         ):
             mock_settings.return_value.upload_folder = str(tmp_path)

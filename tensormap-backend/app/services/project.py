@@ -168,36 +168,40 @@ def delete_project_service(db: Session, project_id: uuid_pkg.UUID) -> tuple:
 
         db.delete(project)
         db.commit()
-
-        # Remove uploaded files from disk.
-        for file in data_files:
-            file_path = os.path.realpath(os.path.join(upload_folder, file.disk_name))
-            if not file_path.startswith(upload_folder + os.sep):
-                logger.warning("Path traversal blocked for disk_name=%s", file.disk_name)
-                continue
-            with contextlib.suppress(FileNotFoundError):
-                os.remove(file_path)
-
-            if file.file_type == "zip":
-                # The extraction directory is derived from the ZIP's disk_name by
-                # stripping the extension (e.g. data_abc123.zip -> data_abc123/).
-                # This mirrors the convention in add_file_service in data_upload.py.
-                extract_dir_name = file.disk_name.rsplit(".", 1)[0]
-                extract_path = os.path.realpath(os.path.join(upload_folder, extract_dir_name))
-                if extract_path.startswith(upload_folder + os.sep):
-                    shutil.rmtree(extract_path, ignore_errors=True)
-
-        # Remove generated model JSON files from disk.
-        for model in models:
-            if model.model_name:
-                json_path = os.path.realpath(os.path.join(model_json_dir, model.model_name + MODEL_GENERATION_TYPE))
-                if json_path.startswith(model_json_dir + os.sep):
-                    with contextlib.suppress(FileNotFoundError):
-                        os.remove(json_path)
     except SQLAlchemyError:
         db.rollback()
         logger.exception("Error deleting project")
         return _resp(500, False, "An error occurred while deleting the project")
 
-    logger.info("Project deleted: id=%s", project_id)
+    # Remove uploaded files from disk.
+    n_files = 0
+    for file in data_files:
+        file_path = os.path.realpath(os.path.join(upload_folder, file.disk_name))
+        if not file_path.startswith(upload_folder + os.sep):
+            logger.warning("Path traversal blocked for disk_name=%s", file.disk_name)
+            continue
+        with contextlib.suppress(FileNotFoundError):
+            os.remove(file_path)
+            n_files += 1
+
+        if file.file_type == "zip" and "." in file.disk_name:
+            # The extraction directory is derived from the ZIP's disk_name by
+            # stripping the extension (e.g. data_abc123.zip -> data_abc123/).
+            # This mirrors the convention in add_file_service in data_upload.py.
+            extract_dir_name = file.disk_name.rsplit(".", 1)[0]
+            extract_path = os.path.realpath(os.path.join(upload_folder, extract_dir_name))
+            if extract_path.startswith(upload_folder + os.sep):
+                shutil.rmtree(extract_path, ignore_errors=True)
+
+    # Remove generated model JSON files from disk.
+    n_models = 0
+    for model in models:
+        if model.model_name:
+            json_path = os.path.realpath(os.path.join(model_json_dir, model.model_name + MODEL_GENERATION_TYPE))
+            if json_path.startswith(model_json_dir + os.sep):
+                with contextlib.suppress(FileNotFoundError):
+                    os.remove(json_path)
+                    n_models += 1
+
+    logger.info("Project deleted: id=%s (%d data files, %d model files)", project_id, n_files, n_models)
     return _resp(200, True, "Project deleted successfully")

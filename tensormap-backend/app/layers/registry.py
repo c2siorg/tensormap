@@ -22,9 +22,10 @@ Categories:
 - utility: Reshape, Concatenate (merge layer)
 """
 
-from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
+
+from pydantic import BaseModel, Field
 
 
 class ActivationType(StrEnum):
@@ -49,8 +50,7 @@ class ParamType(StrEnum):
     ENUM = "enum"
 
 
-@dataclass
-class ParamSpec:
+class ParamSpec(BaseModel):
     """
     Specification for a single layer parameter.
 
@@ -75,8 +75,7 @@ class ParamSpec:
     description: str = ""
 
 
-@dataclass
-class LayerSpec:
+class LayerSpec(BaseModel):
     """
     Complete specification for a neural network layer type.
 
@@ -94,9 +93,12 @@ class LayerSpec:
     display_name: str
     category: str
     keras_class: str
-    params: dict[str, ParamSpec] = field(default_factory=dict)
+    params: dict[str, ParamSpec] = Field(default_factory=dict)
     merge: bool = False
     description: str = ""
+
+    def to_api_dict(self) -> dict:
+        return self.model_dump()
 
 
 # Central registry of all supported layer types
@@ -501,3 +503,18 @@ def serialize_registry() -> list[dict]:
         )
 
     return result
+
+
+LAYER_CATEGORIES = ["core", "convolutional", "pooling", "recurrent", "regularization", "encoding", "utility"]
+
+
+def get_layers_by_category() -> dict[str, list[LayerSpec]]:
+    """Group layers by category, raising error for unknown categories."""
+    layers_by_cat = {cat: [] for cat in LAYER_CATEGORIES}
+    for spec in LAYER_REGISTRY.values():
+        if spec.category not in layers_by_cat:
+            raise ValueError(
+                f"Layer {spec.type_key} has unknown category: {spec.category}. Valid categories: {LAYER_CATEGORIES}"
+            )
+        layers_by_cat[spec.category].append(spec)
+    return layers_by_cat

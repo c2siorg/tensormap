@@ -203,12 +203,14 @@ class IRNode(BaseModel):
     Attributes:
         id: Unique identifier for this node (e.g., "node-1", "node-2")
         node_params: Layer-specific parameters (discriminated by layer_type)
+        name: Human-readable name for the node (e.g., "Input Layer", "Dense 1")
         position: Canvas position for ReactFlow (x, y coordinates)
         input_node_ids: List of parent node IDs (empty for single-parent, 2+ for merge layers)
     """
 
     id: str
     node_params: NodeParams
+    name: str = ""
     position: dict[str, float] = Field(default_factory=dict, description="Canvas position {x, y}")
     input_node_ids: list[str] = Field(default_factory=list, description="Parent node IDs for this layer")
 
@@ -246,6 +248,32 @@ class IRGraph(BaseModel):
     nodes: list[IRNode] = Field(..., min_length=1, description="At least one node required")
     edges: list[IREdge] = Field(default_factory=list, description="Edges connecting nodes")
 
+    def to_reactflow_json(self) -> dict:
+        nodes = []
+        edges = []
+        for n in self.nodes:
+            params = n.node_params.model_dump()
+            layer_type = params.pop("layer_type")
+            nodes.append(
+                {
+                    "id": n.id,
+                    "type": layer_type + "Node",
+                    "position": n.position,
+                    "data": {"name": n.name or layer_type.title(), "params": params},
+                }
+            )
+        for e in self.edges:
+            edges.append(
+                {
+                    "id": e.id,
+                    "source": e.source_id,
+                    "target": e.target_id,
+                    "sourceHandle": e.source_handle,
+                    "targetHandle": e.target_handle,
+                }
+            )
+        return {"nodes": nodes, "edges": edges}
+
 
 # ============================================================================
 # Validation
@@ -255,29 +283,41 @@ class IRGraph(BaseModel):
 class IRValidationError(ValueError):
     """Custom exception for invalid IR graphs."""
 
-    pass
+    def __init__(self, message: str, node_id: str | None = None, field_name: str | None = None):
+        super().__init__(message)
+        self.message = message
+        self.node_id = node_id
+        self.field_name = field_name
+
+    def to_dict(self):
+        return {"message": self.message, "node_id": self.node_id, "field_name": self.field_name}
 
 
-def validate_ir_graph(graph: IRGraph) -> None:
+def validate_ir_graph(graph: IRGraph) -> list[IRValidationError]:
     """
     Validate the IR graph structure and constraints.
 
     Checks:
-    1. At least one input node exists (layer_type == "input")
+    1. Exactly one input node exists (layer_type == "input")
     2. Concatenate nodes have at least 2 incoming edges
     3. No cycles exist in the graph (DAG constraint)
     4. All node IDs referenced in edges exist in nodes list
+    5. Reshape nodes have valid target_shape
 
     Args:
         graph: The IR graph to validate
 
-    Raises:
-        IRValidationError: If any validation constraint is violated
+    Returns:
+        List of validation errors (empty if valid)
     """
-    # Check 1: At least one input node must exist
-    has_input = any(node.node_params.layer_type == "input" for node in graph.nodes)
-    if not has_input:
-        raise IRValidationError("Graph must contain at least one input node (layer_type='input')")
+    errors = []
+
+    # Check 1: Exactly one input node must exist
+    inputs = [n for n in graph.nodes if n.node_params.layer_type == "input"]
+    if len(inputs) == 0:
+        errors.append(IRValidationError(message="Graph must contain exactly one input node (layer_type='input')"))
+    elif len(inputs) > 1:
+        errors.append(IRValidationError(message="Graph has multiple input nodes. Only one is allowed."))
 
     # Build node ID set for reference checking
     node_ids = {node.id for node in graph.nodes}
@@ -285,24 +325,38 @@ def validate_ir_graph(graph: IRGraph) -> None:
     # Check 4: All edge references must point to existing nodes
     for edge in graph.edges:
         if edge.source_id not in node_ids:
-            raise IRValidationError(f"Edge {edge.id} references non-existent source node: {edge.source_id}")
+            errors.append(
+                IRValidationError(
+                    message=f"Edge {edge.id} references non-existent source node: {edge.source_id}",
+                    node_id=edge.source_id,
+                )
+            )
         if edge.target_id not in node_ids:
-            raise IRValidationError(f"Edge {edge.id} references non-existent target node: {edge.target_id}")
+            errors.append(
+                IRValidationError(
+                    message=f"Edge {edge.id} references non-existent target node: {edge.target_id}",
+                    node_id=edge.target_id,
+                )
+            )
 
     # Build adjacency list for graph traversal
     incoming_edges: dict[str, list[str]] = {node.id: [] for node in graph.nodes}
     outgoing_edges: dict[str, list[str]] = {node.id: [] for node in graph.nodes}
 
     for edge in graph.edges:
-        incoming_edges[edge.target_id].append(edge.source_id)
-        outgoing_edges[edge.source_id].append(edge.target_id)
+        if edge.source_id in node_ids and edge.target_id in node_ids:
+            incoming_edges[edge.target_id].append(edge.source_id)
+            outgoing_edges[edge.source_id].append(edge.target_id)
 
     # Check 2: Concatenate nodes must have at least 2 incoming edges
     for node in graph.nodes:
         if node.node_params.layer_type == "concatenate" and len(incoming_edges[node.id]) < 2:
-            raise IRValidationError(
-                f"Concatenate node {node.id} must have at least 2 incoming edges, "
-                f"but has {len(incoming_edges[node.id])}"
+            errors.append(
+                IRValidationError(
+                    message=f"Concatenate node must have at least 2 incoming edges, "
+                    f"but has {len(incoming_edges[node.id])}",
+                    node_id=node.id,
+                )
             )
 
     # Check 3: No cycles (DAG constraint) using DFS
@@ -326,4 +380,14 @@ def validate_ir_graph(graph: IRGraph) -> None:
 
     for node in graph.nodes:
         if node.id not in visited and has_cycle(node.id):
-            raise IRValidationError("Graph contains a cycle, but must be a directed acyclic graph (DAG)")
+            errors.append(IRValidationError(message="Graph contains a cycle (must be a directed acyclic graph)"))
+            break  # One cycle error is enough
+
+    # Check 5: Reshape nodes have valid target_shape
+    for node in graph.nodes:
+        if node.node_params.layer_type == "reshape":
+            shape = getattr(node.node_params, "target_shape", None)
+            if not shape:
+                errors.append(IRValidationError(message="Reshape node requires a target_shape", node_id=node.id))
+
+    return errors

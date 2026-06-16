@@ -12,7 +12,7 @@ from sqlmodel import Session, select
 from werkzeug.utils import secure_filename
 
 from app.config import get_settings
-from app.models import DataFile, ImageProperties
+from app.models import DataFile, ImageProperties, ModelBasic
 from app.shared.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -209,20 +209,34 @@ def delete_one_file_by_id_service(db: Session, file_id: uuid_pkg.UUID) -> tuple:
 
         file_path = os.path.join(upload_folder, file.disk_name)
 
-        try:
-            os.remove(file_path)
-        except FileNotFoundError:
-            logger.warning("File already absent on disk: %s", file_path)
+        # Null out every ModelBasic that references this DataFile so FK
+        # constraints do not block the DB delete.
+        model_basics = db.exec(select(ModelBasic).where(ModelBasic.file_id == file_id)).all()
+        for mb in model_basics:
+            mb.file_id = None
+            db.add(mb)
 
-        # Remove extracted ZIP directory if it exists
+        db.delete(file)
+        db.commit()
+    except (SQLAlchemyError, OSError):
+        db.rollback()
+        logger.exception("Error deleting file")
+        return _resp(500, False, "An error occurred while deleting the file")
+
+    # Remove the file from disk only AFTER the DB commit succeeds, so a
+    # failed commit does not orphan the disk file with a surviving DB record.
+    # Disk failures after a successful commit are logged but do not revert the
+    # deletion — the record is already gone from the application's perspective.
+    try:
+        with contextlib.suppress(FileNotFoundError):
+            os.remove(file_path)
+
         if file.file_type == "zip":
             extract_dir_name = file.disk_name.rsplit(".", 1)[0]
             extract_path = os.path.join(upload_folder, extract_dir_name)
             shutil.rmtree(extract_path, ignore_errors=True)
+    except OSError:
+        logger.exception("Failed to remove disk file for id=%s", file_id)
+        return _resp(200, True, "File record deleted, but the physical file could not be removed from storage")
 
-        db.delete(file)
-        db.commit()
-        return _resp(200, True, "File deleted successfully")
-    except (SQLAlchemyError, OSError):
-        logger.exception("Error deleting file")
-        return _resp(500, False, "An error occurred while deleting the file")
+    return _resp(200, True, "File deleted successfully")

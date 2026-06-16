@@ -1,3 +1,6 @@
+import contextlib
+import os
+import shutil
 import uuid as uuid_pkg
 from collections.abc import Callable
 from typing import Any
@@ -394,7 +397,22 @@ def preprocess_data(db: Session, file_id: uuid_pkg.UUID, transformations: list) 
             handler = _TRANSFORMATION_REGISTRY[t.transformation]
             df = handler(df, t.feature, t.params)
 
-        df.to_csv(file_path, index=False)
+        # Backup the original before overwriting so the user can recover.
+        # Only one .bak is retained — repeated preprocessing silently replaces it.
+        try:
+            shutil.copy2(file_path, file_path + ".bak")
+        except OSError:
+            logger.exception("Could not create backup at %s.bak", file_path)
+
+        # Write to a temp file, then atomically replace the original so an
+        # interruption between writing and replacing never leaves a truncated CSV.
+        tmp_path = file_path + ".tmp"
+        try:
+            df.to_csv(tmp_path, index=False)
+            os.replace(tmp_path, file_path)
+        finally:
+            with contextlib.suppress(OSError):
+                os.remove(tmp_path)
         return _resp(200, True, "Dataset preprocessed successfully")
     except ValueError as e:
         return _resp(422, False, str(e))

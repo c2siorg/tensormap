@@ -45,6 +45,7 @@ export default {
         "node-conv": { DEFAULT: "rgb(255, 128, 43)", header: "rgb(255, 128, 43)" },
         "node-dropout": { DEFAULT: "rgb(220, 80, 80)", header: "rgb(180, 50, 50)" },
         "node-maxpool": { DEFAULT: "rgb(34, 182, 176)", header: "rgb(20, 140, 135)" },
+        "node-depthwiseconv": { DEFAULT: "rgb(180, 100, 220)", header: "rgb(140, 80, 180)" },
       },
       borderRadius: {
         lg: "var(--radius)",

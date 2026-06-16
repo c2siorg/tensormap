@@ -59,6 +59,13 @@ function Sidebar() {
         >
           GlobalAvgPool2D
         </div>
+        <div
+          className="cursor-grab rounded-md border border-l-4 border-l-node-depthwiseconv bg-white px-3 py-2 text-xs font-medium"
+          onDragStart={(e) => onDragStart(e, "customdepthwiseconv")}
+          draggable
+        >
+          DepthwiseConv2D
+        </div>
       </CardContent>
     </Card>
   );

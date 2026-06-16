@@ -34,14 +34,36 @@ async def lifespan(app: FastAPI):
     """Run Alembic migrations on startup, then yield control to the app."""
     from alembic import command
     from alembic.config import Config
+    from alembic.runtime.migration import MigrationContext
+    from alembic.script import ScriptDirectory
 
     if os.environ.get("TESTING"):
         logger.info("TESTING mode — skipping Alembic migrations")
     else:
-        logger.info("Running Alembic migrations...")
-        alembic_cfg = Config("alembic.ini")
-        command.upgrade(alembic_cfg, "head")
-        logger.info("Alembic migrations complete")
+        logger.info("Checking database migrations...")
+        try:
+            from app.database import engine
+
+            alembic_cfg = Config("alembic.ini")
+            script = ScriptDirectory.from_config(alembic_cfg)
+
+            with engine.connect() as connection:
+                context = MigrationContext.configure(connection)
+                current_rev = context.get_current_revision()
+                head_rev = script.get_current_head()
+
+                if current_rev == head_rev:
+                    logger.info(f"Database already at head revision: {current_rev}")
+                else:
+                    logger.info(f"Upgrading from {current_rev} to {head_rev}...")
+                    command.upgrade(alembic_cfg, "head")
+                    logger.info("Alembic migrations complete")
+        except Exception as e:
+            logger.error(f"Migration error: {e}")
+            logger.info("Attempting full migration upgrade...")
+            alembic_cfg = Config("alembic.ini")
+            command.upgrade(alembic_cfg, "head")
+            logger.info("Alembic migrations complete")
     yield
 
 

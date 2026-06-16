@@ -32,15 +32,17 @@ import FlattenNode from "./CustomNodes/FlattenNode/FlattenNode";
 import ConvNode from "./CustomNodes/ConvNode/ConvNode";
 import DropoutNode from "./CustomNodes/DropoutNode/DropoutNode";
 import MaxPoolingNode from "./CustomNodes/MaxPoolingNode/MaxPoolingNode";
+import GlobalAvgPoolNode from "./CustomNodes/GlobalAvgPoolNode/GlobalAvgPoolNode";
+import GenericLayerNode from "../nodes/GenericLayerNode";
 import Sidebar from "./Sidebar";
 import NodePropertiesPanel from "./NodePropertiesPanel";
-import { canSaveModel, generateModelJSON } from "./Helpers";
+import { canSaveModelSimple, generateModelJSON } from "./Helpers";
 import ModelSummaryPanel from "./ModelSummaryPanel";
 import { getAllModels, getModelGraph, saveModel } from "../../services/ModelServices";
 import { trainingHistory as trainingHistoryAtom } from "../../shared/atoms";
 import ContextMenu from "./ContextMenu";
 import useUndoRedo from "../../hooks/useUndoRedo";
-import GlobalAvgPoolNode from "./CustomNodes/GlobalAvgPoolNode/GlobalAvgPoolNode";
+import { useLayerRegistry, getLayerSpec } from "../../hooks/useLayerRegistry";
 
 const isMac =
   typeof navigator !== "undefined"
@@ -57,6 +59,7 @@ const nodeTypes = {
   customdropout: DropoutNode,
   custommaxpool: MaxPoolingNode,
   customglobalavgpool: GlobalAvgPoolNode,
+  genericlayer: GenericLayerNode, // New registry-driven node
 };
 
 // Keys MUST match nodeTypes above. Add a description when adding a node type.
@@ -114,6 +117,9 @@ function Canvas() {
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [nodeToDelete, setNodeToDelete] = useState(null);
   const defaultViewport = { x: 10, y: 15, zoom: 0.5 };
+
+  // Hook to get layer registry (getLayerSpec uses the cached registry internally)
+  useLayerRegistry();
 
   const draftKey = `tensormap_draft_${projectId || "default"}`;
   const isLoaded = useRef(false);
@@ -577,9 +583,9 @@ function Canvas() {
       event.preventDefault();
 
       const reactFlowBounds = reactFlowWrapper.current.getBoundingClientRect();
-      const type = event.dataTransfer.getData("application/reactflow");
+      const typeKey = event.dataTransfer.getData("application/reactflow");
 
-      if (typeof type === "undefined" || !type) {
+      if (typeof typeKey === "undefined" || !typeKey) {
         return;
       }
 
@@ -588,29 +594,29 @@ function Canvas() {
         y: event.clientY - reactFlowBounds.top,
       });
 
-      const defaultParams = {
-        custominput: { "dim-1": "", "dim-2": "", "dim-3": "" },
-        customdense: { units: "", activation: "" },
-        customflatten: {},
-        customconv: {
-          filter: "",
-          padding: "valid",
-          activation: "none",
-          strideX: "",
-          strideY: "",
-          kernelX: "",
-          kernelY: "",
-        },
-        customdropout: { rate: "" },
-        custommaxpool: { pool_size: "", stride: "", padding: "valid" },
-        customglobalavgpool: {},
-      };
+      // Get layer spec from registry
+      const layerSpec = getLayerSpec(typeKey);
+
+      if (!layerSpec) {
+        logger.error(`Unknown layer type: ${typeKey}`);
+        return;
+      }
+
+      // Build default params from registry spec
+      const defaultParams = {};
+      Object.entries(layerSpec.params).forEach(([paramName, paramSpec]) => {
+        defaultParams[paramName] = paramSpec.default ?? null;
+      });
 
       const newNode = {
         id: crypto.randomUUID(),
-        type,
+        type: "genericlayer",
         position,
-        data: { label: `${type} node`, params: defaultParams[type] || {} },
+        data: {
+          layerType: typeKey,
+          params: defaultParams,
+          label: layerSpec.display_name,
+        },
       };
 
       takeSnapshotAndUpdate(nodesRef.current, edgesRef.current);
@@ -770,7 +776,7 @@ function Canvas() {
               modelName={modelName}
               onModelNameChange={setModelName}
               onSave={modelSaveHandler}
-              canSave={canSaveModel(modelName, modelData)}
+              canSave={canSaveModelSimple(modelName, modelData)}
               onNodeUpdate={onNodeUpdate}
             />
           </div>

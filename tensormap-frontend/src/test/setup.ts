@@ -1,11 +1,11 @@
 /**
  * Vitest test setup file.
- * 
+ *
  * Configures the test environment with necessary polyfills and mocks
  * for React Testing Library and components that depend on browser APIs.
  */
 
-import '@testing-library/jest-dom';
+import "@testing-library/jest-dom";
 
 // Mock ResizeObserver (required for Recharts and other layout-dependent components)
 global.ResizeObserver = class ResizeObserver {
@@ -21,7 +21,7 @@ global.ResizeObserver = class ResizeObserver {
 };
 
 // Mock window.matchMedia (required for responsive components)
-Object.defineProperty(window, 'matchMedia', {
+Object.defineProperty(window, "matchMedia", {
   writable: true,
   value: (query: string) => ({
     matches: false,

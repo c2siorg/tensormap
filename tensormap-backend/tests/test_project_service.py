@@ -111,6 +111,31 @@ class TestDeleteProjectService:
 
         mock_remove.assert_not_called()
 
+    def test_path_traversal_blocked_on_model_name(self, mock_db, project_id, sample_project, tmp_path):
+        malicious = MagicMock(spec=ModelBasic)
+        malicious.model_name = "../../etc/bad"
+
+        mock_db.get.return_value = sample_project
+        mock_db.exec.return_value.all.side_effect = [
+            [],
+            [malicious],
+        ]
+
+        targeted = tmp_path / "etc" / "bad.json"
+        targeted.parent.mkdir(parents=True)
+        targeted.write_text("{}")
+
+        with (
+            patch("app.services.project.get_settings") as mock_settings,
+            patch("app.services.project.MODEL_GENERATION_LOCATION", str(tmp_path)),
+            patch("app.services.project.MODEL_GENERATION_TYPE", ".json"),
+            patch("app.services.project.os.remove") as mock_remove,
+        ):
+            mock_settings.return_value.upload_folder = str(tmp_path)
+            delete_project_service(mock_db, project_id)
+
+        mock_remove.assert_not_called()
+
     def test_missing_files_dont_cause_error(self, mock_db, project_id, sample_project, sample_csv_file, tmp_path):
         mock_db.get.return_value = sample_project
         mock_db.exec.return_value.all.side_effect = [

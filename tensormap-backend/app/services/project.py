@@ -173,7 +173,11 @@ def delete_project_service(db: Session, project_id: uuid_pkg.UUID) -> tuple:
         logger.exception("Error deleting project")
         return _resp(500, False, "An error occurred while deleting the project")
 
-    # Remove uploaded files from disk.
+    # Disk cleanup runs after the DB commit so that a failed commit never
+    # orphans disk records. The trade-off: if the process is interrupted
+    # between commit and cleanup, orphaned files remain with no DB record
+    # to retry from. This is acceptable because the files are scoped to a
+    # project that has been intentionally deleted.
     n_files = 0
     for file in data_files:
         file_path = os.path.realpath(os.path.join(upload_folder, file.disk_name))
@@ -182,6 +186,7 @@ def delete_project_service(db: Session, project_id: uuid_pkg.UUID) -> tuple:
             continue
         with contextlib.suppress(FileNotFoundError):
             os.remove(file_path)
+            # Only files that were actually present and removed are counted.
             n_files += 1
 
         if file.file_type == "zip" and "." in file.disk_name:

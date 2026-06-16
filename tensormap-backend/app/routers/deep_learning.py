@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from sqlmodel import Session
 
 from app.database import get_db
+from app.layers.registry import serialize_registry
 from app.schemas.deep_learning import ModelNameRequest, ModelSaveRequest, ModelValidateRequest, TrainingConfigRequest
 from app.services.deep_learning import (
     check_model_name_service,
@@ -26,6 +27,19 @@ from app.shared.logging_config import get_logger
 logger = get_logger(__name__)
 
 router = APIRouter(tags=["deep-learning"])
+
+
+@router.get("/layers")
+def get_layers():
+    """
+    Return the complete layer registry for the frontend.
+
+    This endpoint provides all supported layer types with their specifications,
+    enabling the frontend to render a dynamic, categorized sidebar and
+    generate appropriate property panels.
+    """
+    logger.debug("Fetching layer registry")
+    return JSONResponse(status_code=200, content=serialize_registry())
 
 
 @router.post("/model/validate")

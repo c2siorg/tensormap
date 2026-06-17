@@ -1,5 +1,7 @@
 """Tests for Week 3 database migration: graph_ir column + dual-write/read."""
 
+import os
+
 import pytest
 from sqlalchemy import inspect
 from sqlmodel import Session, select
@@ -7,6 +9,10 @@ from sqlmodel import Session, select
 from app.ir.schema import DenseParams, InputParams, IREdge, IRGraph, IRNode
 from app.models.ml import ModelBasic, ModelConfigs
 from app.services.deep_learning import model_save_service
+
+# TensorFlow's native libs abort (SIGABRT) when imported under the CI runner,
+# so tests that invoke a real TF import are skipped there. See test_cp1.py.
+IN_CI = os.getenv("CI") == "true" or os.getenv("GITHUB_ACTIONS") == "true"
 
 
 class TestGraphIRColumn:
@@ -41,6 +47,7 @@ class TestGraphIRColumn:
 class TestDualWrite:
     """Test that model save operations write to BOTH graph_ir and model_configs."""
 
+    @pytest.mark.skipif(IN_CI, reason="TensorFlow causes segfaults in CI - run locally")
     def test_dual_write_saves_both_paths(self, db_session: Session):
         """Save a model and verify both graph_ir and model_configs are populated."""
         canvas_json = {

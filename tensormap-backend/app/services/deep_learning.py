@@ -134,6 +134,17 @@ def model_validate_service(db: Session, incoming: dict, project_id: uuid_pkg.UUI
     except ValueError as e:
         return _resp(400, False, str(e))
 
+    # NEW: Try to convert to IRGraph for dual-write
+    graph_ir_data = None
+    try:
+        from app.ir.translator import reactflow_to_ir
+
+        graph_ir = reactflow_to_ir(incoming["model"])
+        graph_ir_data = graph_ir.model_dump()
+        logger.debug("Successfully converted ReactFlow to IRGraph for model validation")
+    except Exception as e:
+        logger.warning("Failed to convert ReactFlow to IRGraph (falling back to KV only): %s", str(e))
+
     try:
         tf_module = _get_tensorflow()
         keras_model = tf_module.keras.models.model_from_json(json.dumps(model_generated))
@@ -171,6 +182,7 @@ def model_validate_service(db: Session, incoming: dict, project_id: uuid_pkg.UUI
         epochs=code[DL_MODEL][MODEL_EPOCHS],
         loss=loss,
         graph_json=_extract_graph(incoming),
+        graph_ir=graph_ir_data,  # NEW: Dual-write to graph_ir
     )
 
     size_err = _validate_graph_size(model.graph_json)
@@ -229,6 +241,17 @@ def model_save_service(db: Session, incoming: dict, model_name: str, project_id:
     except ValueError as e:
         return _resp(400, False, str(e))
 
+    # NEW: Try to convert to IRGraph for dual-write
+    graph_ir_data = None
+    try:
+        from app.ir.translator import reactflow_to_ir
+
+        graph_ir = reactflow_to_ir(incoming)
+        graph_ir_data = graph_ir.model_dump()
+        logger.debug("Successfully converted ReactFlow to IRGraph for model save")
+    except Exception as e:
+        logger.warning("Failed to convert ReactFlow to IRGraph (falling back to KV only): %s", str(e))
+
     try:
         tf_module = _get_tensorflow()
         keras_model = tf_module.keras.models.model_from_json(json.dumps(model_generated))
@@ -257,6 +280,7 @@ def model_save_service(db: Session, incoming: dict, model_name: str, project_id:
         model_name=model_name,
         project_id=project_id,
         graph_json=graph_data,
+        graph_ir=graph_ir_data,  # NEW: Dual-write to graph_ir
     )
 
     configs = []
@@ -647,3 +671,54 @@ def _validate_model_path(model_name: str) -> str:
     if not path.startswith(base_dir + os.sep) and path != base_dir:
         raise ValueError("Invalid model path: escapes model directory")
     return path
+
+
+def get_model_graph_ir(model_id: int, session: Session) -> "IRGraph | None":  # type: ignore  # noqa: F821
+    """Load a model's IRGraph representation with dual-read fallback.
+
+    Reads from graph_ir column if available, otherwise reconstructs from
+    model_configs KV table (legacy path).
+
+    Args:
+        model_id: The model ID to load
+        session: SQLModel session
+
+    Returns:
+        IRGraph instance or None if model not found
+
+    Raises:
+        ValueError: If graph cannot be reconstructed from either source
+    """
+    from app.ir.schema import IRGraph
+    from app.ir.translator import reactflow_to_ir
+
+    model = session.get(ModelBasic, model_id)
+    if not model:
+        return None
+
+    # Fast path: graph_ir column populated (new storage)
+    if model.graph_ir is not None:
+        try:
+            return IRGraph(**model.graph_ir)
+        except Exception as e:
+            logger.warning("Failed to deserialize graph_ir for model %d: %s", model_id, str(e))
+            # Fall through to legacy path
+
+    # Legacy path: reconstruct from graph_json or model_configs
+    if model.graph_json is not None:
+        try:
+            return reactflow_to_ir(model.graph_json)
+        except Exception as e:
+            logger.warning("Failed to convert graph_json to IRGraph for model %d: %s", model_id, str(e))
+
+    # Last resort: reconstruct from model_configs KV table
+    configs = session.exec(select(ModelConfigs).where(ModelConfigs.model_id == model_id)).all()
+    if configs:
+        try:
+            graph_dict = _unflatten_model_configs(configs)
+            return reactflow_to_ir(graph_dict)
+        except Exception as e:
+            logger.error("Failed to reconstruct graph from model_configs for model %d: %s", model_id, str(e))
+            raise ValueError(f"Cannot load graph for model {model_id}") from e
+
+    raise ValueError(f"No graph data found for model {model_id}")

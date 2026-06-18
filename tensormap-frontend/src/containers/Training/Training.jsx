@@ -646,7 +646,7 @@ export default function Training() {
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
               <div className="space-y-1">
                 <Label>Dataset File</Label>
-                <Select onValueChange={handleFileSelect}>
+                <Select onValueChange={handleFileSelect} value={trainingConfig.file_id || ""}>
                   <SelectTrigger className={validationErrors.file_id ? "border-red-500" : ""}>
                     <SelectValue placeholder="Select a file" />
                   </SelectTrigger>
@@ -666,6 +666,7 @@ export default function Training() {
               <div className="space-y-1">
                 <Label>Problem Type</Label>
                 <Select
+                  value={trainingConfig.problem_type_id || ""}
                   onValueChange={(v) => {
                     setTrainingConfig((prev) => ({ ...prev, problem_type_id: v }));
                     updateValidationErrors("problem_type_id", v);
@@ -761,6 +762,7 @@ export default function Training() {
               <div className="space-y-1">
                 <Label>Result Metrics</Label>
                 <Select
+                  value={trainingConfig.metric || ""}
                   onValueChange={(v) => {
                     setTrainingConfig((prev) => ({ ...prev, metric: v }));
                     updateValidationErrors("metric", v);

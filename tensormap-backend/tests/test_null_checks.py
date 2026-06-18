@@ -89,43 +89,27 @@ class TestHelperGenerateFileLocation:
 
 
 class TestCodeGenFileLocation:
-    def test_raises_error_when_file_not_found(self, mock_db):
-        """Missing DataFile raises CodeGenerationError with descriptive message."""
-        mock_db.exec.return_value.first.return_value = None
-
-        with pytest.raises(CodeGenerationError) as exc_info:
-            _file_location(file_id=999, db=mock_db)
-
-        assert "Dataset file not found" in str(exc_info.value)
-        assert "999" in str(exc_info.value)
-
-    def test_returns_path_when_file_exists(self, mock_db):
-        """Existing DataFile returns correct path."""
+    def test_returns_filename_for_csv(self):
+        """Existing CSV DataFile returns its original filename."""
         mock_file = MagicMock()
         mock_file.file_type = "csv"
-        mock_file.file_name = "test_data"
-        mock_file.disk_name = "test_data.csv"
-        mock_db.exec.return_value.first.return_value = mock_file
+        mock_file.file_name = "iris.csv"
+        mock_file.disk_name = "abc123.csv"
 
-        with patch("app.services.code_generation.get_settings") as mock_settings:
-            mock_settings.return_value.upload_folder = "/uploads"
-            result = _file_location(file_id=1, db=mock_db)
+        result = _file_location(mock_file)
 
-        assert result == "/uploads/test_data.csv"
+        assert result == "iris.csv"
 
-    def test_returns_zip_extraction_dir(self, mock_db):
-        """Zip files return extraction directory."""
+    def test_returns_dirname_for_zip(self):
+        """Zip file returns extraction directory name (filename without .zip)."""
         mock_file = MagicMock()
         mock_file.file_type = "zip"
-        mock_file.file_name = "images"
-        mock_file.disk_name = "images_def456.zip"
-        mock_db.exec.return_value.first.return_value = mock_file
+        mock_file.file_name = "images.zip"
+        mock_file.disk_name = "def456.zip"
 
-        with patch("app.services.code_generation.get_settings") as mock_settings:
-            mock_settings.return_value.upload_folder = "/uploads"
-            result = _file_location(file_id=1, db=mock_db)
+        result = _file_location(mock_file)
 
-        assert result == "/uploads/images_def456"
+        assert result == "images"
 
 
 # ---------------------------------------------------------------------------

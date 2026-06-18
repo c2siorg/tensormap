@@ -1,7 +1,6 @@
 from jinja2 import Environment, FileSystemLoader
 from sqlmodel import Session, select
 
-from app.config import get_settings
 from app.models import DataFile, ImageProperties, ModelBasic
 from app.shared.constants import (
     BATCH_SIZE,
@@ -14,7 +13,6 @@ from app.shared.constants import (
     LABEL_MODE,
     LEARNING_MODEL,
     MODEL_EPOCHS,
-    MODEL_GENERATION_LOCATION,
     MODEL_GENERATION_TYPE,
     MODEL_JSON_FILE,
     MODEL_METRIC,
@@ -45,12 +43,12 @@ def generate_code(model_name: str, db: Session) -> str:
 
     data = {
         DATASET: {
-            FILE_NAME: _file_location(model_configs.file_id, db),
+            FILE_NAME: _file_location(file),
             FILE_TARGET: model_configs.target_field,
             MODEL_TRAINING_SPLIT: model_configs.training_split,
         },
         LEARNING_MODEL: {
-            MODEL_JSON_FILE: MODEL_GENERATION_LOCATION + model_name + MODEL_GENERATION_TYPE,
+            MODEL_JSON_FILE: model_name + MODEL_GENERATION_TYPE,
             MODEL_OPTIMIZER: model_configs.optimizer,
             MODEL_METRIC: model_configs.metric,
             MODEL_EPOCHS: model_configs.epochs,
@@ -87,12 +85,14 @@ def _map_template(problem_type_id: int) -> str:
     return options[problem_type_id]
 
 
-def _file_location(file_id, db: Session) -> str:
-    """Resolve the on-disk path for a file referenced by its DB ID."""
-    settings = get_settings()
-    file = db.exec(select(DataFile).where(DataFile.id == file_id)).first()
-    if file is None:
-        raise CodeGenerationError(f"Dataset file not found (id={file_id})")
+def _file_location(file: DataFile) -> str:
+    """Return the dataset path used in the generated training script.
+
+    Returns the original uploaded filename (or the ZIP extraction
+    directory name) so the script references a path the user recognises.
+    The user places the dataset beside the script; the server-local
+    storage path is not embedded in the generated code.
+    """
     if file.file_type == "zip":
-        return f"{settings.upload_folder}/{file.disk_name.rsplit('.', 1)[0]}"
-    return f"{settings.upload_folder}/{file.disk_name}"
+        return file.file_name.rsplit(".", 1)[0]
+    return file.file_name

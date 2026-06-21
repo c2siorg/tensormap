@@ -46,6 +46,22 @@ from pydantic import BaseModel, Field
 # Each layer type has its own Pydantic model with a literal layer_type field
 # for discriminated union matching.
 
+DenseActivation = Literal[
+    "relu",
+    "sigmoid",
+    "softmax",
+    "tanh",
+    "linear",
+    "none",  # Alias for "linear" - converted by generator
+    "elu",
+    "selu",
+    "softplus",
+    "softsign",
+    "swish",
+    "gelu",
+    "exponential",
+]
+
 
 class InputParams(BaseModel):
     """Parameters for Input layer."""
@@ -59,7 +75,7 @@ class DenseParams(BaseModel):
 
     layer_type: Literal["dense"]
     units: int = Field(..., gt=0, description="Number of neurons")
-    activation: str = Field(default="relu", description="Activation function")
+    activation: DenseActivation = Field(default="relu", description="Activation function")
 
 
 class FlattenParams(BaseModel):
@@ -76,7 +92,7 @@ class Conv2DParams(BaseModel):
     kernel_size: int = Field(default=3, gt=0, description="Kernel size (e.g., 3 for 3x3)")
     strides: int = Field(default=1, gt=0, description="Stride length")
     padding: Literal["valid", "same"] = Field(default="same", description="Padding mode")
-    activation: str = Field(default="relu", description="Activation function")
+    activation: DenseActivation = Field(default="relu", description="Activation function")
 
 
 class MaxPool2DParams(BaseModel):

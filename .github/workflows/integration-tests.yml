@@ -27,6 +27,7 @@ jobs:
         env:
           DATABASE_URL: sqlite:///./test.db
           SECRET_KEY: ci-test-secret-key-for-testing
+          CI: true
         run: uv run pytest tests/ -v --tb=short
 
   integration-test:

@@ -98,7 +98,10 @@ class LayerSpec(BaseModel):
     description: str = ""
 
     def to_api_dict(self) -> dict:
-        return self.model_dump()
+        # Add layer_type alias for backward compatibility with IRNode expectations
+        result = self.model_dump()
+        result["layer_type"] = result["type_key"]
+        return result
 
 
 # Central registry of all supported layer types

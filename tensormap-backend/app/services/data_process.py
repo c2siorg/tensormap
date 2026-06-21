@@ -4,6 +4,7 @@ import shutil
 import uuid as uuid_pkg
 from collections.abc import Callable
 from typing import Any
+import json
 
 import numpy as np
 import pandas as pd
@@ -285,7 +286,9 @@ def get_file_data(db: Session, file_id: uuid_pkg.UUID, page: int = 1, page_size:
         return _resp(500, False, f"Error reading CSV: {e}")
 
     # For empty or any dataframe slice, to_dict will convert to list of plain dict elements avoiding json strings
-    data_list = df_page.to_dict(orient="records")
+    df_page = df_page.where(pd.notnull(df_page), None)
+    json_str = df_page.to_json(orient="records")
+    data_list = json.loads(json_str)
 
     return _paginated_resp(
         data_list, {"page": page, "page_size": page_size, "total_rows": total_rows, "total_pages": total_pages}

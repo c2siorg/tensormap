@@ -36,6 +36,8 @@ class ModelBasic(SQLModel, table=True):
     # columns.  Explicit Column(JSON, nullable=True) ensures the database
     # column is created with the right type and NULL constraint.
     graph_json: dict | None = Field(default=None, sa_column=Column(JSON, nullable=True))
+    # graph_ir stores the validated IRGraph JSON (replaces model_configs KV table)
+    graph_ir: dict | None = Field(default=None, sa_column=Column(JSON, nullable=True))
     created_on: datetime | None = Field(default=None, sa_column=Column(DateTime, server_default=func.now()))
     updated_on: datetime | None = Field(
         default=None, sa_column=Column(DateTime, server_default=func.now(), onupdate=func.now())

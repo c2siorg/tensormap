@@ -51,14 +51,42 @@ _PARAM_MODELS = {
 
 
 def translate_params_to_ir(layer_type: str, raw_params: dict) -> NodeParams:
-    """Validates raw params and returns typed NodeParams. Can raise TranslationError."""
+    """Validates raw params and returns typed NodeParams. Can raise TranslationError.
+
+    This function handles both new IRGraph format and legacy ReactFlow format.
+    """
     if layer_type not in _PARAM_MODELS:
         raise TranslationError(f"Unknown layer type: {layer_type}")
 
     ModelClass = _PARAM_MODELS[layer_type]
+
+    # Handle legacy format conversions
+    params_to_validate = dict(raw_params)
+    params_to_validate["layer_type"] = layer_type
+
+    # Legacy conversions for specific layer types
+    if layer_type == "input" and "shape" not in params_to_validate and "dim-1" in params_to_validate:
+        # Convert old dim-1 format to shape
+        params_to_validate["shape"] = int(params_to_validate["dim-1"])
+
+    if layer_type == "conv2d":
+        # Handle legacy format: kernelX/kernelY → kernel_size, filter → filters
+        if "filter" in params_to_validate and "filters" not in params_to_validate:
+            params_to_validate["filters"] = params_to_validate["filter"]
+        if "kernelX" in params_to_validate and "kernel_size" not in params_to_validate:
+            params_to_validate["kernel_size"] = params_to_validate["kernelX"]
+
+    if (
+        (layer_type == "maxpool2d" or layer_type == "avgpool2d")
+        and "stride" in params_to_validate
+        and "strides" not in params_to_validate
+    ):
+        # Handle legacy format: stride → strides
+        params_to_validate["strides"] = params_to_validate["stride"]
+
     try:
         # Pydantic will validate
-        params = ModelClass(**raw_params)
+        params = ModelClass(**params_to_validate)
         return params
     except ValidationError as e:
         # Extract field-level validation errors from Pydantic
@@ -88,6 +116,11 @@ def reactflow_to_ir(canvas_json: dict) -> IRGraph:
         ndata = n.get("data", {})
         nparams = ndata.get("params", {})
         ntype = n.get("type", "").lower().replace("node", "")
+
+        # Handle legacy "custom" prefix (e.g., "custominput" → "input")
+        if ntype.startswith("custom"):
+            ntype = ntype[6:]  # Remove "custom" prefix
+
         # old format might map ntype directly if we align it
         if not ntype and "layer_type" in nparams:
             ntype = nparams["layer_type"]
@@ -132,6 +165,17 @@ def ir_to_keras_build_args(node: IRNode) -> dict:
     """Returns kwargs for Keras layer constructor from typed IR params."""
     params = node.node_params.model_dump()
     params.pop("layer_type", None)
+
+    # Special handling for Input layer: convert shape int to tuple
+    if node.node_params.layer_type == "input" and "shape" in params:
+        # Keras Input expects shape as tuple, e.g., (784,)
+        params["shape"] = (params["shape"],)
+
+    # Special handling for Reshape layer: convert target_shape string to tuple
+    if node.node_params.layer_type == "reshape" and "target_shape" in params:
+        # Convert "7,7,64" → (7, 7, 64)
+        shape_str = params["target_shape"]
+        params["target_shape"] = tuple(int(x.strip()) for x in shape_str.split(","))
 
     if node.node_params.layer_type == "dropout" and "rate" in params:
         # test_ir_build_args_dropout expects {"rate": 0.5}

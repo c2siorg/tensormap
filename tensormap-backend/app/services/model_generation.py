@@ -3,8 +3,6 @@
 import json
 from collections import defaultdict
 
-import tensorflow as tf
-
 from app.shared.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -13,10 +11,16 @@ logger = get_logger(__name__)
 def model_generation(model_params: dict) -> dict:
     """Transform ReactFlow nodes and edges into a Keras functional-API JSON structure.
 
+    This is the legacy entry point that maintains backward compatibility with
+    the old ReactFlow format. New code should use build_model_from_ir() instead.
+
     Builds the model programmatically using the Keras API, then serializes
     it via ``model.to_json()`` so the output always matches the installed
     Keras version's expected format.
     """
+    # Lazy TF import to avoid startup penalty
+    import tensorflow as tf  # noqa: PLC0415
+
     logger.debug(
         "Generating model from %d nodes, %d edges",
         len(model_params["nodes"]),
@@ -75,8 +79,43 @@ def model_generation(model_params: dict) -> dict:
     return json.loads(model.to_json())
 
 
+def build_model_from_ir(graph: "IRGraph") -> dict:  # type: ignore  # noqa: F821
+    """Build a Keras model from an IRGraph and return its JSON representation.
+
+    This is the new, registry-driven entry point that replaces the legacy
+    model_generation() function for IRGraph-based workflows.
+
+    Args:
+        graph: The validated IRGraph to convert
+
+    Returns:
+        Keras model JSON dictionary ready for serialization
+
+    Example:
+        >>> from app.ir.schema import IRGraph
+        >>> from app.ir.translator import reactflow_to_ir
+        >>> graph = reactflow_to_ir(canvas_json)
+        >>> model_json = build_model_from_ir(graph)
+    """
+    from app.generators.tensorflow_generator import TensorFlowGenerator
+
+    generator = TensorFlowGenerator()
+    model = generator.build_model(graph)
+
+    # Lazy TF import
+
+    return json.loads(model.to_json())
+
+
 def _build_layer(node: dict, input_tensor):
-    """Instantiate a single Keras layer from a ReactFlow node and apply it to the input tensor."""
+    """Instantiate a single Keras layer from a ReactFlow node and apply it to the input tensor.
+
+    LEGACY: This function is maintained for backward compatibility with the old
+    ReactFlow format. New code should use TensorFlowGenerator._build_layer() instead.
+    """
+    # Lazy TF import
+    import tensorflow as tf  # noqa: PLC0415
+
     params = node["data"]["params"]
     node_type = node["type"]
     name = node["id"]

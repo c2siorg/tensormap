@@ -286,7 +286,6 @@ def get_file_data(db: Session, file_id: uuid_pkg.UUID, page: int = 1, page_size:
         return _resp(500, False, f"Error reading CSV: {e}")
 
     # For empty or any dataframe slice, to_dict will convert to list of plain dict elements avoiding json strings
-    df_page = df_page.where(pd.notnull(df_page), None)
     json_str = df_page.to_json(orient="records")
     data_list = json.loads(json_str)
 

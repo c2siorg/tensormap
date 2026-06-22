@@ -2,7 +2,7 @@ import uuid as uuid_pkg
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import JSON, CheckConstraint, Column, DateTime, ForeignKey, func
+from sqlalchemy import JSON, CheckConstraint, Column, DateTime, ForeignKey, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID as PgUUID
 from sqlmodel import Field, Relationship, SQLModel
 
@@ -57,6 +57,8 @@ class DataProcess(SQLModel, table=True):
     )
 
     file: DataFile | None = Relationship(back_populates="target")
+
+    __table_args__ = (UniqueConstraint("file_id", name="uq_data_process_file_id"),)
 
 
 class ImageProperties(SQLModel, table=True):

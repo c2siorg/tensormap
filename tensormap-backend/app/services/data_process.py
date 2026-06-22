@@ -41,7 +41,11 @@ def _get_file_path(file: DataFile) -> str:
 
 
 def add_target_service(db: Session, file_id: uuid_pkg.UUID, target: str) -> tuple:
-    """Create a DataProcess record linking a file to its target column."""
+    """Create or update the target field assignment for a file.
+
+    Upserts: if a DataProcess record already exists for this file_id the
+    target column is updated; otherwise a new record is created.
+    """
     try:
         file = db.exec(select(DataFile).where(DataFile.id == file_id)).first()
         if not file:
@@ -55,8 +59,12 @@ def add_target_service(db: Session, file_id: uuid_pkg.UUID, target: str) -> tupl
                 f"Target column '{target}' not found in dataset columns",
             )
 
-        data_process = DataProcess(file_id=file_id, target=target)
-        db.add(data_process)
+        existing = db.exec(select(DataProcess).where(DataProcess.file_id == file_id)).first()
+        if existing:
+            existing.target = target
+        else:
+            existing = DataProcess(file_id=file_id, target=target)
+            db.add(existing)
         db.commit()
         logger.info("Target field '%s' added for file_id=%s", target, file_id)
         return _resp(201, True, "Target field added successfully")

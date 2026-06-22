@@ -93,14 +93,35 @@ def regression_csv(tmp_path):
 
 
 class TestAddTargetService:
-    def test_success(self, mock_db, file_id, sample_file):
-        mock_db.exec.return_value.first.return_value = sample_file
+    def test_creates_new_target(self, mock_db, file_id, sample_file):
+        # First exec returns file, second returns None (no existing target)
+        mock_db.exec.side_effect = [
+            MagicMock(first=MagicMock(return_value=sample_file)),
+            MagicMock(first=MagicMock(return_value=None)),
+        ]
 
         body, status = add_target_service(mock_db, file_id, "species")
 
         assert status == 201
         assert body["success"] is True
         mock_db.add.assert_called_once()
+        mock_db.commit.assert_called_once()
+
+    def test_updates_existing_target(self, mock_db, file_id, sample_file, sample_target):
+        # First exec returns file, second returns the existing target record
+        mock_db.exec.side_effect = [
+            MagicMock(first=MagicMock(return_value=sample_file)),
+            MagicMock(first=MagicMock(return_value=sample_target)),
+        ]
+
+        body, status = add_target_service(mock_db, file_id, "new_target")
+
+        assert status == 201
+        assert body["success"] is True
+        # The existing mock was updated in-place
+        assert sample_target.target == "new_target"
+        # No new record was added
+        mock_db.add.assert_not_called()
         mock_db.commit.assert_called_once()
 
     def test_file_not_found(self, mock_db, file_id):
@@ -142,7 +163,11 @@ class TestAddTargetService:
         csv_file.id = file_id
         csv_file.file_type = "csv"
         csv_file.columns = ["sepal_length", "sepal_width", "species"]
-        mock_db.exec.return_value.first.return_value = csv_file
+        # First exec returns file, second returns None (no existing target)
+        mock_db.exec.side_effect = [
+            MagicMock(first=MagicMock(return_value=csv_file)),
+            MagicMock(first=MagicMock(return_value=None)),
+        ]
 
         body, status = add_target_service(mock_db, file_id, "species")
 

@@ -186,7 +186,7 @@ export const runModel = async (modelName, projectId) => {
       if (resp.data.success === true) {
         return resp.data.message;
       }
-      throw new Error(resp.data);
+      throw new Error(resp.data?.message ?? JSON.stringify(resp.data));
     })
     .catch((err) => {
       throw err;

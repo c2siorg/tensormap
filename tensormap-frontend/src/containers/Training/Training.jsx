@@ -486,8 +486,15 @@ export default function Training() {
       .then(() => {})
       .catch((error) => {
         clearTimeout(timeoutRef.current);
-        logger.error(error.response?.data);
-        setResultValues([error.response?.data?.message ?? "An error occurred"]);
+        logger.error(error);
+        const message =
+          error.response?.data?.message ??
+          (Array.isArray(error.response?.data?.detail)
+            ? error.response.data.detail.map((d) => d.msg).join("; ")
+            : error.response?.data?.detail) ??
+          error.message ??
+          "An error occurred";
+        setResultValues([message]);
         setIsLoading(false);
       });
   }, [selectedModel, projectId, validateAllFields]);

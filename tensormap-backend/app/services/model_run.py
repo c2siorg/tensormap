@@ -6,9 +6,11 @@ import pandas as pd
 import tensorflow as tf
 from sqlmodel import Session, select
 
+from app.callbacks import CancellationCheckCallback, MetricsCallback
 from app.config import get_settings
 from app.models.data import DataFile, ImageProperties
 from app.models.ml import ModelBasic
+from app.models.training_job import TrainingStatus
 from app.shared.constants import (
     MODEL_GENERATION_LOCATION,
     MODEL_GENERATION_TYPE,
@@ -144,18 +146,57 @@ def _helper_generate_json_model_file_location(model_name: str) -> str:
     return path
 
 
-def model_run(model_name: str, db: Session, loop: asyncio.AbstractEventLoop | None = None) -> None:
+def _build_training_callbacks(job_id: str | None) -> list[tf.keras.callbacks.Callback]:
+    """Return the Keras callbacks for a run.
+
+    Without a job_id (legacy/direct calls) we keep the text-based
+    ``CustomProgressBar``. With a job_id we use the persistent ``MetricsCallback``
+    (DB + room-scoped Socket.IO) plus ``CancellationCheckCallback``.
+    """
+    if job_id is None:
+        return [CustomProgressBar()]
+
+    from app.services.training_service import make_session
+
+    loop = _training_loop_ctx.get()
+    return [
+        MetricsCallback(job_id, make_session, sio, loop),
+        CancellationCheckCallback(job_id, make_session),
+    ]
+
+
+def model_run(
+    model_name: str,
+    db: Session,
+    loop: asyncio.AbstractEventLoop | None = None,
+    job_id: str | None = None,
+) -> None:
     """Load, compile, and train a Keras model, emitting progress via Socket.IO.
 
     Stores the caller's event loop in a ContextVar so concurrent requests
     each see their own loop instead of racing on a shared global (Issue #341).
+
+    When ``job_id`` is given, training progress is persisted to the
+    ``training_metric`` table and the job's lifecycle (running/completed/failed)
+    is recorded; on failure the job is marked FAILED with the error message.
     """
     token = _training_loop_ctx.set(loop)
     try:
-        _run(model_name, db)
+        _run(model_name, db, job_id=job_id)
     except Exception as e:
         logger.exception("Training failed for model '%s': %s", model_name, str(e))
-        _model_result(f"Training failed: {e}", -1)
+        if job_id is not None:
+            from app.callbacks.metrics_callback import schedule_room_emit
+            from app.services.training_service import make_session, update_job_status
+
+            try:
+                with make_session() as session:
+                    update_job_status(job_id, TrainingStatus.FAILED, session, error_message=str(e))
+                schedule_room_emit(sio, loop, job_id, {"type": "status", "status": "failed", "error": str(e)})
+            except Exception:  # noqa: BLE001 - never mask the original training error
+                logger.exception("Failed to mark job %s as failed", job_id)
+        else:
+            _model_result(f"Training failed: {e}", -1)
         raise
     finally:
         _training_loop_ctx.reset(token)
@@ -193,7 +234,8 @@ def _prepare_training_data(features, target_field, training_split):
     return X[:split_index], y[:split_index], X[split_index:], y[split_index:]
 
 
-def _run(model_name: str, db: Session) -> None:
+def _run(model_name: str, db: Session, job_id: str | None = None) -> None:
+    callbacks = _build_training_callbacks(job_id)
     model_configs = db.exec(select(ModelBasic).where(ModelBasic.model_name == model_name)).first()
     if model_configs is None:
         raise ModelRunError(f"Model configuration not found: {model_name}")
@@ -275,17 +317,17 @@ def _run(model_name: str, db: Session) -> None:
             train_data,
             validation_data=test_data,
             epochs=model_configs.epochs,
-            callbacks=[CustomProgressBar()],
+            callbacks=callbacks,
             verbose=0,
         )
-        model.evaluate(test_data, callbacks=[CustomProgressBar()], verbose=0)
+        model.evaluate(test_data, callbacks=callbacks, verbose=0)
     else:
         model.fit(
             x_training,
             y_training,
             epochs=model_configs.epochs,
             batch_size=batch_size,
-            callbacks=[CustomProgressBar()],
+            callbacks=callbacks,
             verbose=0,
         )
-        model.evaluate(x_testing, y_testing, callbacks=[CustomProgressBar()], verbose=0)
+        model.evaluate(x_testing, y_testing, callbacks=callbacks, verbose=0)

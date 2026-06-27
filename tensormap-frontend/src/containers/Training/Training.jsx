@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams } from "react-router-dom";
 import { Trash2 } from "lucide-react";
-import io from "socket.io-client";
 import { useRecoilState, useRecoilValue } from "recoil";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,8 +21,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import * as urls from "../../constants/Urls";
-import * as strings from "../../constants/Strings";
 import logger from "../../shared/logger";
 import FeedbackDialog from "../../components/shared/FeedbackDialog";
 import Result from "../../components/ResultPanel/Result/Result";
@@ -35,6 +32,12 @@ import {
   deleteModel,
 } from "../../services/ModelServices";
 import { getAllFiles } from "../../services/FileServices";
+import {
+  getTrainingSocket,
+  subscribeToJob,
+  unsubscribeFromJob,
+  cancelJob,
+} from "../../services/socketService";
 import {
   models as modelListAtom,
   trainingHistory as trainingHistoryAtom,
@@ -59,6 +62,26 @@ const problemTypeOptions = [
   { key: "prob_type_2", label: "Linear Regression", value: "2" },
 ];
 
+const fmt = (value) => (typeof value === "number" ? value.toFixed(4) : value);
+
+// Render one epoch's structured metrics as a single human-readable line.
+const formatMetricLine = (m) => {
+  const parts = [`loss: ${fmt(m.loss)}`];
+  if (m.accuracy != null) parts.push(`accuracy: ${fmt(m.accuracy)}`);
+  if (m.val_loss != null) parts.push(`val_loss: ${fmt(m.val_loss)}`);
+  if (m.val_accuracy != null) parts.push(`val_accuracy: ${fmt(m.val_accuracy)}`);
+  return `Epoch ${m.epoch} — ${parts.join(", ")}`;
+};
+
+const statusLine = (status, error) => {
+  if (status === "completed") return "Training completed.";
+  if (status === "cancelled") return "Training cancelled.";
+  if (status === "failed") return `Training failed${error ? `: ${error}` : "."}`;
+  return `Status: ${status}`;
+};
+
+const TERMINAL_STATUSES = ["completed", "failed", "cancelled"];
+
 export default function Training() {
   const { projectId } = useParams();
   const [, setModelList] = useRecoilState(modelListAtom);
@@ -79,6 +102,10 @@ export default function Training() {
   const fetchModelsRef = useRef(null);
   const fetchIdRef = useRef(0);
   const fetchFilesIdRef = useRef(0);
+  // Active training job + its Socket.IO listener cleanup.
+  const currentJobIdRef = useRef(null);
+  const jobCleanupRef = useRef(null);
+  const [cancelRequested, setCancelRequested] = useState(false);
   const [trainingHistory, setTrainingHistory] = useRecoilState(trainingHistoryAtom);
 
   // Training config state
@@ -163,53 +190,42 @@ export default function Training() {
   }, [fetchModels]);
 
   useEffect(() => {
-    const socket = io(urls.WS_DL_RESULTS, {
-      reconnection: true,
-      reconnectionAttempts: 10,
-      reconnectionDelay: 1000,
-      reconnectionDelayMax: 5000,
-      timeout: 10000,
-    });
+    const socket = getTrainingSocket();
     socketRef.current = socket;
 
-    const dlResultListener = (resp) => {
-      clearTimeout(timeoutRef.current);
-      if (resp.message && resp.message.includes("Starting")) {
-        setResultValues([]);
-        setIsLoading(true);
-      } else if (resp.message && resp.message.includes("Finish")) {
-        setIsLoading(false);
-        if (fetchModelsRef.current) {
-          fetchModelsRef.current();
-        }
-      } else {
-        setResultValues((prev) => [...prev, resp.message]);
-      }
-    };
-
-    socket.on(strings.DL_RESULT_LISTENER, dlResultListener);
-
-    socket.on("connect_error", (err) => {
+    const onConnect = () => setConnectionError(null);
+    const onConnectError = (err) => {
       logger.warn("Socket connection error:", err);
       setConnectionError("Lost connection to server");
-    });
-
-    socket.on("connect", () => {
-      setConnectionError(null);
-    });
-
-    socket.on("disconnect", (reason) => {
+    };
+    const onDisconnect = (reason) => {
       if (reason === "io server disconnect") {
         socket.connect();
       }
-    });
+    };
+
+    socket.on("connect", onConnect);
+    socket.on("connect_error", onConnectError);
+    socket.on("disconnect", onDisconnect);
+    if (!socket.connected) socket.connect();
 
     fetchModels();
     fetchFiles();
 
     return () => {
       clearTimeout(timeoutRef.current);
-      socket.off(strings.DL_RESULT_LISTENER, dlResultListener);
+      socket.off("connect", onConnect);
+      socket.off("connect_error", onConnectError);
+      socket.off("disconnect", onDisconnect);
+      // Detach any active job listener and leave its room.
+      if (jobCleanupRef.current) {
+        jobCleanupRef.current();
+        jobCleanupRef.current = null;
+      }
+      if (currentJobIdRef.current) {
+        unsubscribeFromJob(currentJobIdRef.current);
+        currentJobIdRef.current = null;
+      }
       socket.disconnect();
     };
   }, [projectId, fetchModels, fetchFiles, setModelList]);
@@ -463,6 +479,47 @@ export default function Training() {
     }
   }, [selectedModel, projectId]);
 
+  // Tear down an active job: stop the timeout, detach the socket listener,
+  // leave the room, and refresh history.
+  const finishTraining = useCallback(() => {
+    clearTimeout(timeoutRef.current);
+    setIsLoading(false);
+    setCancelRequested(false);
+    if (jobCleanupRef.current) {
+      jobCleanupRef.current();
+      jobCleanupRef.current = null;
+    }
+    if (currentJobIdRef.current) {
+      unsubscribeFromJob(currentJobIdRef.current);
+      currentJobIdRef.current = null;
+    }
+    if (fetchModelsRef.current) {
+      fetchModelsRef.current();
+    }
+  }, []);
+
+  // Handle a structured event from the subscribed job's room.
+  const handleJobEvent = useCallback(
+    (data) => {
+      clearTimeout(timeoutRef.current);
+      if (data.type === "catchup") {
+        setResultValues((data.metrics || []).map(formatMetricLine));
+        if (TERMINAL_STATUSES.includes(data.status)) {
+          setResultValues((prev) => [...prev, statusLine(data.status)]);
+          finishTraining();
+        } else {
+          setIsLoading(true);
+        }
+      } else if (data.type === "metrics") {
+        setResultValues((prev) => [...prev, formatMetricLine(data)]);
+      } else if (data.type === "status") {
+        setResultValues((prev) => [...prev, statusLine(data.status, data.error)]);
+        finishTraining();
+      }
+    },
+    [finishTraining],
+  );
+
   const handleRun = useCallback(() => {
     if (!selectedModel) return;
 
@@ -478,12 +535,19 @@ export default function Training() {
     }
     setResultValues([]);
     setIsLoading(true);
+    setCancelRequested(false);
     timeoutRef.current = setTimeout(() => {
       setIsLoading(false);
       setResultValues(["Training timed out. The model may still be running on the server."]);
     }, 300000);
     runModel(selectedModel, projectId)
-      .then(() => {})
+      .then((job) => {
+        currentJobIdRef.current = job.job_id;
+        if (jobCleanupRef.current) {
+          jobCleanupRef.current();
+        }
+        jobCleanupRef.current = subscribeToJob(job.job_id, handleJobEvent);
+      })
       .catch((error) => {
         clearTimeout(timeoutRef.current);
         logger.error(error);
@@ -497,7 +561,19 @@ export default function Training() {
         setResultValues([message]);
         setIsLoading(false);
       });
-  }, [selectedModel, projectId, validateAllFields]);
+  }, [selectedModel, projectId, validateAllFields, handleJobEvent]);
+
+  // Request cancellation of the running job. The server stops training at the
+  // next epoch boundary and emits a terminal status event.
+  const handleStop = useCallback(() => {
+    const jobId = currentJobIdRef.current;
+    if (!jobId) return;
+    setCancelRequested(true);
+    cancelJob(jobId).catch((error) => {
+      logger.error("Failed to cancel training:", error);
+      setCancelRequested(false);
+    });
+  }, []);
 
   const handleClear = () => {
     setResultValues([]);
@@ -633,6 +709,11 @@ export default function Training() {
             >
               {isLoading ? "Training..." : "Train"}
             </Button>
+            {isLoading && (
+              <Button variant="destructive" onClick={handleStop} disabled={cancelRequested}>
+                {cancelRequested ? "Cancellation requested..." : "Stop Training"}
+              </Button>
+            )}
             <Button
               onClick={handleClear}
               disabled={resultValues.length === 0 && !isLoading}

@@ -22,7 +22,7 @@ from app.exceptions import (
     validation_exception_handler,
 )
 from app.middleware import RequestIDMiddleware, RequestLoggingMiddleware
-from app.routers import data_process, data_upload, deep_learning, health, layers, project
+from app.routers import data_process, data_upload, deep_learning, health, layers, project, training
 from app.shared.logging_config import get_logger
 from app.socketio_instance import sio
 
@@ -64,6 +64,16 @@ async def lifespan(app: FastAPI):
             alembic_cfg = Config("alembic.ini")
             command.upgrade(alembic_cfg, "head")
             logger.info("Alembic migrations complete")
+
+        # Recover jobs left RUNNING/PENDING by a previous crash so the DB never
+        # shows a job as active when no process is training it. Best-effort:
+        # a failure here must not prevent the app from starting.
+        try:
+            from app.services.training_service import orphan_recovery
+
+            orphan_recovery()
+        except Exception as e:
+            logger.error(f"Orphan recovery error: {e}")
     yield
 
 
@@ -94,6 +104,7 @@ app.include_router(data_process.router, prefix=settings.api_base)
 app.include_router(deep_learning.router, prefix=settings.api_base)
 app.include_router(project.router, prefix=settings.api_base)
 app.include_router(layers.router, prefix=settings.api_base)
+app.include_router(training.router, prefix=settings.api_base)
 
 # Wrap FastAPI with SocketIO so socket.io requests are handled,
 # and everything else passes through to FastAPI.

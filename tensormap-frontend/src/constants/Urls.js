@@ -12,6 +12,7 @@ export const BACKEND_GET_ALL_MODELS = "/model/model-list";
 export const BACKEND_GET_TRAINING_HISTORY = "/model/training-history";
 export const BACKEND_DOWNLOAD_CODE = "/model/code";
 export const BACKEND_RUN_MODEL = "/model/run";
+export const BACKEND_TRAINING_JOB = "/model/training-job";
 export const BACKEND_FILE_UPLOAD = "/data/upload/file";
 export const WS_DL_RESULTS = import.meta.env.VITE_WS_URL || "http://localhost:4300/dl-result";
 export const BACKEND_VALIDATE_MODEL = "/model/validate";

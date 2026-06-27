@@ -174,6 +174,8 @@ export const getModelGraph = async (modelName, projectId) => {
     });
 };
 
+// Starts a training run. The backend returns 202 immediately with the created
+// job descriptor ({ job_id, status }); progress then streams over Socket.IO.
 export const runModel = async (modelName, projectId) => {
   const data = {
     model_name: modelName,
@@ -183,8 +185,8 @@ export const runModel = async (modelName, projectId) => {
   return axios
     .post(urls.BACKEND_RUN_MODEL, data)
     .then((resp) => {
-      if (resp.data.success === true) {
-        return resp.data.message;
+      if (resp.data.success === true && resp.data.data?.job_id) {
+        return resp.data.data; // { job_id, status }
       }
       throw new Error(resp.data?.message ?? JSON.stringify(resp.data));
     })

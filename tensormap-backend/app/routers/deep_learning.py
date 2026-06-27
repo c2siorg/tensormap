@@ -1,4 +1,3 @@
-import asyncio
 import io
 import uuid as uuid_pkg
 
@@ -19,7 +18,6 @@ from app.services.deep_learning import (
     get_training_history_service,
     model_save_service,
     model_validate_service,
-    run_code_service,
     update_training_config_service,
 )
 from app.shared.logging_config import get_logger
@@ -83,17 +81,6 @@ def get_code(request: ModelNameRequest, db: Session = Depends(get_db)):
             headers={"Content-Disposition": f"attachment; filename={result['file_name']}"},
         )
     return JSONResponse(status_code=status_code, content=result)
-
-
-@router.post("/model/run")
-async def run_model(request: ModelNameRequest, db: Session = Depends(get_db)):
-    """Train a saved model in a background thread and stream progress via Socket.IO."""
-    logger.info("Starting model training: model_name=%s", request.model_name)
-    loop = asyncio.get_running_loop()
-    body, status_code = await asyncio.to_thread(
-        run_code_service, db, model_name=request.model_name, project_id=request.project_id, loop=loop
-    )
-    return JSONResponse(status_code=status_code, content=body)
 
 
 @router.get("/model/{model_name}/graph")

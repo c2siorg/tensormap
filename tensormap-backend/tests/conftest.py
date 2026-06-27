@@ -83,6 +83,30 @@ def db_session(test_db_url: str) -> Generator[Session, None, None]:
 
 
 @pytest.fixture(scope="function")
+def training_session_factory(monkeypatch) -> Generator:
+    """A session factory over an isolated in-memory DB for training callbacks.
+
+    Training callbacks and background workers open their own sessions via
+    ``training_service.make_session`` (which reads the module-level engine).
+    This fixture points that engine at a fresh in-memory SQLite DB so callback
+    and service tests share one database without touching the app engine.
+    """
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    SQLModel.metadata.create_all(engine)
+    monkeypatch.setattr("app.services.training_service.engine", engine)
+
+    def factory() -> Session:
+        return Session(engine)
+
+    yield factory
+    engine.dispose()
+
+
+@pytest.fixture(scope="function")
 def client(db_session: Session) -> Generator[TestClient, None, None]:
     """
     Provide a test HTTP client for testing FastAPI endpoints.

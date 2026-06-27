@@ -55,6 +55,9 @@ packages = ["app"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+markers = [
+    "slow: end-to-end tests that train a real Keras model (deselect with '-m \"not slow\"')",
+]
 
 [build-system]
 requires = ["hatchling"]

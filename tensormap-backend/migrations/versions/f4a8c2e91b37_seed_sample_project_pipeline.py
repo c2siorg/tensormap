@@ -29,7 +29,7 @@ FILE_UUID = "00000000-0000-4000-a000-000000000002"
 # File paths (relative to tensormap-backend/, where alembic runs)
 DATA_DIR = "./data"
 MODEL_DIR = "./templates/json-model"
-SOURCE_CSV = os.path.join(DATA_DIR, "test_dataset.csv")
+SOURCE_CSV = os.path.join(DATA_DIR, "sample_data.csv")
 TARGET_CSV = os.path.join(DATA_DIR, "iris_sample.csv")
 MODEL_JSON_PATH = os.path.join(MODEL_DIR, "iris-classifier.json")
 

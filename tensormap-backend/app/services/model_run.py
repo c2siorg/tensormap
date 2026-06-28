@@ -229,6 +229,9 @@ def _prepare_training_data(features, target_field, training_split):
 
     X = features.drop(target_field, axis=1)
     y = features[target_field]
+    # Encode string labels to integers for categorical targets
+    if not pd.api.types.is_numeric_dtype(y):
+        y = pd.Categorical(y).codes
 
     split_index = int(len(X) * float(training_split) / 100)
     return X[:split_index], y[:split_index], X[split_index:], y[split_index:]

@@ -67,6 +67,7 @@ export const getCovMatrix = async (file_id) =>
       if (resp.data.success === true) {
         return resp.data.data;
       }
+      throw new Error(resp.data.message || "Failed to fetch data metrics");
     })
     .catch((err) => {
       logger.error(err);

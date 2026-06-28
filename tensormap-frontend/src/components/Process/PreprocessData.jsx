@@ -33,7 +33,7 @@ function PreprocessData({ fileId, updateFileList }) {
         setData(Object.keys(response.data_types));
       } catch (e) {
         logger.error(e);
-        setFetchError("Failed to load column data");
+        setFetchError(e.message);
         setData(null);
       }
     };

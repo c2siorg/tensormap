@@ -27,12 +27,14 @@ export default function CreateProjectDialog({ open, onOpenChange, onCreated }) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [loading, setLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!name.trim()) return;
 
     setLoading(true);
+    setErrorMessage("");
     try {
       const resp = await createProject({
         name: name.trim(),
@@ -43,16 +45,34 @@ export default function CreateProjectDialog({ open, onOpenChange, onCreated }) {
         setName("");
         setDescription("");
         onOpenChange(false);
+      } else {
+        setErrorMessage(resp.data.message || "Failed to create project");
       }
     } catch (err) {
       logger.error("Failed to create project:", err);
+      const msg =
+        err.response?.data?.message ||
+        (Array.isArray(err.response?.data?.detail)
+          ? err.response.data.detail.map((d) => d.msg).join("; ")
+          : typeof err.response?.data?.detail === "string"
+            ? err.response.data.detail
+            : undefined) ||
+        err.message ||
+        "Failed to create project";
+      setErrorMessage(msg);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={(open) => {
+        if (!open) setErrorMessage("");
+        onOpenChange(open);
+      }}
+    >
       <DialogContent>
         <DialogHeader>
           <DialogTitle>New Project</DialogTitle>
@@ -85,8 +105,20 @@ export default function CreateProjectDialog({ open, onOpenChange, onCreated }) {
               />
             </div>
           </div>
+          {errorMessage && (
+            <div className="mb-4 text-sm text-destructive" role="alert">
+              {errorMessage}
+            </div>
+          )}
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setErrorMessage("");
+                onOpenChange(false);
+              }}
+            >
               Cancel
             </Button>
             <Button type="submit" disabled={loading || !name.trim()}>

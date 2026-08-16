@@ -151,3 +151,86 @@ def cancel_training_job(job: TrainingJob = Depends(get_job_or_404), db: Session 
         update_job_status(job.id, TrainingStatus.CANCELLED, db)
         logger.info("Cancellation requested for job %s", job.id)
     return Response(status_code=204)
+
+
+@router.get("/compare")
+def compare_jobs(
+    job_ids: str = Query(..., description="Comma-separated list of training job UUIDs"),
+    metric: str = Query("val_loss", description="Metric to compare"),
+    db: Session = Depends(get_db),
+) -> JSONResponse:
+    """Aggregates metrics for multiple jobs for overlay chart comparison.
+
+    Returns training metrics for up to 5 jobs, enabling multi-run comparison charts.
+
+    Args:
+        job_ids: Comma-separated list of training_job UUIDs (max 5)
+        metric: Metric to compare (default: val_loss)
+
+    Returns:
+        {
+            "success": true,
+            "message": "Comparison data retrieved",
+            "data": {
+                "jobs": [
+                    {
+                        "job_id": "abc",
+                        "hyperparams": {"optimizer": "adam", "lr": 0.001, ...},
+                        "metrics": [
+                            {"epoch": 1, "val_loss": 0.5, "val_accuracy": 0.8, ...},
+                            ...
+                        ]
+                    },
+                    ...
+                ]
+            }
+        }
+    """
+    from app.models.training_metric import TrainingMetric
+
+    # Parse and validate job_ids
+    job_id_list = [jid.strip() for jid in job_ids.split(",") if jid.strip()]
+    if not job_id_list:
+        raise AppException(400, "No job IDs provided")
+    if len(job_id_list) > 5:
+        raise AppException(400, "Maximum 5 jobs allowed for comparison")
+
+    # Verify all jobs exist
+    jobs = db.exec(select(TrainingJob).where(TrainingJob.id.in_(job_id_list))).all()
+    found_job_ids = {j.id for j in jobs}
+    missing = set(job_id_list) - found_job_ids
+    if missing:
+        raise AppException(404, f"Training jobs not found: {', '.join(missing)}")
+
+    # Fetch metrics for all jobs
+    result_jobs = []
+    for job in jobs:
+        metrics_rows = db.exec(
+            select(TrainingMetric)
+            .where(TrainingMetric.job_id == job.id)
+            .order_by(TrainingMetric.epoch)
+        ).all()
+
+        # Group metrics by epoch
+        metrics_by_epoch = {}
+        for row in metrics_rows:
+            epoch = row.epoch
+            if epoch not in metrics_by_epoch:
+                metrics_by_epoch[epoch] = {"epoch": epoch}
+            metrics_by_epoch[epoch][row.metric_name] = row.metric_value
+
+        metrics_list = [metrics_by_epoch[e] for e in sorted(metrics_by_epoch.keys())]
+
+        result_jobs.append({
+            "job_id": job.id,
+            "hyperparams": job.hyperparams,
+            "status": job.status.value,
+            "started_at": job.started_at.isoformat() if job.started_at else None,
+            "completed_at": job.completed_at.isoformat() if job.completed_at else None,
+            "metrics": metrics_list,
+        })
+
+    return JSONResponse(
+        status_code=200,
+        content=_envelope("Comparison data retrieved", {"jobs": result_jobs, "metric": metric}),
+    )

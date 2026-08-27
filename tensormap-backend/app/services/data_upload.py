@@ -18,6 +18,18 @@ from app.shared.logging_config import get_logger
 logger = get_logger(__name__)
 
 
+def refresh_data_file_columns_cache(db: Session, file: DataFile, file_path: str) -> None:
+    """Re-read a CSV header and row count from disk and persist them on the DataFile row."""
+    try:
+        df_header = pd.read_csv(file_path, nrows=0)
+        file.columns = list(df_header.columns)
+        file.row_count = sum(chunk.shape[0] for chunk in pd.read_csv(file_path, chunksize=10_000))
+        db.add(file)
+        db.commit()
+    except Exception:
+        logger.warning("Could not refresh columns/row_count for file %s (id=%s)", file_path, file.id)
+
+
 def _resp(status_code: int, success: bool, message: str, data: Any = None) -> tuple:
     """Build a standard API response tuple of (body_dict, status_code)."""
     return {"success": success, "message": message, "data": data}, status_code
@@ -111,28 +123,21 @@ def add_file_service(db: Session, file_wrapper: Any, project_id: uuid_pkg.UUID |
         db.commit()
         return _resp(201, True, "File saved successfully")
 
-    # Cache column names and row count at upload time (CSV only)
-    columns_list: list[str] | None = None
-    row_count: int | None = None
-    if file_type_db == "csv":
-        try:
-            df_header = pd.read_csv(file_path, nrows=0)
-            columns_list = list(df_header.columns)
-            row_count = sum(chunk.shape[0] for chunk in pd.read_csv(file_path, chunksize=10_000))
-        except (pd.errors.ParserError, OSError, UnicodeDecodeError, MemoryError):
-            logger.warning("Could not extract columns/row_count from %s", file_path)
-
     record = DataFile(
         id=file_id,
         file_name=file_name_db,
         file_type=file_type_db,
         disk_name=safe_filename,
         project_id=project_id,
-        columns=columns_list,
-        row_count=row_count,
+        columns=None,
+        row_count=None,
     )
     db.add(record)
-    db.commit()
+    db.flush()
+    if file_type_db == "csv":
+        refresh_data_file_columns_cache(db, record, file_path)
+    else:
+        db.commit()
     return _resp(201, True, "File saved successfully")
 
 

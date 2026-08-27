@@ -20,6 +20,7 @@ from app.services.data_process import (
     get_one_target_by_id_service,
     preprocess_data,
 )
+from app.services.data_upload import get_all_files_service
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -525,3 +526,61 @@ class TestPreprocessData:
 
         assert status == 422
         assert body["success"] is False
+
+    @patch("app.services.data_upload.get_settings")
+    @patch("app.services.data_process.get_settings")
+    def test_drop_column_refreshes_columns_cache(
+        self, mock_process_settings, mock_upload_settings, mock_db, file_id, tmp_path
+    ):
+        csv_path = tmp_path / "data.csv"
+        pd.DataFrame({"A": [1], "B": [2], "C": [3]}).to_csv(csv_path, index=False)
+
+        sample_file = MagicMock(spec=DataFile)
+        sample_file.id = file_id
+        sample_file.file_name = "data"
+        sample_file.file_type = "csv"
+        sample_file.disk_name = "data.csv"
+        sample_file.columns = ["A", "B", "C"]
+        sample_file.row_count = 1
+
+        mock_process_settings.return_value.upload_folder = str(tmp_path)
+        mock_upload_settings.return_value.upload_folder = str(tmp_path)
+        mock_db.exec.return_value.first.return_value = sample_file
+
+        t = MagicMock()
+        t.transformation = "Drop Column"
+        t.feature = "C"
+
+        body, status = preprocess_data(mock_db, file_id, [t])
+
+        assert status == 200
+        assert body["success"] is True
+        assert sample_file.columns == ["A", "B"]
+        assert "C" not in sample_file.columns
+
+        mock_db.exec.side_effect = [
+            MagicMock(one=MagicMock(return_value=1)),
+            MagicMock(all=MagicMock(return_value=[sample_file])),
+        ]
+        list_body, list_status = get_all_files_service(mock_db)
+
+        assert list_status == 200
+        assert list_body["data"][0]["fields"] == ["A", "B"]
+        assert "C" not in list_body["data"][0]["fields"]
+
+    @patch("app.services.data_process.get_settings")
+    def test_validation_error_does_not_refresh_columns_cache(
+        self, mock_settings, mock_db, file_id, sample_file, classification_csv
+    ):
+        mock_settings.return_value.upload_folder = str(classification_csv)
+        mock_db.exec.return_value.first.return_value = sample_file
+        sample_file.columns = ["sepal_length", "sepal_width", "species"]
+
+        t = MagicMock()
+        t.transformation = "Drop Column"
+        t.feature = "nonexistent_column"
+
+        body, status = preprocess_data(mock_db, file_id, [t])
+
+        assert status == 422
+        assert sample_file.columns == ["sepal_length", "sepal_width", "species"]

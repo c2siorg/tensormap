@@ -13,6 +13,7 @@ from sqlmodel import Session, select
 
 from app.config import get_settings
 from app.models import DataFile, DataProcess
+from app.services.data_upload import refresh_data_file_columns_cache
 from app.shared.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -423,6 +424,7 @@ def preprocess_data(db: Session, file_id: uuid_pkg.UUID, transformations: list) 
         finally:
             with contextlib.suppress(OSError):
                 os.remove(tmp_path)
+        refresh_data_file_columns_cache(db, file, file_path)
         return _resp(200, True, "Dataset preprocessed successfully")
     except ValueError as e:
         return _resp(422, False, str(e))

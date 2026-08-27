@@ -10,6 +10,7 @@ from app.services.data_upload import (
     add_file_service,
     delete_one_file_by_id_service,
     get_all_files_service,
+    refresh_data_file_columns_cache,
 )
 
 
@@ -171,7 +172,8 @@ class TestAddFileService:
 
         assert status == 201
         assert body["success"] is True
-        db.add.assert_called_once()
+        assert db.add.call_count == 2
+        db.flush.assert_called_once()
         db.commit.assert_called_once()
 
     def test_zip_happy_path_creates_db_record_and_image_properties(self, tmp_path):
@@ -333,3 +335,41 @@ class TestGetAllFilesService:
         assert status == 200
         assert body["data"] == []
         assert body["pagination"]["total"] == 0
+
+
+class TestRefreshDataFileColumnsCache:
+    def test_updates_columns_and_row_count(self, tmp_path):
+        csv_path = tmp_path / "data.csv"
+        pd.DataFrame({"A": [1, 2], "B": [3, 4]}).to_csv(csv_path, index=False)
+
+        db = MagicMock()
+        file = MagicMock(spec=DataFile)
+        file.id = uuid.uuid4()
+        file.columns = ["A", "B", "C"]
+        file.row_count = 1
+
+        refresh_data_file_columns_cache(db, file, str(csv_path))
+
+        assert file.columns == ["A", "B"]
+        assert file.row_count == 2
+        db.add.assert_called_once_with(file)
+        db.commit.assert_called_once()
+
+    @patch("app.services.data_upload.pd.read_csv")
+    def test_parser_error_leaves_cache_unchanged(self, mock_read_csv, tmp_path):
+        csv_path = tmp_path / "data.csv"
+        pd.DataFrame({"A": [1]}).to_csv(csv_path, index=False)
+
+        db = MagicMock()
+        file = MagicMock(spec=DataFile)
+        file.id = uuid.uuid4()
+        file.columns = ["A", "B", "C"]
+        file.row_count = 1
+        mock_read_csv.side_effect = pd.errors.ParserError("bad csv")
+
+        refresh_data_file_columns_cache(db, file, str(csv_path))
+
+        assert file.columns == ["A", "B", "C"]
+        assert file.row_count == 1
+        db.add.assert_not_called()
+        db.commit.assert_not_called()

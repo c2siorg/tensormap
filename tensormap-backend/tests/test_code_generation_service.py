@@ -83,6 +83,20 @@ class TestMapTemplate:
         result = _map_template(ProblemType.IMAGE_CLASSIFICATION)
         assert result == CODE_TEMPLATE_FOLDER + "simple-image-classification.py"
 
+    def test_none_raises_descriptive_error(self):
+        with pytest.raises(ValueError, match="Unsupported problem type: None") as exc_info:
+            _map_template(None)
+
+        assert "CLASSIFICATION (1)" in str(exc_info.value)
+        assert "REGRESSION (2)" in str(exc_info.value)
+        assert "IMAGE_CLASSIFICATION (3)" in str(exc_info.value)
+
+    def test_unknown_int_raises_descriptive_error(self):
+        with pytest.raises(ValueError, match="Unsupported problem type: 99") as exc_info:
+            _map_template(99)
+
+        assert "Supported problem types are:" in str(exc_info.value)
+
 
 # ---------------------------------------------------------------------------
 # generate_code — happy paths

@@ -75,13 +75,18 @@ def generate_code(model_name: str, db: Session) -> str:
     return template.render(data=data)
 
 
-def _map_template(problem_type_id: int) -> str:
+def _map_template(problem_type_id: int | None) -> str:
     """Map a ProblemType enum value to its Jinja2 template path."""
     options = {
         ProblemType.CLASSIFICATION: CODE_TEMPLATE_FOLDER + "multi-class-all-float-classification-csv.py",
         ProblemType.REGRESSION: CODE_TEMPLATE_FOLDER + "linear-regression-all-float.py",
         ProblemType.IMAGE_CLASSIFICATION: CODE_TEMPLATE_FOLDER + "simple-image-classification.py",
     }
+    if problem_type_id not in options:
+        supported = ", ".join(f"{t.name} ({t.value})" for t in ProblemType)
+        raise ValueError(
+            f"Unsupported problem type: {problem_type_id!r}. Supported problem types are: {supported}"
+        )
     return options[problem_type_id]
 
 

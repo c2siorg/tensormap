@@ -204,6 +204,30 @@ describe("Helpers", () => {
       expect(unitsError?.message).toContain(">=");
     });
 
+    it.each([0, -5])("catches invalid input shape value %s", (shape) => {
+      const modelData = {
+        nodes: [
+          {
+            id: "node-1",
+            type: "genericlayer",
+            data: {
+              layerType: "input",
+              params: { shape },
+            },
+          },
+        ],
+        edges: [],
+      };
+
+      const result = canSaveModel("test-model", modelData, mockRegistryData);
+
+      expect(result.valid).toBe(false);
+      const shapeError = result.errors.find((e) => e.field === "shape");
+      expect(shapeError).toBeDefined();
+      expect(shapeError?.nodeId).toBe("node-1");
+      expect(shapeError?.message).toContain(">=");
+    });
+
     it("catches empty model name", () => {
       const modelData = {
         nodes: [

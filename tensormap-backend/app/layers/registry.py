@@ -115,6 +115,7 @@ LAYER_REGISTRY: dict[str, LayerSpec] = {
             "shape": ParamSpec(
                 name="shape",
                 type=ParamType.INT,
+                min=1,
                 required=True,
                 description="Input dimensions e.g. 784 for flattened 28x28 images",
             )

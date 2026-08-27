@@ -124,6 +124,11 @@ class TestLayerRegistry:
         with pytest.raises(KeyError, match="Unknown layer type: nonexistent"):
             get_layer_spec("nonexistent")
 
+    def test_input_shape_has_min_constraint(self) -> None:
+        """Verify that the input layer's shape param has min=1."""
+        shape_spec = LAYER_REGISTRY["input"].params["shape"]
+        assert shape_spec.min == 1
+
 
 class TestIRSchema:
     """Tests for the IR schema Pydantic models and validation."""

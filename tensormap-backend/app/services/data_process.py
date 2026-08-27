@@ -13,6 +13,7 @@ from sqlmodel import Session, select
 
 from app.config import get_settings
 from app.models import DataFile, DataProcess
+from app.shared.csv_columns import read_csv_columns
 from app.shared.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -423,6 +424,21 @@ def preprocess_data(db: Session, file_id: uuid_pkg.UUID, transformations: list) 
         finally:
             with contextlib.suppress(OSError):
                 os.remove(tmp_path)
+
+        # Refresh the columns cache so get_all_files_service does not keep
+        # serving the pre-transform header. A read failure here must not turn
+        # this already-successful preprocess into an error response.
+        refreshed_columns = read_csv_columns(file_path)
+        if refreshed_columns is None:
+            logger.warning(
+                "Could not refresh columns cache for %s (id=%s) after preprocessing",
+                file.file_name,
+                file.id,
+            )
+        else:
+            file.columns = refreshed_columns
+            db.add(file)
+            db.commit()
         return _resp(200, True, "Dataset preprocessed successfully")
     except ValueError as e:
         return _resp(422, False, str(e))

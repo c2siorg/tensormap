@@ -20,6 +20,7 @@ from app.services.data_process import (
     get_one_target_by_id_service,
     preprocess_data,
 )
+from app.services.data_upload import get_all_files_service
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -471,6 +472,40 @@ class TestPreprocessData:
         assert status == 200
         df = pd.read_csv(classification_csv / "iris.csv")
         assert "species" not in df.columns
+
+    @patch("app.services.data_upload.get_settings")
+    @patch("app.services.data_process.get_settings")
+    def test_drop_column_refreshes_the_columns_cache(
+        self, mock_settings, mock_upload_settings, mock_db, file_id, sample_file, classification_csv
+    ):
+        """A transformation that changes the header must not leave
+        DataFile.columns (and therefore the file-list response) describing
+        the pre-transform file (#119)."""
+        mock_settings.return_value.upload_folder = str(classification_csv)
+        mock_upload_settings.return_value.upload_folder = str(classification_csv)
+        sample_file.columns = ["sepal_length", "sepal_width", "species"]
+        sample_file.row_count = 4
+        mock_db.exec.return_value.first.return_value = sample_file
+
+        t = MagicMock()
+        t.transformation = "Drop Column"
+        t.feature = "species"
+
+        body, status = preprocess_data(mock_db, file_id, [t])
+
+        assert status == 200
+        # The cache on the DataFile row itself is refreshed...
+        assert sample_file.columns == ["sepal_length", "sepal_width"]
+
+        # ...and get_all_files_service reports it, not the stale cache.
+        mock_db.exec.side_effect = [
+            MagicMock(one=MagicMock(return_value=1)),
+            MagicMock(all=MagicMock(return_value=[sample_file])),
+        ]
+        list_body, list_status = get_all_files_service(mock_db)
+
+        assert list_status == 200
+        assert list_body["data"][0]["fields"] == ["sepal_length", "sepal_width"]
 
     @patch("app.services.data_process.get_settings")
     def test_categorical_to_numerical(self, mock_settings, mock_db, file_id, sample_file, classification_csv):

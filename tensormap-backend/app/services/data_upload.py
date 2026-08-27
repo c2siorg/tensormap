@@ -13,6 +13,7 @@ from werkzeug.utils import secure_filename
 
 from app.config import get_settings
 from app.models import DataFile, ImageProperties, ModelBasic
+from app.shared.csv_columns import read_csv_columns
 from app.shared.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -115,12 +116,14 @@ def add_file_service(db: Session, file_wrapper: Any, project_id: uuid_pkg.UUID |
     columns_list: list[str] | None = None
     row_count: int | None = None
     if file_type_db == "csv":
-        try:
-            df_header = pd.read_csv(file_path, nrows=0)
-            columns_list = list(df_header.columns)
-            row_count = sum(chunk.shape[0] for chunk in pd.read_csv(file_path, chunksize=10_000))
-        except (pd.errors.ParserError, OSError, UnicodeDecodeError, MemoryError):
-            logger.warning("Could not extract columns/row_count from %s", file_path)
+        columns_list = read_csv_columns(file_path)
+        if columns_list is None:
+            logger.warning("Could not extract columns from %s", file_path)
+        else:
+            try:
+                row_count = sum(chunk.shape[0] for chunk in pd.read_csv(file_path, chunksize=10_000))
+            except (pd.errors.ParserError, OSError, UnicodeDecodeError, MemoryError):
+                logger.warning("Could not extract row_count from %s", file_path)
 
     record = DataFile(
         id=file_id,

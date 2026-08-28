@@ -176,6 +176,32 @@ class TestAddFileService:
         db.flush.assert_called_once()
         db.commit.assert_called_once()
 
+    def test_csv_cache_failure_still_commits_db_record(self, tmp_path):
+        db = MagicMock()
+        fw = MagicMock()
+        fw.filename = "broken.csv"
+        fw.file.seek = MagicMock()
+        fw.file.tell = MagicMock(return_value=100)
+        fw.save = MagicMock(side_effect=lambda p: None)
+
+        with (
+            patch("app.services.data_upload.get_settings") as ms,
+            patch("app.services.data_upload.os.makedirs"),
+            patch(
+                "app.services.data_upload.pd.read_csv",
+                side_effect=pd.errors.ParserError("bad csv"),
+            ),
+        ):
+            ms.return_value.max_content_length = 200 * 1024 * 1024
+            ms.return_value.upload_folder = str(tmp_path)
+            body, status = add_file_service(db, fw)
+
+        assert status == 201
+        assert body["success"] is True
+        db.add.assert_called_once()
+        db.flush.assert_called_once()
+        db.commit.assert_called_once()
+
     def test_zip_happy_path_creates_db_record_and_image_properties(self, tmp_path):
         db = MagicMock()
         fw = MagicMock()
@@ -367,9 +393,23 @@ class TestRefreshDataFileColumnsCache:
         file.row_count = 1
         mock_read_csv.side_effect = pd.errors.ParserError("bad csv")
 
-        refresh_data_file_columns_cache(db, file, str(csv_path))
+        assert refresh_data_file_columns_cache(db, file, str(csv_path)) is False
 
         assert file.columns == ["A", "B", "C"]
         assert file.row_count == 1
         db.add.assert_not_called()
         db.commit.assert_not_called()
+
+    def test_commit_failure_rolls_back(self, tmp_path):
+        csv_path = tmp_path / "data.csv"
+        pd.DataFrame({"A": [1]}).to_csv(csv_path, index=False)
+
+        db = MagicMock()
+        db.commit.side_effect = SQLAlchemyError("DB commit failed")
+        file = MagicMock(spec=DataFile)
+        file.id = uuid.uuid4()
+
+        with pytest.raises(SQLAlchemyError, match="DB commit failed"):
+            refresh_data_file_columns_cache(db, file, str(csv_path))
+
+        db.rollback.assert_called_once()

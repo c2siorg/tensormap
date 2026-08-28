@@ -18,16 +18,34 @@ from app.shared.logging_config import get_logger
 logger = get_logger(__name__)
 
 
-def refresh_data_file_columns_cache(db: Session, file: DataFile, file_path: str) -> None:
+def refresh_data_file_columns_cache(db: Session, file: DataFile, file_path: str) -> bool:
     """Re-read a CSV header and row count from disk and persist them on the DataFile row."""
     try:
         df_header = pd.read_csv(file_path, nrows=0)
-        file.columns = list(df_header.columns)
-        file.row_count = sum(chunk.shape[0] for chunk in pd.read_csv(file_path, chunksize=10_000))
+        columns = list(df_header.columns)
+        row_count = sum(chunk.shape[0] for chunk in pd.read_csv(file_path, chunksize=10_000))
+    except (pd.errors.ParserError, OSError, UnicodeDecodeError, MemoryError, AttributeError):
+        logger.warning(
+            "Could not refresh columns/row_count for file %s (id=%s)",
+            file_path,
+            file.id,
+        )
+        return False
+
+    file.columns = columns
+    file.row_count = row_count
+    try:
         db.add(file)
         db.commit()
-    except Exception:
-        logger.warning("Could not refresh columns/row_count for file %s (id=%s)", file_path, file.id)
+    except SQLAlchemyError:
+        db.rollback()
+        logger.exception(
+            "Could not persist columns/row_count for file %s (id=%s)",
+            file_path,
+            file.id,
+        )
+        raise
+    return True
 
 
 def _resp(status_code: int, success: bool, message: str, data: Any = None) -> tuple:
@@ -135,7 +153,16 @@ def add_file_service(db: Session, file_wrapper: Any, project_id: uuid_pkg.UUID |
     db.add(record)
     db.flush()
     if file_type_db == "csv":
-        refresh_data_file_columns_cache(db, record, file_path)
+        if not refresh_data_file_columns_cache(db, record, file_path):
+            try:
+                # Keep the uploaded record when only cache extraction fails;
+                # the list endpoint can retry its lazy backfill later.
+                db.commit()
+            except SQLAlchemyError:
+                db.rollback()
+                with contextlib.suppress(OSError):
+                    os.remove(file_path)
+                raise
     else:
         db.commit()
     return _resp(201, True, "File saved successfully")

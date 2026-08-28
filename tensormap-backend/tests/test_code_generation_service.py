@@ -83,6 +83,14 @@ class TestMapTemplate:
         result = _map_template(ProblemType.IMAGE_CLASSIFICATION)
         assert result == CODE_TEMPLATE_FOLDER + "simple-image-classification.py"
 
+    def test_none_model_type_raises_value_error_naming_it(self):
+        with pytest.raises(ValueError, match="Unknown model type: None"):
+            _map_template(None)
+
+    def test_unrecognised_model_type_raises_value_error_naming_it(self):
+        with pytest.raises(ValueError, match="Unknown model type: 99"):
+            _map_template(99)
+
 
 # ---------------------------------------------------------------------------
 # generate_code — happy paths

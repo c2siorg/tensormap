@@ -65,6 +65,15 @@ def model_generation(model_params: dict) -> dict:
             visited.add(target_id)
             queue.append(target_id)
 
+            # An edge may reference a target node that does not exist on the
+            # canvas. Reject it with a clear message instead of crashing with a
+            # bare KeyError on the lookup below.
+            if target_id not in nodes_by_id:
+                raise ValueError(
+                    f"Edge {current_id} -> {target_id} references a node that does not exist in the graph. "
+                    "Remove this edge from the canvas."
+                )
+
             source_tensors = [keras_tensors[src] for src in all_sources]
             if len(source_tensors) > 1:
                 input_tensor = tf.keras.layers.Concatenate(axis=-1)(source_tensors)

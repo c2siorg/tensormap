@@ -113,6 +113,13 @@ class TensorFlowGenerator:
                 visited.add(target_id)
                 queue.append(target_id)
 
+                # An edge may reference a target node that does not exist in the
+                # graph. Reject it with a clear error instead of a bare KeyError.
+                if target_id not in nodes_by_id:
+                    raise TensorFlowGeneratorError(
+                        f"Edge {current_id} -> {target_id} references a node that does not exist in the graph"
+                    )
+
                 node = nodes_by_id[target_id]
 
                 # Gather input tensors

@@ -13,7 +13,7 @@ Marked with @pytest.mark.integration for separate CI runs.
 
 import time
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlmodel import Session
@@ -336,14 +336,18 @@ def test_training_jobs_list_endpoint(client, db_session: Session):
     db_session.commit()
     db_session.refresh(model)  # Refresh to get auto-generated ID
 
-    # Create multiple jobs
+    # Create multiple jobs with distinct, ascending started_at values so the
+    # "most recently started first" ordering is deterministic. Using identical
+    # timestamps made this assertion flaky (identical started_at values have no
+    # guaranteed DB order without a secondary sort key).
+    base_time = datetime.now(UTC)
     jobs = []
     for i in range(3):
         job = TrainingJob(
             model_id=model.id,
             status=TrainingStatus.COMPLETED if i < 2 else TrainingStatus.RUNNING,
             hyperparams={"epochs": 5, "batch_size": 32},
-            started_at=datetime.now(UTC),
+            started_at=base_time + timedelta(seconds=i),
         )
         jobs.append(job)
         db_session.add(job)
@@ -358,5 +362,5 @@ def test_training_jobs_list_endpoint(client, db_session: Session):
     assert len(jobs_data) == 3
 
     # Verify sorted by started_at DESC
-    # Most recent should be first
-    assert jobs_data[0]["job_id"] == jobs[-1].id
+    # The job started last (i == 2) should be first
+    assert [j["job_id"] for j in jobs_data] == [jobs[2].id, jobs[1].id, jobs[0].id]

@@ -561,6 +561,36 @@ class TestGraphConnectivityValidation:
         assert len(model.inputs) == 2
         assert len(model.outputs) == 1
 
+    def test_edge_to_nonexistent_node_raises_value_error_not_key_error(self):
+        """An edge targeting a node not in the graph must raise ValueError
+        (not KeyError) so the service can return a clean 400 response."""
+        params = {
+            "nodes": [
+                _input_node("x", [10]),
+                _dense_node("out", 1, "sigmoid"),
+            ],
+            "edges": [{"source": "x", "target": "ghost"}],
+        }
+        with pytest.raises(ValueError, match="does not exist"):
+            model_generation(params)
+
+    def test_ir_generator_edge_to_nonexistent_node_raises_descriptive_error(self):
+        """The IR generator must reject edges to unknown nodes with a clear
+        error rather than a bare KeyError."""
+        from app.generators.tensorflow_generator import TensorFlowGenerator, TensorFlowGeneratorError
+        from app.ir.translator import reactflow_to_ir
+
+        canvas = {
+            "nodes": [
+                {"id": "n1", "type": "input", "data": {"params": {"shape": 10}}},
+                {"id": "n2", "type": "dense", "data": {"params": {"units": 5}}},
+            ],
+            "edges": [{"source": "n1", "target": "ghost"}],
+        }
+        graph = reactflow_to_ir(canvas)
+        with pytest.raises(TensorFlowGeneratorError, match="does not exist"):
+            TensorFlowGenerator().build_model(graph)
+
 
 # ===================================================================
 # Tests for the new registry-format frontend payload (type = layer key)

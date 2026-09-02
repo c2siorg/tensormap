@@ -75,6 +75,21 @@ def _extract_graph(payload: dict) -> dict | None:
     return payload
 
 
+def _blocking_ir_errors(graph_ir) -> list[str]:
+    """Return IR-graph validation messages that should block model saving.
+
+    Structural errors (cycles, edges to unknown nodes, invalid merge arity,
+    missing input) are surfaced early with clear messages instead of being
+    deferred to opaque Keras failures. Multi-input models are a supported
+    feature (both generators handle them), so the "multiple input nodes"
+    check is intentionally excluded.
+    """
+    from app.ir.schema import validate_ir_graph
+
+    errors = validate_ir_graph(graph_ir)
+    return [e.message for e in errors if "multiple input nodes" not in e.message]
+
+
 def _validate_graph_size(graph: dict | None) -> str | None:
     """Return an error message if the serialised graph exceeds the size limit, else None."""
     if graph is None:
@@ -138,6 +153,12 @@ def model_validate_service(db: Session, incoming: dict, project_id: uuid_pkg.UUI
         graph_ir = reactflow_to_ir(incoming["model"])
         graph_ir_data = graph_ir.model_dump()
         logger.debug("Successfully converted ReactFlow to IRGraph for model validation")
+
+        # Surface structural graph errors early with clear messages instead of
+        # opaque Keras failures later on.
+        blocking = _blocking_ir_errors(graph_ir)
+        if blocking:
+            return _resp(400, False, "; ".join(blocking))
     except Exception as e:
         logger.warning("Failed to convert ReactFlow to IRGraph (falling back to legacy generator): %s", str(e))
 
@@ -160,7 +181,7 @@ def model_validate_service(db: Session, incoming: dict, project_id: uuid_pkg.UUI
     if model_generated is None:
         try:
             model_generated = model_generation(model_params=incoming["model"])
-        except ValueError as e:
+        except (ValueError, KeyError, TypeError) as e:
             return _resp(400, False, str(e))
 
     try:
@@ -263,6 +284,12 @@ def model_save_service(db: Session, incoming: dict, model_name: str, project_id:
         graph_ir = reactflow_to_ir(incoming)
         graph_ir_data = graph_ir.model_dump()
         logger.debug("Successfully converted ReactFlow to IRGraph for model save")
+
+        # Surface structural graph errors early with clear messages instead of
+        # opaque Keras failures later on.
+        blocking = _blocking_ir_errors(graph_ir)
+        if blocking:
+            return _resp(400, False, "; ".join(blocking))
     except Exception as e:
         logger.warning("Failed to convert ReactFlow to IRGraph (falling back to legacy generator): %s", str(e))
 
@@ -285,7 +312,7 @@ def model_save_service(db: Session, incoming: dict, model_name: str, project_id:
     if model_generated is None:
         try:
             model_generated = model_generation(model_params=incoming)
-        except ValueError as e:
+        except (ValueError, KeyError, TypeError) as e:
             return _resp(400, False, str(e))
 
     try:

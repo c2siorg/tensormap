@@ -700,6 +700,8 @@ def _estimate_param_count(graph_ir: dict) -> int:
             if isinstance(shape, list) and len(shape) > 0:
                 # For input, store the last dimension
                 prev_shape = shape[-1] if shape[-1] is not None else 128  # default guess
+            elif isinstance(shape, int):
+                prev_shape = shape
 
         elif layer_type == "dense":
             units = node_params.get("units", 0)

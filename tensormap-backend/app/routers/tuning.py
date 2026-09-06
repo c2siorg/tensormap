@@ -57,6 +57,10 @@ async def start_tuning(
     else:
         n_trials = body.max_trials
 
+    # Validate the whole search space so malformed/misconfigured inputs return
+    # a clear 400 instead of silently failing or leaving the session stuck.
+    tuning_service.validate_search_space(body.search_space, strategy)
+
     # Create the tuning session.
     session_obj = TuningSession(
         model_id=model.id,

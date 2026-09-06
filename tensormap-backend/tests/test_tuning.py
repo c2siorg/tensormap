@@ -216,6 +216,97 @@ class TestRandomSampling:
             assert combo["optimizer"] in ["adam", "sgd"]
 
 
+class TestSearchSpaceValidation:
+    """Tests for validate_search_space."""
+
+    def test_valid_list_and_dict_specs_pass(self):
+        """Well-formed list and dict specs are accepted."""
+        svc = TuningService()
+        space = {
+            "optimizer": ["adam", "sgd"],
+            "learning_rate": {"type": "log_uniform", "min": 1e-5, "max": 1e-2},
+            "dropout": {"type": "uniform", "min": 0.1, "max": 0.5},
+            "batch_size": [16, 32],
+        }
+        svc.validate_search_space(space, TuningStrategy.RANDOM)
+        svc.validate_search_space(space, TuningStrategy.GRID)
+
+    def test_empty_search_space_rejected(self):
+        """Empty search space → 400."""
+        from app.exceptions import AppException
+
+        svc = TuningService()
+        with pytest.raises(AppException) as exc_info:
+            svc.validate_search_space({}, TuningStrategy.RANDOM)
+        assert exc_info.value.status_code == 400
+        assert "non-empty" in str(exc_info.value.detail)
+
+    def test_empty_list_value_rejected(self):
+        """Empty list value → 400 (would otherwise produce zero trials)."""
+        from app.exceptions import AppException
+
+        svc = TuningService()
+        space = {"batch_size": [16, 32], "epochs": []}
+        with pytest.raises(AppException) as exc_info:
+            svc.validate_search_space(space, TuningStrategy.GRID)
+        assert exc_info.value.status_code == 400
+        assert "non-empty list" in str(exc_info.value.detail)
+
+    def test_missing_max_rejected(self):
+        """Dict spec without 'max' → 400 (would otherwise crash the thread)."""
+        from app.exceptions import AppException
+
+        svc = TuningService()
+        space = {"learning_rate": {"type": "uniform", "min": 0.1}}
+        with pytest.raises(AppException) as exc_info:
+            svc.validate_search_space(space, TuningStrategy.RANDOM)
+        assert exc_info.value.status_code == 400
+        assert "numeric 'min' and 'max'" in str(exc_info.value.detail)
+
+    def test_non_numeric_bounds_rejected(self):
+        """Non-numeric min/max → 400."""
+        from app.exceptions import AppException
+
+        svc = TuningService()
+        space = {"learning_rate": {"type": "uniform", "min": "bad", "max": 1.0}}
+        with pytest.raises(AppException) as exc_info:
+            svc.validate_search_space(space, TuningStrategy.RANDOM)
+        assert exc_info.value.status_code == 400
+
+    def test_min_ge_max_rejected(self):
+        """min >= max → 400."""
+        from app.exceptions import AppException
+
+        svc = TuningService()
+        space = {"dropout": {"type": "uniform", "min": 0.5, "max": 0.1}}
+        with pytest.raises(AppException) as exc_info:
+            svc.validate_search_space(space, TuningStrategy.RANDOM)
+        assert exc_info.value.status_code == 400
+        assert "'min' < 'max'" in str(exc_info.value.detail)
+
+    def test_log_uniform_zero_min_rejected(self):
+        """log_uniform with min <= 0 → 400 (log(0) is undefined)."""
+        from app.exceptions import AppException
+
+        svc = TuningService()
+        space = {"learning_rate": {"type": "log_uniform", "min": 0, "max": 1e-2}}
+        with pytest.raises(AppException) as exc_info:
+            svc.validate_search_space(space, TuningStrategy.RANDOM)
+        assert exc_info.value.status_code == 400
+        assert "'min' > 0" in str(exc_info.value.detail)
+
+    def test_grid_requires_discrete_param(self):
+        """Grid search with only continuous params → 400."""
+        from app.exceptions import AppException
+
+        svc = TuningService()
+        space = {"learning_rate": {"type": "log_uniform", "min": 1e-5, "max": 1e-2}}
+        with pytest.raises(AppException) as exc_info:
+            svc.validate_search_space(space, TuningStrategy.GRID)
+        assert exc_info.value.status_code == 400
+        assert "at least one discrete" in str(exc_info.value.detail)
+
+
 # ---------------------------------------------------------------------------
 # HTTP endpoint tests
 # ---------------------------------------------------------------------------
@@ -307,6 +398,60 @@ class TestStartTuning:
                 "model_name": "bare",
                 "strategy": "random",
                 "search_space": {"optimizer": ["adam"]},
+            },
+        )
+        assert resp.status_code == 400
+
+    def test_empty_search_space_400(self, client, db_session):
+        """POST with an empty search_space returns 400 instead of a silent no-op."""
+        _seed_model(db_session, "tuning_model")
+        resp = client.post(
+            f"{BASE}/tuning/tuning_model",
+            json={
+                "model_name": "tuning_model",
+                "strategy": "random",
+                "search_space": {},
+                "max_trials": 5,
+            },
+        )
+        assert resp.status_code == 400
+        assert resp.json()["success"] is False
+
+    def test_empty_list_value_400(self, client, db_session):
+        """POST with an empty list value returns 400 instead of a zero-trial session."""
+        _seed_model(db_session, "tuning_model")
+        resp = client.post(
+            f"{BASE}/tuning/tuning_model",
+            json={
+                "model_name": "tuning_model",
+                "strategy": "grid",
+                "search_space": {"batch_size": [16, 32], "epochs": []},
+            },
+        )
+        assert resp.status_code == 400
+
+    def test_malformed_dict_spec_400(self, client, db_session):
+        """POST with a dict spec missing 'max' returns 400 instead of crashing the thread."""
+        _seed_model(db_session, "tuning_model")
+        resp = client.post(
+            f"{BASE}/tuning/tuning_model",
+            json={
+                "model_name": "tuning_model",
+                "strategy": "random",
+                "search_space": {"learning_rate": {"type": "uniform", "min": 0.1}},
+            },
+        )
+        assert resp.status_code == 400
+
+    def test_continuous_only_grid_400(self, client, db_session):
+        """POST grid search with only continuous params returns 400."""
+        _seed_model(db_session, "tuning_model")
+        resp = client.post(
+            f"{BASE}/tuning/tuning_model",
+            json={
+                "model_name": "tuning_model",
+                "strategy": "grid",
+                "search_space": {"learning_rate": {"type": "log_uniform", "min": 1e-5, "max": 1e-2}},
             },
         )
         assert resp.status_code == 400
@@ -565,3 +710,45 @@ class TestEstimateDuration:
         estimate = svc.estimate_session_duration(model.id, 10)
         # DEFAULT_TRIAL_ESTIMATE_SECONDS = 120, so 120 * 10 = 1200.
         assert estimate == 1200
+
+
+class TestRunTuningLoopHardeness:
+    """Tests for run_tuning_loop leaving sessions in a terminal state."""
+
+    def test_invalid_search_space_marks_session_failed(self, db_session, monkeypatch):
+        """A session whose search_space is malformed → FAILED, not stuck RUNNING.
+
+        Regression test: before hardening, ``sample_random_combination`` raised
+        KeyError inside the background thread with no handler, leaving the
+        session forever in ``RUNNING``.
+        """
+        from contextlib import contextmanager
+
+        @contextmanager
+        def _mock_session_cm():
+            yield db_session
+
+        monkeypatch.setattr("app.services.tuning_service.make_session", _mock_session_cm)
+        monkeypatch.setattr("app.services.tuning_service.TuningService._emit_progress", lambda *a, **k: None)
+
+        model = _seed_model(db_session, "tuning_model")
+        ts = TuningSession(
+            model_id=model.id,
+            strategy=TuningStrategy.RANDOM,
+            search_space={"learning_rate": {"type": "uniform", "min": 0.1}},
+            max_trials=10,
+            metric="val_accuracy",
+            direction="maximize",
+            total_trials=10,
+            status=TuningSessionStatus.PENDING,
+        )
+        db_session.add(ts)
+        db_session.commit()
+        db_session.refresh(ts)
+
+        svc = TuningService()
+        svc.run_tuning_loop(ts.id, "tuning_model", loop=None)
+
+        db_session.refresh(ts)
+        assert ts.status == TuningSessionStatus.FAILED
+        assert ts.completed_at is not None

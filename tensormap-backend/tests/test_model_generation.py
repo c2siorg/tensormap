@@ -590,3 +590,67 @@ class TestGraphConnectivityValidation:
         graph = reactflow_to_ir(canvas)
         with pytest.raises(TensorFlowGeneratorError, match="does not exist"):
             TensorFlowGenerator().build_model(graph)
+
+
+class TestServiceLayerIRValidation:
+    """Service-level regression tests for the _blocking_ir_errors gating.
+
+    model_validate_service / model_save_service must surface structural IR
+    errors (e.g. an edge referencing a node missing from the graph) as a
+    clean 400 response through the _blocking_ir_errors wiring - not fall
+    through to the legacy generator or an opaque Keras failure.
+    """
+
+    def _canvas_with_dangling_edge(self) -> dict:
+        return {
+            "nodes": [
+                {"id": "n1", "type": "input", "data": {"params": {"shape": 10}}},
+                {"id": "n2", "type": "dense", "data": {"params": {"units": 5}}},
+            ],
+            "edges": [{"source": "n1", "target": "ghost"}],
+        }
+
+    def test_model_validate_service_returns_400_on_dangling_edge(self):
+        """validate endpoint: a dangling edge must yield 400, not a 500 or a
+        Keras crash, via the IR validation gate."""
+        from unittest.mock import MagicMock
+
+        from app.services.deep_learning import model_validate_service
+
+        response, status = model_validate_service(MagicMock(), {"model": self._canvas_with_dangling_edge()})
+        assert status == 400
+        assert response["success"] is False
+        assert "non-existent" in response["message"] or "does not exist" in response["message"]
+
+    def test_model_save_service_returns_400_on_dangling_edge(self):
+        """save endpoint: a dangling edge must yield 400, not a 500 or a
+        Keras crash, via the IR validation gate."""
+        from unittest.mock import MagicMock
+
+        from app.services.deep_learning import model_save_service
+
+        response, status = model_save_service(MagicMock(), self._canvas_with_dangling_edge(), "dangling-edge-test")
+        assert status == 400
+        assert response["success"] is False
+        assert "non-existent" in response["message"] or "does not exist" in response["message"]
+
+    def test_multi_input_graph_is_not_blocked(self):
+        """The 'multiple input nodes' IR error is deliberately excluded from
+        the blocking gate - multi-input models are supported. The exclusion
+        must be keyed on the structured error code, not the message text."""
+        from app.ir.translator import reactflow_to_ir
+        from app.services.deep_learning import _blocking_ir_errors
+
+        canvas = {
+            "nodes": [
+                {"id": "in1", "type": "input", "data": {"params": {"shape": 10}}},
+                {"id": "in2", "type": "input", "data": {"params": {"shape": 5}}},
+                {"id": "out", "type": "dense", "data": {"params": {"units": 1}}},
+            ],
+            "edges": [
+                {"source": "in1", "target": "out"},
+                {"source": "in2", "target": "out"},
+            ],
+        }
+        graph = reactflow_to_ir(canvas)
+        assert _blocking_ir_errors(graph) == []

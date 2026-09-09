@@ -87,7 +87,7 @@ def _blocking_ir_errors(graph_ir) -> list[str]:
     from app.ir.schema import validate_ir_graph
 
     errors = validate_ir_graph(graph_ir)
-    return [e.message for e in errors if "multiple input nodes" not in e.message]
+    return [e.message for e in errors if e.code != "multiple_input_nodes"]
 
 
 def _validate_graph_size(graph: dict | None) -> str | None:
@@ -182,6 +182,7 @@ def model_validate_service(db: Session, incoming: dict, project_id: uuid_pkg.UUI
         try:
             model_generated = model_generation(model_params=incoming["model"])
         except (ValueError, KeyError, TypeError) as e:
+            logger.warning("Legacy model generation failed: %s", str(e))
             return _resp(400, False, str(e))
 
     try:
@@ -313,6 +314,7 @@ def model_save_service(db: Session, incoming: dict, model_name: str, project_id:
         try:
             model_generated = model_generation(model_params=incoming)
         except (ValueError, KeyError, TypeError) as e:
+            logger.warning("Legacy model generation failed: %s", str(e))
             return _resp(400, False, str(e))
 
     try:

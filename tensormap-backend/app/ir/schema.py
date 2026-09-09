@@ -299,14 +299,26 @@ class IRGraph(BaseModel):
 class IRValidationError(ValueError):
     """Custom exception for invalid IR graphs."""
 
-    def __init__(self, message: str, node_id: str | None = None, field_name: str | None = None):
+    def __init__(
+        self,
+        message: str,
+        node_id: str | None = None,
+        field_name: str | None = None,
+        code: str | None = None,
+    ):
         super().__init__(message)
         self.message = message
         self.node_id = node_id
         self.field_name = field_name
+        self.code = code
 
     def to_dict(self):
-        return {"message": self.message, "node_id": self.node_id, "field_name": self.field_name}
+        return {
+            "message": self.message,
+            "node_id": self.node_id,
+            "field_name": self.field_name,
+            "code": self.code,
+        }
 
 
 def validate_ir_graph(graph: IRGraph) -> list[IRValidationError]:
@@ -333,7 +345,12 @@ def validate_ir_graph(graph: IRGraph) -> list[IRValidationError]:
     if len(inputs) == 0:
         errors.append(IRValidationError(message="Graph must contain exactly one input node (layer_type='input')"))
     elif len(inputs) > 1:
-        errors.append(IRValidationError(message="Graph has multiple input nodes. Only one is allowed."))
+        errors.append(
+            IRValidationError(
+                message="Graph has multiple input nodes. Only one is allowed.",
+                code="multiple_input_nodes",
+            )
+        )
 
     # Build node ID set for reference checking
     node_ids = {node.id for node in graph.nodes}

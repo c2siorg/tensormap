@@ -560,3 +560,46 @@ class TestGraphConnectivityValidation:
         model = tf.keras.models.model_from_json(json.dumps(result))
         assert len(model.inputs) == 2
         assert len(model.outputs) == 1
+
+
+# ===================================================================
+# Tests for the new registry-format frontend payload (type = layer key)
+# ===================================================================
+
+
+class TestRegistryFormatPayload:
+    """The frontend generateModelJSON now emits registry layer keys (e.g.
+    ``"dense"``, ``"input"``) as the node ``type`` when the node has a
+    ``data.layerType``.  These tests verify the backend can still translate
+    and build such payloads through the IR path."""
+
+    def test_input_and_dense_registry_keys_build_through_ir(self):
+        from app.generators.tensorflow_generator import TensorFlowGenerator
+        from app.ir.translator import reactflow_to_ir
+
+        canvas = {
+            "nodes": [
+                {"id": "n1", "type": "input", "data": {"params": {"shape": 10}}},
+                {"id": "n2", "type": "dense", "data": {"params": {"units": 5, "activation": "relu"}}},
+            ],
+            "edges": [{"source": "n1", "target": "n2"}],
+        }
+        graph = reactflow_to_ir(canvas)
+        model = TensorFlowGenerator().build_model(graph)
+        assert model.input_shape == (None, 10)
+        assert model.output_shape == (None, 5)
+
+    def test_all_registry_layer_types_are_handled_by_translator(self):
+        """Every layer key in the registry must be accepted by reactflow_to_ir
+        when used as a node type — even if param validation fails later."""
+        from app.ir.translator import TranslationError, reactflow_to_ir
+        from app.layers.registry import LAYER_REGISTRY
+
+        for key in LAYER_REGISTRY:
+            canvas = {"nodes": [{"id": "n1", "type": key, "data": {"params": {}}}], "edges": []}
+            try:
+                reactflow_to_ir(canvas)
+            except TranslationError as e:
+                # Empty params may fail validation for required params; that is fine.
+                # The layer type itself must be recognised.
+                assert "Unknown layer type" not in str(e), f"Registry key '{key}' not accepted"

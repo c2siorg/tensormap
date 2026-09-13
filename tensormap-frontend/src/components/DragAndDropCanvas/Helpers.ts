@@ -269,7 +269,12 @@ function buildRegistryFromSpecs(): LayerRegistryResponse | null {
 export function generateModelJSON(modelData: ModelData) {
   const nodes = modelData.nodes.map((node) => ({
     id: node.id,
-    type: node.type,
+    // Registry-driven nodes (GenericLayerNode) carry the layer type on
+    // `data.layerType` (e.g. "dense", "input") while their ReactFlow `type`
+    // is the generic "genericlayer". The backend identifies each node by its
+    // `type`, so emit the layer type there; fall back to the legacy ReactFlow
+    // node type (custominput, customdense, ...) when it is absent.
+    type: node.data?.layerType || node.type,
     position: node.position,
     data: { params: node.data.params },
   }));

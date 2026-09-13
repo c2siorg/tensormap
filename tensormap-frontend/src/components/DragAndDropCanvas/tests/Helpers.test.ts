@@ -282,7 +282,7 @@ describe("Helpers", () => {
   });
 
   describe("generateModelJSON", () => {
-    it("strips visual properties", () => {
+    it("strips visual properties and uses layerType as node type", () => {
       const modelData = {
         nodes: [
           {
@@ -312,7 +312,8 @@ describe("Helpers", () => {
 
       expect(result.nodes[0]).toEqual({
         id: "node-1",
-        type: "genericlayer",
+        // type is taken from data.layerType, not the ReactFlow genericlayer
+        type: "dense",
         position: { x: 100, y: 200 },
         data: {
           params: { units: 64, activation: "relu" },
@@ -323,6 +324,53 @@ describe("Helpers", () => {
         source: "node-1",
         target: "node-2",
       });
+    });
+
+    it("falls back to node.type when layerType is absent (legacy nodes)", () => {
+      const result = generateModelJSON({
+        nodes: [
+          {
+            id: "n1",
+            type: "customdense",
+            position: { x: 0, y: 0 },
+            data: { params: { units: 32 } },
+          },
+        ],
+        edges: [],
+      });
+
+      expect(result.nodes[0].type).toBe("customdense");
+    });
+
+    it("preserves layerType on duplicated registry nodes (duplicate regression)", () => {
+      // Simulates a node produced by duplicateNode: same genericlayer type,
+      // copied params and label, and data.layerType carried over. If the
+      // duplicate loses layerType, generateModelJSON would emit the
+      // unrecognized "genericlayer" type and the save would fail with
+      // "Model has no input layer".
+      const result = generateModelJSON({
+        nodes: [
+          {
+            id: "orig",
+            type: "genericlayer",
+            position: { x: 0, y: 0 },
+            data: { layerType: "dense", params: { units: 32 } },
+          },
+          {
+            id: "copy",
+            type: "genericlayer",
+            position: { x: 50, y: 50 },
+            data: {
+              label: "Dense",
+              params: { units: 32 },
+              layerType: "dense", // must survive duplication
+            },
+          },
+        ],
+        edges: [],
+      });
+
+      expect(result.nodes[1].type).toBe("dense");
     });
   });
 });

@@ -335,9 +335,14 @@ def _zscore_standardize(df: pd.DataFrame, col: str, _params: dict | None) -> pd.
 
 def _log_transform(df: pd.DataFrame, col: str, _params: dict | None) -> pd.DataFrame:
     s = df[col]
-    invalid = int((s < -1).sum())
+    # log(1+x) is non-finite for x <= -1: at x == -1 it evaluates to -inf
+    # (log 0), so reject those values instead of silently corrupting the CSV.
+    invalid = int((s <= -1).sum())
     if invalid:
-        raise ValueError(f"Log Transform: {invalid} value(s) below -1 in column '{col}'")
+        raise ValueError(
+            f"Log Transform: {invalid} value(s) at or below -1 in column '{col}'. "
+            "log(1+x) requires every value to be greater than -1."
+        )
     df[col] = np.log1p(s)
     return df
 

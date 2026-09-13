@@ -117,6 +117,23 @@ class TestLogTransform:
         assert status_code == 422
         assert "below -1" in result["message"]
 
+    def test_rejects_value_of_exactly_negative_one(self):
+        # x == -1 makes log(1+x) == log(0) == -inf, which silently corrupts
+        # the dataset with infinite values (issue #408).
+        df = pd.DataFrame({"price": [1.0, -1.0, 3.0]})
+        result, status_code = _run(df, "Log Transform", "price")
+        assert status_code == 422
+        assert result["success"] is False
+        assert "-1" in result["message"]
+
+    def test_accepts_values_just_above_negative_one(self):
+        # The domain of log(1+x) is x > -1; values arbitrarily close to -1
+        # are finite and must keep working.
+        df = pd.DataFrame({"price": [-0.999, 0.0, 3.0]})
+        result_df = _run_df(df, "Log Transform", "price")
+        assert np.isfinite(result_df["price"]).all()
+        assert result_df["price"].iloc[0] == pytest.approx(np.log1p(-0.999))
+
 
 class TestFillMissingValues:
     def test_returns_200(self):

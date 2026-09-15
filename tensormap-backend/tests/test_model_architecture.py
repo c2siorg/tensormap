@@ -172,3 +172,29 @@ def test_estimate_param_count_embedding(db_session: Session):
     # Dense: 64 * 1 + 1 = 65
     # Total: 1,329,473
     assert data["param_count"] == 1329473
+
+
+def test_estimate_param_count_scalar_shape(db_session: Session):
+    """The IR schema stores input shape as a scalar int (e.g. 10), not a list.
+    The first Dense layer's weights must still be counted."""
+    graph_ir = {
+        "nodes": [
+            {"node_params": {"layer_type": "input", "shape": 10}},
+            {"node_params": {"layer_type": "dense", "units": 64}},
+            {"node_params": {"layer_type": "dense", "units": 32}},
+            {"node_params": {"layer_type": "dense", "units": 3}},
+        ]
+    }
+    model = ModelBasic(id=1, model_name="scalar_shape_model", graph_ir=graph_ir)
+    db_session.add(model)
+    db_session.commit()
+
+    response = client.get("/api/v1/model/architecture/1?include_stats=true")
+    assert response.status_code == 200
+
+    data = response.json()["data"]
+    # Input(10) -> Dense(64): 10*64 + 64 = 704
+    # Dense(64) -> Dense(32): 64*32 + 32 = 2080
+    # Dense(32) -> Dense(3): 32*3 + 3 = 99
+    # Total: 704 + 2080 + 99 = 2883
+    assert data["param_count"] == 2883

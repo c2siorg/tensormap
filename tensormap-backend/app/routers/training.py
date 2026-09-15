@@ -101,7 +101,9 @@ def list_training_jobs(
         raise AppException(404, "Model not found")
 
     jobs = db.exec(
-        select(TrainingJob).where(TrainingJob.model_id == model.id).order_by(TrainingJob.started_at.desc())
+        select(TrainingJob)
+        .where(TrainingJob.model_id == model.id)
+        .order_by(TrainingJob.started_at.desc(), TrainingJob.id.desc())
     ).all()
     data = [
         {

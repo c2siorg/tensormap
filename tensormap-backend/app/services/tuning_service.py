@@ -99,6 +99,61 @@ class TuningService:
                 params[key] = float(rng.uniform(spec["min"], spec["max"]))
         return params
 
+    def validate_search_space(self, search_space: dict, strategy: str) -> None:
+        """Validate a search space and raise ``AppException(400)`` if it is invalid.
+
+        Guards against silent failures:
+          - an empty search space or empty list values would otherwise produce a
+            zero-trial session that completes without doing any work;
+          - malformed dict specs (missing/invalid min/max) would otherwise crash
+            the background tuning thread, leaving the session stuck in ``RUNNING``;
+          - grid search only supports discrete (list) parameters, so a search space
+            with no list parameter would yield a single useless ``{}`` trial.
+        """
+        if not isinstance(search_space, dict) or not search_space:
+            raise AppException(400, "search_space must be a non-empty object")
+
+        has_discrete = False
+
+        for key, spec in search_space.items():
+            if isinstance(spec, list):
+                if not spec:
+                    raise AppException(
+                        400,
+                        f"search_space['{key}'] must be a non-empty list",
+                    )
+                has_discrete = True
+            elif isinstance(spec, dict) and spec.get("type") in ("uniform", "log_uniform"):
+                try:
+                    min_val = float(spec["min"])
+                    max_val = float(spec["max"])
+                except (KeyError, TypeError, ValueError):
+                    raise AppException(
+                        400,
+                        f"search_space['{key}'] must define numeric 'min' and 'max'",
+                    ) from None
+                if min_val >= max_val:
+                    raise AppException(
+                        400,
+                        f"search_space['{key}'] must have 'min' < 'max'",
+                    )
+                if spec.get("type") == "log_uniform" and min_val <= 0:
+                    raise AppException(
+                        400,
+                        f"search_space['{key}'] must have 'min' > 0 for log_uniform",
+                    )
+            else:
+                raise AppException(
+                    400,
+                    f"search_space['{key}'] must be a non-empty list or a 'uniform'/'log_uniform' spec dict",
+                )
+
+        if strategy == TuningStrategy.GRID and not has_discrete:
+            raise AppException(
+                400,
+                "Grid search requires at least one discrete (list) parameter",
+            )
+
     # ------------------------------------------------------------------
     # Trial execution
     # ------------------------------------------------------------------
@@ -264,6 +319,36 @@ class TuningService:
         except Exception:  # noqa: BLE001
             logger.warning("Failed to emit tuning progress for session %s", session_id)
 
+    def _fail_tuning_session(
+        self, session_id: str, loop: asyncio.AbstractEventLoop, message: str | None = None
+    ) -> None:
+        """Mark a tuning session as FAILED and emit a completion event.
+
+        Ensures a session can never be left stuck in ``RUNNING`` with no
+        completion event when an unrecoverable error occurs.
+        """
+        with make_session() as session:
+            ts = session.get(TuningSession, session_id)
+            if ts is None:
+                return
+            if ts.status != TuningStatus.CANCELLED:
+                ts.status = TuningStatus.FAILED
+            ts.completed_at = _utcnow()
+            session.add(ts)
+            session.commit()
+            final_status = ts.status.value
+        self._emit_progress(
+            loop,
+            session_id,
+            {
+                "type": "tuning_complete",
+                "status": final_status,
+                "best_job_id": None,
+                "best_metric": None,
+                "error": message,
+            },
+        )
+
     def run_tuning_loop(
         self,
         session_id: str,
@@ -291,6 +376,15 @@ class TuningService:
             metric = tuning_session.metric
             direction = tuning_session.direction
             early_stop_threshold = tuning_session.early_stop_threshold
+
+        # Validate the search space defensively so a malformed row can never
+        # crash the loop below and leave the session stuck in RUNNING.
+        try:
+            self.validate_search_space(search_space, strategy)
+        except AppException as e:
+            logger.error("Tuning session %s has an invalid search space: %s", session_id, e.detail)
+            self._fail_tuning_session(session_id, loop, str(e.detail))
+            return
 
         # Generate trial combinations.
         if strategy == TuningStrategy.GRID:

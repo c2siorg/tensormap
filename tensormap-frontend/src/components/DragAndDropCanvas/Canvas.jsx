@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { useParams } from "react-router-dom";
 import { createPortal } from "react-dom";
 import { Trash2, Undo2, Redo2 } from "lucide-react";
@@ -42,7 +42,8 @@ import { getAllModels, getModelGraph, saveModel } from "../../services/ModelServ
 import { trainingHistory as trainingHistoryAtom } from "../../shared/atoms";
 import ContextMenu from "./ContextMenu";
 import useUndoRedo from "../../hooks/useUndoRedo";
-import { useLayerRegistry, getLayerSpec } from "../../hooks/useLayerRegistry";
+import { useLayerRegistry, getLayerSpec, getAllLayerSpecs } from "../../hooks/useLayerRegistry";
+import { LEGACY_TYPE_MAP } from "../../types/registry";
 
 const isMac =
   typeof navigator !== "undefined"
@@ -51,7 +52,18 @@ const isMac =
       : /Mac/i.test(navigator.platform)
     : false;
 
-const nodeTypes = {
+// Every registry layer key must render through GenericLayerNode so models
+// saved with the layer key as their node type (e.g. "dense", "input") still
+// render correctly when reloaded from the backend. Built from the live layer
+// registry so backend-added layer types are covered without manual updates.
+function buildNodeTypes() {
+  const registryNodeTypes = Object.fromEntries(
+    getAllLayerSpecs().map((spec) => [spec.type_key, GenericLayerNode]),
+  );
+  return { ...staticNodeTypes, ...registryNodeTypes };
+}
+
+const staticNodeTypes = {
   custominput: InputNode,
   customdense: DenseNode,
   customflatten: FlattenNode,
@@ -118,8 +130,15 @@ function Canvas() {
   const [nodeToDelete, setNodeToDelete] = useState(null);
   const defaultViewport = { x: 10, y: 15, zoom: 0.5 };
 
-  // Hook to get layer registry (getLayerSpec uses the cached registry internally)
-  useLayerRegistry();
+  // Hook to get layer registry (getLayerSpec uses the cached registry internally).
+  // The returned `registry` object changes once the fetch resolves, which is what
+  // rebuilds nodeTypes with the full set of registry layer keys.
+  const { registry: layerRegistry } = useLayerRegistry();
+
+  // Recomputed only when the registry loads/changes; stable otherwise so
+  // ReactFlow isn't handed a fresh nodeTypes object on every render.
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- layerRegistry is read inside buildNodeTypes via the module cache
+  const nodeTypes = useMemo(() => buildNodeTypes(), [layerRegistry]);
 
   const draftKey = `tensormap_draft_${projectId || "default"}`;
   const isLoaded = useRef(false);
@@ -260,7 +279,14 @@ function Canvas() {
           id: node.id,
           type: node.type,
           position: node.position || { x: 100, y: i * 200 },
-          data: { label: `${node.type} node`, params: node.data?.params || {} },
+          data: {
+            label: `${node.type} node`,
+            // The saved node type is either a registry layer key ("dense") or a
+            // legacy custom type ("customdense"); normalize to the registry key
+            // so GenericLayerNode can look it up.
+            layerType: LEGACY_TYPE_MAP[node.type] || node.type,
+            params: node.data?.params || {},
+          },
         }));
 
         const loadedEdges = (graph.edges || []).map((edge) => ({
@@ -472,7 +498,14 @@ function Canvas() {
         id: crypto.randomUUID(),
         type: source.type,
         position: { x: source.position.x + 50, y: source.position.y + 50 },
-        data: { label: source.data.label, params: { ...source.data.params } },
+        data: {
+          label: source.data.label,
+          params: { ...source.data.params },
+          // Registry-driven nodes carry their real layer key only in
+          // data.layerType; dropping it here would reproduce the
+          // "Unknown layer type: genericlayer" save failure.
+          ...(source.data.layerType !== undefined ? { layerType: source.data.layerType } : {}),
+        },
       };
       return nds.concat(duplicate);
     });

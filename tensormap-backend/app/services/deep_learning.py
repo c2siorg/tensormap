@@ -181,9 +181,20 @@ def model_validate_service(db: Session, incoming: dict, project_id: uuid_pkg.UUI
     if model_generated is None:
         try:
             model_generated = model_generation(model_params=incoming["model"])
-        except (ValueError, KeyError, TypeError) as e:
-            logger.warning("Legacy model generation failed: %s", str(e))
+        except ValueError as e:
+            # model_generation() raises ValueError with a user-facing message for
+            # malformed graphs (dangling edges, orphan nodes, missing or invalid
+            # node parameters). Surface it as a clean 400.
+            logger.warning("Legacy model generation rejected the graph: %s", str(e))
             return _resp(400, False, str(e))
+        except (KeyError, TypeError):
+            # Malformed graph cases are validated inside model_generation() and
+            # raise ValueError, so a KeyError/TypeError escaping here signals an
+            # internal bug rather than user input. Log the full traceback
+            # server-side and return a generic 500 instead of disguising the bug
+            # as malformed input (or leaking raw exception details to the client).
+            logger.exception("Unexpected internal error in legacy model generation")
+            return _resp(500, False, "Model generation failed due to an internal error. Please try again.")
 
     try:
         tf_module = _get_tensorflow()
@@ -313,9 +324,20 @@ def model_save_service(db: Session, incoming: dict, model_name: str, project_id:
     if model_generated is None:
         try:
             model_generated = model_generation(model_params=incoming)
-        except (ValueError, KeyError, TypeError) as e:
-            logger.warning("Legacy model generation failed: %s", str(e))
+        except ValueError as e:
+            # model_generation() raises ValueError with a user-facing message for
+            # malformed graphs (dangling edges, orphan nodes, missing or invalid
+            # node parameters). Surface it as a clean 400.
+            logger.warning("Legacy model generation rejected the graph: %s", str(e))
             return _resp(400, False, str(e))
+        except (KeyError, TypeError):
+            # Malformed graph cases are validated inside model_generation() and
+            # raise ValueError, so a KeyError/TypeError escaping here signals an
+            # internal bug rather than user input. Log the full traceback
+            # server-side and return a generic 500 instead of disguising the bug
+            # as malformed input (or leaking raw exception details to the client).
+            logger.exception("Unexpected internal error in legacy model generation")
+            return _resp(500, False, "Model generation failed due to an internal error. Please try again.")
 
     try:
         tf_module = _get_tensorflow()

@@ -655,6 +655,7 @@ class TestServiceLayerIRValidation:
         graph = reactflow_to_ir(canvas)
         assert _blocking_ir_errors(graph) == []
 
+
 # ===================================================================
 # Tests for the new registry-format frontend payload (type = layer key)
 # ===================================================================
@@ -696,3 +697,297 @@ class TestRegistryFormatPayload:
                 # Empty params may fail validation for required params; that is fine.
                 # The layer type itself must be recognised.
                 assert "Unknown layer type" not in str(e), f"Registry key '{key}' not accepted"
+
+
+# ===================================================================
+# Tests for malformed node payloads in the legacy generator (issue review:
+# a node missing data.params.activation used to surface as a raw KeyError)
+# ===================================================================
+
+
+class TestMalformedNodeValidation:
+    """model_generation() must reject malformed node payloads with a
+    descriptive ValueError naming the node id and the missing/invalid field -
+    never a bare KeyError/TypeError - so the service layer can return a clean
+    400 response."""
+
+    def test_dense_node_missing_activation_raises_descriptive_error(self):
+        """The exact case from the review: a customdense node whose params
+        lack ``activation`` must not surface as ``KeyError: 'activation'``."""
+        params = {
+            "nodes": [
+                _input_node("x", [10]),
+                {"id": "d", "type": "customdense", "data": {"params": {"units": 4}}},
+            ],
+            "edges": [_edge("x", "d")],
+        }
+        with pytest.raises(ValueError) as exc_info:
+            model_generation(params)
+        message = str(exc_info.value)
+        assert "d" in message
+        assert "activation" in message
+
+    def test_dense_node_missing_all_params_lists_every_missing_field(self):
+        params = {
+            "nodes": [
+                _input_node("x", [10]),
+                {"id": "d", "type": "customdense", "data": {"params": {}}},
+            ],
+            "edges": [_edge("x", "d")],
+        }
+        with pytest.raises(ValueError) as exc_info:
+            model_generation(params)
+        message = str(exc_info.value)
+        assert "d" in message
+        assert "'units'" in message
+        assert "'activation'" in message
+
+    def test_node_without_data_params_raises_descriptive_error(self):
+        """A node missing the whole data.params structure must not crash with
+        a bare KeyError/TypeError."""
+        params = {
+            "nodes": [
+                _input_node("x", [10]),
+                {"id": "d", "type": "customdense", "data": {}},
+            ],
+            "edges": [_edge("x", "d")],
+        }
+        with pytest.raises(ValueError, match="data.params") as exc_info:
+            model_generation(params)
+        assert "d" in str(exc_info.value)
+
+    def test_conv_node_missing_required_params_raises_descriptive_error(self):
+        params = {
+            "nodes": [
+                _input_node("img", [8, 8, 1]),
+                {"id": "c", "type": "customconv", "data": {"params": {"filter": 4}}},
+            ],
+            "edges": [_edge("img", "c")],
+        }
+        with pytest.raises(ValueError) as exc_info:
+            model_generation(params)
+        message = str(exc_info.value)
+        assert "c" in message
+        assert "kernelX" in message
+
+
+# ===================================================================
+# Tests for dangling edge endpoints in both generators
+# ===================================================================
+
+
+class TestGeneratorEdgeEndpointValidation:
+    """A dangling edge must be rejected with a message naming the invalid
+    edge and endpoint (source AND target), mirroring validate_ir_graph, instead
+    of degrading into a generic unreachable-node error."""
+
+    def test_edge_with_nonexistent_source_node_raises_descriptive_error(self):
+        params = {
+            "nodes": [_input_node("x", [10]), _dense_node("out", 1, "sigmoid")],
+            "edges": [{"source": "ghost", "target": "out"}],
+        }
+        with pytest.raises(ValueError, match="does not exist") as exc_info:
+            model_generation(params)
+        message = str(exc_info.value)
+        assert "source" in message
+        assert "ghost" in message
+
+    def test_edge_with_nonexistent_target_node_names_the_target(self):
+        params = {
+            "nodes": [_input_node("x", [10]), _dense_node("out", 1, "sigmoid")],
+            "edges": [{"source": "x", "target": "ghost"}],
+        }
+        with pytest.raises(ValueError, match="does not exist") as exc_info:
+            model_generation(params)
+        message = str(exc_info.value)
+        assert "target" in message
+        assert "ghost" in message
+
+    def test_ir_generator_nonexistent_source_node_raises_descriptive_error(self):
+        from app.generators.tensorflow_generator import TensorFlowGenerator, TensorFlowGeneratorError
+        from app.ir.translator import reactflow_to_ir
+
+        canvas = {
+            "nodes": [
+                {"id": "n1", "type": "input", "data": {"params": {"shape": 10}}},
+                {"id": "n2", "type": "dense", "data": {"params": {"units": 5}}},
+            ],
+            "edges": [{"source": "ghost", "target": "n2"}],
+        }
+        graph = reactflow_to_ir(canvas)
+        with pytest.raises(TensorFlowGeneratorError, match="does not exist") as exc_info:
+            TensorFlowGenerator().build_model(graph)
+        message = str(exc_info.value)
+        assert "source" in message
+        assert "ghost" in message
+
+    def test_ir_generator_nonexistent_target_node_raises_descriptive_error(self):
+        from app.generators.tensorflow_generator import TensorFlowGenerator, TensorFlowGeneratorError
+        from app.ir.translator import reactflow_to_ir
+
+        canvas = {
+            "nodes": [
+                {"id": "n1", "type": "input", "data": {"params": {"shape": 10}}},
+                {"id": "n2", "type": "dense", "data": {"params": {"units": 5}}},
+            ],
+            "edges": [{"source": "n1", "target": "ghost"}],
+        }
+        graph = reactflow_to_ir(canvas)
+        with pytest.raises(TensorFlowGeneratorError, match="does not exist") as exc_info:
+            TensorFlowGenerator().build_model(graph)
+        message = str(exc_info.value)
+        assert "target" in message
+        assert "ghost" in message
+
+
+# ===================================================================
+# Service-level regression tests for malformed graphs and internal errors
+# ===================================================================
+
+
+class TestServiceLayerMalformedGraph:
+    """model_validate_service / model_save_service wiring: malformed graphs
+    return clean 400s with useful messages, and unexpected internal errors
+    surface as generic 500s (with a server-side traceback) instead of being
+    disguised as malformed user input."""
+
+    def _canvas_missing_node_params(self) -> dict:
+        """Legacy-format canvas whose dense node lacks required params. The IR
+        translation fails on it, so the request exercises the legacy fallback."""
+        return {
+            "nodes": [
+                {"id": "n1", "type": "custominput", "data": {"params": {"dim-1": 10}}},
+                {"id": "n2", "type": "customdense", "data": {"params": {}}},
+            ],
+            "edges": [{"source": "n1", "target": "n2"}],
+        }
+
+    def _canvas_with_dangling_source_edge(self) -> dict:
+        return {
+            "nodes": [
+                {"id": "n1", "type": "input", "data": {"params": {"shape": 10}}},
+                {"id": "n2", "type": "dense", "data": {"params": {"units": 5}}},
+            ],
+            "edges": [{"source": "ghost", "target": "n2"}],
+        }
+
+    def test_model_validate_service_returns_400_for_missing_node_params(self):
+        """A node whose data.params lacks required fields must yield a clean
+        400 naming the node and the field - not a raw KeyError or a 500."""
+        from unittest.mock import MagicMock
+
+        from app.services.deep_learning import model_validate_service
+
+        response, status = model_validate_service(MagicMock(), {"model": self._canvas_missing_node_params()})
+        assert status == 400
+        assert response["success"] is False
+        message = response["message"]
+        assert "n2" in message
+        assert "missing required parameter" in message
+
+    def test_model_save_service_returns_400_for_missing_node_params(self):
+        from unittest.mock import MagicMock
+
+        from app.services.deep_learning import model_save_service
+
+        response, status = model_save_service(MagicMock(), self._canvas_missing_node_params(), "missing-params-test")
+        assert status == 400
+        assert response["success"] is False
+        message = response["message"]
+        assert "n2" in message
+        assert "missing required parameter" in message
+
+    def test_model_validate_service_returns_400_for_dangling_source_edge(self):
+        from unittest.mock import MagicMock
+
+        from app.services.deep_learning import model_validate_service
+
+        response, status = model_validate_service(MagicMock(), {"model": self._canvas_with_dangling_source_edge()})
+        assert status == 400
+        assert response["success"] is False
+        message = response["message"]
+        assert "non-existent" in message or "does not exist" in message
+        assert "ghost" in message
+
+    def test_model_save_service_returns_400_for_dangling_source_edge(self):
+        from unittest.mock import MagicMock
+
+        from app.services.deep_learning import model_save_service
+
+        response, status = model_save_service(
+            MagicMock(), self._canvas_with_dangling_source_edge(), "dangling-source-test"
+        )
+        assert status == 400
+        assert response["success"] is False
+        message = response["message"]
+        assert "non-existent" in message or "does not exist" in message
+        assert "ghost" in message
+
+    def test_unexpected_internal_error_returns_500_not_400(self, monkeypatch, caplog):
+        """A residual KeyError/TypeError from the legacy generator signals an
+        internal bug: it must be logged with a traceback and surface as a
+        generic 500 - never a 400 echoing raw exception internals."""
+        import logging
+        from unittest.mock import MagicMock
+
+        import app.services.deep_learning as dl
+        from app.ir.translator import TranslationError
+
+        def _translation_fail(payload):
+            raise TranslationError("cannot translate")
+
+        def _internal_bug(model_params):
+            raise KeyError("activation")
+
+        monkeypatch.setattr("app.ir.translator.reactflow_to_ir", _translation_fail)
+        monkeypatch.setattr(dl, "model_generation", _internal_bug)
+
+        canvas = {
+            "nodes": [
+                {"id": "n1", "type": "input", "data": {"params": {"shape": 10}}},
+                {"id": "n2", "type": "dense", "data": {"params": {"units": 5}}},
+            ],
+            "edges": [{"source": "n1", "target": "n2"}],
+        }
+
+        with caplog.at_level(logging.ERROR):
+            response, status = dl.model_validate_service(MagicMock(), {"model": canvas})
+        assert status == 500
+        assert response["success"] is False
+        assert "activation" not in response["message"]
+        error_records = [r for r in caplog.records if r.levelno >= logging.ERROR]
+        assert error_records, "unexpected internal errors must be logged"
+        assert any(r.exc_info for r in error_records), "the log must include a traceback"
+
+        with caplog.at_level(logging.ERROR):
+            response, status = dl.model_save_service(MagicMock(), canvas, "internal-error-test")
+        assert status == 500
+        assert response["success"] is False
+        assert "activation" not in response["message"]
+        error_records = [r for r in caplog.records if r.levelno >= logging.ERROR]
+        assert any(r.exc_info for r in error_records), "the log must include a traceback"
+
+    def test_only_multi_input_error_is_excluded_from_blocking(self):
+        """_blocking_ir_errors must exclude the structured
+        multiple_input_nodes error and nothing else: every other structural IR
+        error (here a dangling edge target) remains blocking."""
+        from app.ir.translator import reactflow_to_ir
+        from app.services.deep_learning import _blocking_ir_errors
+
+        canvas = {
+            "nodes": [
+                {"id": "in1", "type": "input", "data": {"params": {"shape": 10}}},
+                {"id": "in2", "type": "input", "data": {"params": {"shape": 5}}},
+                {"id": "out", "type": "dense", "data": {"params": {"units": 1}}},
+            ],
+            "edges": [
+                {"source": "in1", "target": "out"},
+                {"source": "in2", "target": "ghost"},
+            ],
+        }
+        graph = reactflow_to_ir(canvas)
+        blocking = _blocking_ir_errors(graph)
+        assert blocking, "non-multi-input structural errors must remain blocking"
+        joined = "; ".join(blocking)
+        assert "ghost" in joined
+        assert "multiple input nodes" not in joined.lower()

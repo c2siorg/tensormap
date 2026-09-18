@@ -1,6 +1,7 @@
 """Tests for model export service (SavedModel, TFLite, ONNX)."""
 
 import importlib.util
+import zipfile
 from datetime import UTC, datetime, timedelta
 from unittest.mock import Mock, patch
 from uuid import uuid4
@@ -56,8 +57,12 @@ def setup_export_dir(tmp_path):
     return job_id, export_dir
 
 
-def test_savedmodel_export_creates_zip(tmp_path, mock_keras_model):
-    """SavedModel export creates a zip file."""
+def test_savedmodel_export_uses_model_export(tmp_path, mock_keras_model):
+    """SavedModel export writes through Model.export(), not save_model().
+
+    Regression guard for the Keras 3 breakage: ``tf.keras.models.save_model``
+    rejects ``save_format`` and cannot write a SavedModel directory.
+    """
     job_id = str(uuid4())
     model_name = "test_model"
 
@@ -70,7 +75,7 @@ def test_savedmodel_export_creates_zip(tmp_path, mock_keras_model):
     with (
         patch("app.services.model_export.EXPORTS_BASE", tmp_path / "exports"),
         patch("tensorflow.keras.models.load_model", return_value=mock_keras_model),
-        patch("tensorflow.keras.models.save_model"),
+        patch("tensorflow.keras.models.save_model") as mock_save_model,
     ):
         # Create savedmodel directory for zipping
         savedmodel_dir = export_dir / "savedmodel"
@@ -79,9 +84,44 @@ def test_savedmodel_export_creates_zip(tmp_path, mock_keras_model):
 
         zip_path = export_savedmodel(job_id, model_name)
 
+        # The Keras-2 call with save_format="tf" must not come back.
+        mock_save_model.assert_not_called()
+        assert mock_keras_model.export.call_count == 1
+        assert mock_keras_model.export.call_args[0][0] == str(savedmodel_dir)
+
         assert zip_path.exists()
         assert zip_path.suffix == ".zip"
         assert model_name in zip_path.name
+
+
+@pytest.mark.slow
+def test_savedmodel_export_produces_real_savedmodel_zip(tmp_path):
+    """SavedModel export works end-to-end with the installed (Keras 3) runtime.
+
+    Previously ``POST /model/export/{job_id}?format=savedmodel`` always failed
+    with a 500 because ``save_model(..., save_format="tf")`` is unsupported in
+    Keras 3. This exercises the real save/export path without mocks.
+    """
+    import tensorflow as tf
+
+    job_id = str(uuid4())
+    model_name = "real_model"
+
+    export_dir = tmp_path / "exports" / job_id
+    export_dir.mkdir(parents=True)
+    model = tf.keras.Sequential([tf.keras.layers.Input((4,)), tf.keras.layers.Dense(2)])
+    model.save(export_dir / "model.keras")
+
+    with patch("app.services.model_export.EXPORTS_BASE", tmp_path / "exports"):
+        zip_path = export_savedmodel(job_id, model_name)
+
+    assert zip_path.exists()
+    with zipfile.ZipFile(zip_path) as archive:
+        names = archive.namelist()
+    assert any(name.endswith("saved_model.pb") for name in names)
+    # Cached: a second call returns the same archive without re-exporting.
+    with patch("app.services.model_export.EXPORTS_BASE", tmp_path / "exports"):
+        assert export_savedmodel(job_id, model_name) == zip_path
 
 
 def test_tflite_export_creates_file(tmp_path, mock_keras_model):

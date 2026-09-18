@@ -84,8 +84,13 @@ def test_savedmodel_export_creates_zip(tmp_path, mock_keras_model):
         assert model_name in zip_path.name
 
 
-def test_tflite_export_creates_file(tmp_path, mock_keras_model):
-    """TFLite export creates a .tflite file."""
+def test_tflite_export_uses_savedmodel_path(tmp_path, mock_keras_model):
+    """TFLite export converts from a SavedModel, never via from_keras_model().
+
+    Regression guard for the TF 2.16 / Keras 3 breakage: TFLiteConverter
+    .from_keras_model() always raises "TypeError: 'NoneType' object is not
+    callable" for Keras 3 models.
+    """
     job_id = str(uuid4())
     model_name = "test_model"
 
@@ -103,13 +108,107 @@ def test_tflite_export_creates_file(tmp_path, mock_keras_model):
     with (
         patch("app.services.model_export.EXPORTS_BASE", tmp_path / "exports"),
         patch.object(tf.keras.models, "load_model", return_value=mock_keras_model),
-        patch.object(tf.lite.TFLiteConverter, "from_keras_model", return_value=mock_converter),
+        patch.object(tf.lite.TFLiteConverter, "from_keras_model") as mock_from_keras,
+        patch.object(tf.lite.TFLiteConverter, "from_saved_model", return_value=mock_converter) as mock_from_saved,
     ):
         tflite_path = export_tflite(job_id, model_name)
+
+        # The Keras-3-incompatible entry point must not come back.
+        mock_from_keras.assert_not_called()
+        # The model is exported to the job's savedmodel directory first.
+        mock_keras_model.export.assert_called_once_with(str(export_dir / "savedmodel"))
+        mock_from_saved.assert_called_once_with(str(export_dir / "savedmodel"))
 
         assert tflite_path.exists()
         assert tflite_path.suffix == ".tflite"
         assert tflite_path.read_bytes() == b"tflite model bytes"
+
+
+def _tflite_output(interpreter):
+    """Run an already-fed TFLite interpreter and return its output tensor."""
+    interpreter.invoke()
+    return interpreter.get_tensor(interpreter.get_output_details()[0]["index"])
+
+
+@pytest.mark.slow
+def test_tflite_export_produces_working_tflite(tmp_path):
+    """TFLite export produces a file the TFLite interpreter can actually run.
+
+    Previously the conversion always failed on the pinned TensorFlow 2.16 /
+    Keras 3 stack ("TypeError: 'NoneType' object is not callable"), so every
+    TFLite download returned HTTP 500. Exercises the real save → export →
+    convert path without mocks.
+    """
+    import numpy as np
+    import tensorflow as tf
+
+    job_id = str(uuid4())
+    model_name = "real_model"
+
+    export_dir = tmp_path / "exports" / job_id
+    export_dir.mkdir(parents=True)
+    model = tf.keras.Sequential([tf.keras.layers.Input((8,)), tf.keras.layers.Dense(4), tf.keras.layers.Dense(2)])
+    model.save(export_dir / "model.keras")
+
+    with patch("app.services.model_export.EXPORTS_BASE", tmp_path / "exports"):
+        tflite_path = export_tflite(job_id, model_name)
+
+    assert tflite_path.exists()
+    assert tflite_path.suffix == ".tflite"
+
+    interpreter = tf.lite.Interpreter(model_content=tflite_path.read_bytes())
+    interpreter.allocate_tensors()
+    details = interpreter.get_input_details()[0]
+    assert tuple(details["shape"]) == (1, 8)
+
+    sample = np.zeros((1, 8), dtype=np.float32)
+    interpreter.set_tensor(details["index"], sample)
+    got = _tflite_output(interpreter)
+
+    reference = model(sample).numpy()
+    assert got.shape == reference.shape
+    assert np.allclose(reference, got, atol=1e-5)
+
+
+@pytest.mark.slow
+def test_tflite_export_supports_multi_input_models(tmp_path):
+    """TFLite export also works for multi-input (functional) models.
+
+    Converting from a SavedModel keeps working where the concrete-function
+    recipes do not, and TFLite input ordering is not guaranteed, so the test
+    matches inputs by shape.
+    """
+    import numpy as np
+    import tensorflow as tf
+
+    job_id = str(uuid4())
+    model_name = "multi_input_model"
+
+    export_dir = tmp_path / "exports" / job_id
+    export_dir.mkdir(parents=True)
+    wide = tf.keras.layers.Input((8,))
+    narrow = tf.keras.layers.Input((4,))
+    merged = tf.keras.layers.Concatenate()([wide, narrow])
+    model = tf.keras.Model(inputs=[wide, narrow], outputs=[tf.keras.layers.Dense(2)(merged)])
+    model.save(export_dir / "model.keras")
+
+    with patch("app.services.model_export.EXPORTS_BASE", tmp_path / "exports"):
+        tflite_path = export_tflite(job_id, model_name)
+
+    interpreter = tf.lite.Interpreter(model_content=tflite_path.read_bytes())
+    interpreter.allocate_tensors()
+    by_shape = {tuple(detail["shape"]): detail for detail in interpreter.get_input_details()}
+    assert set(by_shape) == {(1, 8), (1, 4)}
+
+    wide_sample = np.zeros((1, 8), dtype=np.float32)
+    narrow_sample = np.zeros((1, 4), dtype=np.float32)
+    interpreter.set_tensor(by_shape[(1, 8)]["index"], wide_sample)
+    interpreter.set_tensor(by_shape[(1, 4)]["index"], narrow_sample)
+    got = _tflite_output(interpreter)
+
+    reference = model([wide_sample, narrow_sample]).numpy()
+    assert got.shape == reference.shape
+    assert np.allclose(reference, got, atol=1e-5)
 
 
 def test_savedmodel_cached_on_second_call(tmp_path, mock_keras_model):
@@ -240,6 +339,41 @@ def test_onnx_export_raises_on_unsupported(tmp_path, mock_keras_model):
         export_onnx(job_id, model_name, graph_ir)
 
     assert len(exc_info.value.issues) > 0
+
+
+def test_onnx_export_degrades_when_toolchain_unavailable(tmp_path, mock_keras_model):
+    """A broken onnx/tf2onnx toolchain raises ONNXUnsupportedError, not a raw exception.
+
+    onnx 1.19 needs ml_dtypes.float4_e2m1fn, which the ml_dtypes 0.3.2 that
+    TensorFlow 2.16 pins does not provide, so ``import tf2onnx`` raises
+    AttributeError at import time. That must surface as the documented
+    400 "onnx_unsupported" response, not a raw 500.
+    """
+    import builtins
+
+    job_id = str(uuid4())
+    export_dir = tmp_path / "exports" / job_id
+    export_dir.mkdir(parents=True)
+    (export_dir / "model.keras").write_text("dummy")
+
+    real_import = builtins.__import__
+
+    def broken_import(name, *args, **kwargs):
+        if name == "tf2onnx":
+            raise AttributeError("module 'ml_dtypes' has no attribute 'float4_e2m1fn'")
+        return real_import(name, *args, **kwargs)
+
+    with (
+        patch("app.services.model_export.EXPORTS_BASE", tmp_path / "exports"),
+        patch("tensorflow.keras.models.load_model", return_value=mock_keras_model),
+        patch.object(builtins, "__import__", side_effect=broken_import),
+        pytest.raises(ONNXUnsupportedError) as exc_info,
+    ):
+        export_onnx(job_id, "test_model")
+
+    joined = "; ".join(exc_info.value.issues)
+    assert "tf2onnx/onnx toolchain unavailable" in joined
+    assert "ml_dtypes" in joined
 
 
 @pytest.mark.skipif(
@@ -480,7 +614,7 @@ def test_concurrent_export_requests(tmp_path, mock_keras_model):
             with (
                 patch("app.services.model_export.EXPORTS_BASE", tmp_path / "exports"),
                 patch.object(tf.keras.models, "load_model", return_value=mock_keras_model),
-                patch.object(tf.lite.TFLiteConverter, "from_keras_model", return_value=mock_converter),
+                patch.object(tf.lite.TFLiteConverter, "from_saved_model", return_value=mock_converter),
             ):
                 result = export_tflite(job_id, model_name)
                 results.append(result)

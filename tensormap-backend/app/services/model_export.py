@@ -104,8 +104,18 @@ def export_tflite(job_id: str, model_name: str) -> Path:
     logger.info(f"Loading model from {model_path}")
     model = tf.keras.models.load_model(model_path)
 
+    # TF 2.16's TFLiteConverter.from_keras_model() cannot handle Keras 3 models: it calls
+    # keras_deps.get_call_context_function(), which is only registered by the legacy Keras 2
+    # package (tf_keras), so conversion always dies with
+    #   TypeError: 'NoneType' object is not callable
+    # Exporting the model to a SavedModel first and converting from that directory uses the
+    # supported path and works for single-input and multi-input models alike.
+    savedmodel_dir = export_dir / "savedmodel"
+    logger.info(f"Exporting SavedModel to {savedmodel_dir} for TFLite conversion")
+    model.export(str(savedmodel_dir))
+
     logger.info("Converting to TFLite")
-    converter = tf.lite.TFLiteConverter.from_keras_model(model)
+    converter = tf.lite.TFLiteConverter.from_saved_model(str(savedmodel_dir))
     tflite_model = converter.convert()
 
     tflite_path.write_bytes(tflite_model)
@@ -203,12 +213,16 @@ def export_onnx(job_id: str, model_name: str, graph_ir: dict | None = None) -> P
         logger.warning(f"ONNX export unsupported for job {job_id}: {issues}")
         raise ONNXUnsupportedError(issues)
 
-    # Import tf2onnx
+    # Import tf2onnx. On the pinned stack the onnx/tf2onnx toolchain can fail at import
+    # time with an exception that is *not* an ImportError - e.g. onnx 1.19 needs
+    # ml_dtypes.float4_e2m1fn, which the ml_dtypes 0.3.2 that TensorFlow 2.16 pins does not
+    # have, so `import tf2onnx` raises AttributeError. Any such failure must degrade to the
+    # documented 400 "onnx_unsupported" response instead of bubbling up as a raw 500.
     try:
-        import tf2onnx
-    except ImportError as e:
-        logger.error("tf2onnx not installed")
-        raise ONNXUnsupportedError(["tf2onnx library not installed"]) from e
+        import tf2onnx  # noqa: F401
+    except Exception as e:  # noqa: BLE001 - any import-time failure means ONNX is unavailable
+        logger.error(f"tf2onnx/onnx toolchain unavailable: {e}")
+        raise ONNXUnsupportedError([f"tf2onnx/onnx toolchain unavailable: {e}"]) from e
 
     logger.info("Converting to ONNX")
     # Build input signature

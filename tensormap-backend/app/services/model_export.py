@@ -74,7 +74,13 @@ def export_savedmodel(job_id: str, model_name: str) -> Path:
 
     savedmodel_dir = export_dir / "savedmodel"
     logger.info(f"Saving SavedModel to {savedmodel_dir}")
-    tf.keras.models.save_model(model, str(savedmodel_dir), save_format="tf")
+    # Keras 3 (bundled with the TensorFlow 2.16.x this project pins) dropped
+    # the ``save_format`` argument: ``save_model`` only writes ``.keras``/``.h5``
+    # checkpoints, so passing a directory plus ``save_format="tf"`` raised
+    #   ValueError: The `save_format` argument is deprecated in Keras 3.
+    # and every SavedModel download returned HTTP 500. ``Model.export`` is the
+    # supported way to write a SavedModel directory in Keras 3.
+    model.export(str(savedmodel_dir))
 
     # Zip the savedmodel directory
     logger.info(f"Creating zip archive at {zip_path}")

@@ -3,6 +3,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { RecoilRoot } from "recoil";
 import { MemoryRouter } from "react-router-dom";
 import Canvas from "./Canvas";
+import {
+  getMiniMapNodeColor,
+  MINIMAP_NODE_COLORS,
+  MINIMAP_FALLBACK_COLOR,
+} from "../../constants/nodeColors";
 
 // Mock ResizeObserver
 window.ResizeObserver = class {
@@ -22,6 +27,18 @@ vi.mock("reactflow", async (importOriginal) => {
   return {
     ...actual,
     __esModule: true,
+    // The real MiniMap measures the canvas through the ReactFlow store, which
+    // jsdom cannot provide; record the props the canvas passes instead.
+    MiniMap: (props) => (
+      <div
+        data-testid="rf__minimap"
+        className={`react-flow__minimap ${props.className ?? ""}`}
+        data-position={props.position}
+        data-pannable={String(!!props.pannable)}
+        data-zoomable={String(!!props.zoomable)}
+        aria-label={props.ariaLabel}
+      />
+    ),
     default: (props) => (
       <div data-testid="mock-reactflow">
         <button
@@ -127,5 +144,54 @@ describe("Canvas Tooltip", () => {
     });
 
     expect(tooltip).toHaveClass("opacity-0");
+  });
+});
+
+describe("Canvas MiniMap", () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("renders a pannable, zoomable minimap on an empty canvas", () => {
+    render(
+      <RecoilRoot>
+        <MemoryRouter>
+          <Canvas />
+        </MemoryRouter>
+      </RecoilRoot>,
+    );
+
+    const minimap = screen.getByTestId("rf__minimap");
+    expect(minimap).toBeInTheDocument();
+    expect(minimap).toHaveAttribute("data-position", "bottom-right");
+    expect(minimap).toHaveAttribute("data-pannable", "true");
+    expect(minimap).toHaveAttribute("data-zoomable", "true");
+  });
+
+  it("hides the minimap when the canvas is too narrow to fit it beside the controls", () => {
+    render(
+      <RecoilRoot>
+        <MemoryRouter>
+          <Canvas />
+        </MemoryRouter>
+      </RecoilRoot>,
+    );
+
+    expect(screen.getByTestId("rf__minimap")).toHaveClass("!hidden", "xl:!block");
+  });
+
+  it("returns a distinct color for every bespoke node type", () => {
+    const types = Object.keys(MINIMAP_NODE_COLORS);
+    expect(types).toHaveLength(7);
+
+    const colors = types.map((type) => getMiniMapNodeColor({ type }));
+    expect(new Set(colors).size).toBe(types.length);
+    colors.forEach((color) => expect(color).not.toBe(MINIMAP_FALLBACK_COLOR));
+  });
+
+  it("falls back to a neutral color for registry-driven and unknown node types", () => {
+    expect(getMiniMapNodeColor({ type: "genericlayer" })).toBe(MINIMAP_FALLBACK_COLOR);
+    expect(getMiniMapNodeColor({ type: "lstm" })).toBe(MINIMAP_FALLBACK_COLOR);
+    expect(getMiniMapNodeColor({})).toBe(MINIMAP_FALLBACK_COLOR);
   });
 });

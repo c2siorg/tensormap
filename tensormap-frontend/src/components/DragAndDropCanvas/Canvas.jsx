@@ -19,6 +19,7 @@ import ReactFlow, {
   Controls,
   Background,
   BackgroundVariant,
+  MiniMap,
   Panel,
 } from "reactflow";
 import { useRecoilState } from "recoil";
@@ -44,6 +45,7 @@ import ContextMenu from "./ContextMenu";
 import useUndoRedo from "../../hooks/useUndoRedo";
 import { useLayerRegistry, getLayerSpec, getAllLayerSpecs } from "../../hooks/useLayerRegistry";
 import { LEGACY_TYPE_MAP } from "../../types/registry";
+import { getMiniMapNodeColor } from "../../constants/nodeColors";
 
 const isMac =
   typeof navigator !== "undefined"
@@ -777,6 +779,19 @@ function Canvas() {
                   </Button>
                 </Panel>
                 <Controls />
+                {/* Hidden below xl: the sidebar and properties panel leave the
+                    canvas narrower than the minimap's fixed 200px, which would
+                    push it over the bottom-left Controls. */}
+                <MiniMap
+                  nodeColor={getMiniMapNodeColor}
+                  pannable
+                  zoomable
+                  position="bottom-right"
+                  maskColor="rgba(0, 0, 0, 0.1)"
+                  nodeStrokeWidth={0}
+                  ariaLabel="Model canvas minimap"
+                  className="!hidden xl:!block"
+                />
                 {hasDraft && (
                   <Panel position="top-right">
                     <Button variant="destructive" onClick={handleDiscardDraft}>

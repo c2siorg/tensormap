@@ -78,6 +78,20 @@ class TensorFlowGenerator:
 
         nodes_by_id = {node.id: node for node in graph.nodes}
 
+        # An edge may reference a source or target node that is not in the
+        # graph. Reject both endpoints up front (mirroring validate_ir_graph in
+        # app/ir/schema.py) with a clear error instead of a bare KeyError or a
+        # generic disconnected-graph failure later in the BFS.
+        for edge in graph.edges:
+            if edge.source_id not in nodes_by_id:
+                raise TensorFlowGeneratorError(
+                    f"Edge {edge.id} references a source node that does not exist in the graph: {edge.source_id}"
+                )
+            if edge.target_id not in nodes_by_id:
+                raise TensorFlowGeneratorError(
+                    f"Edge {edge.id} references a target node that does not exist in the graph: {edge.target_id}"
+                )
+
         # Keras tensors for each node (populated during BFS)
         keras_tensors: dict[str, Any] = {}
         visited = set()

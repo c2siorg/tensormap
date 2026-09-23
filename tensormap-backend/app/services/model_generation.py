@@ -8,6 +8,40 @@ from app.shared.logging_config import get_logger
 logger = get_logger(__name__)
 
 
+def _node_params(node: dict) -> dict:
+    """Return the node's ``data.params`` dict, or raise a descriptive ValueError.
+
+    Malformed nodes that reach the legacy generator (e.g. because the IR
+    translation failed first) previously crashed with a bare KeyError/TypeError
+    on the missing structure. Raising ValueError with the node id lets the
+    service layer surface the problem as a clean 400 response.
+    """
+    data = node.get("data")
+    if not isinstance(data, dict) or not isinstance(data.get("params"), dict):
+        raise ValueError(
+            f"Node {node.get('id', '<unknown>')} is missing its 'data.params' configuration "
+            "(expected an object with the layer settings)."
+        )
+    return data["params"]
+
+
+def _require_node_params(node: dict, *required: str) -> dict:
+    """Return the node's params dict after ensuring every required key exists.
+
+    Raises:
+        ValueError: Naming the node id and every missing required field, so the
+            client sees which parameter to fix instead of a raw KeyError.
+    """
+    params = _node_params(node)
+    missing = [key for key in required if key not in params]
+    if missing:
+        raise ValueError(
+            f"Node {node.get('id', '<unknown>')} is missing required parameter(s) "
+            f"{', '.join(repr(key) for key in missing)} in data.params."
+        )
+    return params
+
+
 def model_generation(model_params: dict) -> dict:
     """Transform ReactFlow nodes and edges into a Keras functional-API JSON structure.
 
@@ -27,14 +61,33 @@ def model_generation(model_params: dict) -> dict:
         len(model_params["edges"]),
     )
 
+    nodes_by_id = {node["id"]: node for node in model_params["nodes"]}
+
+    # An edge may reference a source or target node that does not exist on the
+    # canvas. Validate both endpoints up front (mirroring validate_ir_graph in
+    # app/ir/schema.py) so a dangling edge is rejected with a message naming the
+    # edge and the missing node, instead of a bare KeyError below or a generic
+    # "not connected to any input layer" error later in the BFS.
+    for edge in model_params["edges"]:
+        source_id = edge["source"]
+        target_id = edge["target"]
+        if source_id not in nodes_by_id:
+            raise ValueError(
+                f"Edge {source_id} -> {target_id} references a source node that does not exist in the graph: "
+                f"{source_id}. Remove this edge from the canvas."
+            )
+        if target_id not in nodes_by_id:
+            raise ValueError(
+                f"Edge {source_id} -> {target_id} references a target node that does not exist in the graph: "
+                f"{target_id}. Remove this edge from the canvas."
+            )
+
     # Build adjacency maps
     source_to_targets = defaultdict(list)
     target_to_sources = defaultdict(list)
     for edge in model_params["edges"]:
         source_to_targets[edge["source"]].append(edge["target"])
         target_to_sources[edge["target"]].append(edge["source"])
-
-    nodes_by_id = {node["id"]: node for node in model_params["nodes"]}
 
     input_nodes = [node for node in model_params["nodes"] if node["type"] == "custominput"]
     if not input_nodes:
@@ -46,7 +99,8 @@ def model_generation(model_params: dict) -> dict:
     queue = []
 
     for node in input_nodes:
-        dims = [int(node["data"]["params"].get(f"dim-{i + 1}", 0) or 0) for i in range(3)]
+        input_params = _node_params(node)
+        dims = [int(input_params.get(f"dim-{i + 1}", 0) or 0) for i in range(3)]
         dims = [d for d in dims if d != 0]
         keras_tensors[node["id"]] = tf.keras.Input(shape=dims, name=node["id"])
         visited.add(node["id"])
@@ -153,11 +207,12 @@ def _build_layer(node: dict, input_tensor):
     # Lazy TF import
     import tensorflow as tf  # noqa: PLC0415
 
-    params = node["data"]["params"]
+    params = _node_params(node)
     node_type = node["type"]
     name = node["id"]
 
     if node_type == "customdense":
+        _require_node_params(node, "units", "activation")
         activation = params["activation"]
         return tf.keras.layers.Dense(
             units=int(params["units"]),
@@ -180,6 +235,7 @@ def _build_layer(node: dict, input_tensor):
         return tf.keras.layers.GlobalAveragePooling2D(name=name)(input_tensor)
 
     elif node_type == "customconv":
+        _require_node_params(node, "filter", "kernelX", "kernelY", "strideX", "strideY", "padding", "activation")
         activation = params["activation"]
         return tf.keras.layers.Conv2D(
             filters=int(params["filter"]),

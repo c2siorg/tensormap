@@ -22,6 +22,22 @@ vi.mock("../../services/ModelServices", () => ({
   saveModel: vi.fn(),
 }));
 
+// Only `merge` matters to the connection guard; Concatenate is the one layer
+// the backend registry flags as accepting multiple inputs.
+vi.mock("../../hooks/useLayerRegistry", async (importOriginal) => {
+  const actual = await importOriginal();
+  const specs = {
+    input: { type_key: "input", display_name: "Input", merge: false, params: {} },
+    dense: { type_key: "dense", display_name: "Dense", merge: false, params: {} },
+    concatenate: { type_key: "concatenate", display_name: "Concatenate", merge: true, params: {} },
+  };
+  return { ...actual, getLayerSpec: (typeKey) => specs[typeKey] ?? null };
+});
+
+// Latest props the canvas handed to <ReactFlow>, so tests can drive the
+// connection callbacks the way the library would.
+const reactFlowProps = vi.hoisted(() => ({ current: null }));
+
 vi.mock("reactflow", async (importOriginal) => {
   const actual = await importOriginal();
   return {
@@ -39,32 +55,37 @@ vi.mock("reactflow", async (importOriginal) => {
         aria-label={props.ariaLabel}
       />
     ),
-    default: (props) => (
-      <div data-testid="mock-reactflow">
-        <button
-          data-testid="node-custominput"
-          onMouseEnter={(e) =>
-            props.onNodeMouseEnter(e, { id: "1", type: "custominput", position: { x: 0, y: 0 } })
-          }
-          onMouseLeave={(e) => props.onNodeMouseLeave(e, { id: "1", type: "custominput" })}
-          onMouseMove={(e) => props.onNodeMouseMove?.(e)}
-        >
-          Node 1
-        </button>
-        <button
-          data-testid="node-unknown"
-          onMouseEnter={(e) =>
-            props.onNodeMouseEnter(e, { id: "2", type: "unknown", position: { x: 0, y: 0 } })
-          }
-          onMouseLeave={(e) => props.onNodeMouseLeave(e, { id: "2", type: "unknown" })}
-        >
-          Node 2
-        </button>
-        {props.children}
-      </div>
-    ),
+    default: (props) => {
+      reactFlowProps.current = props;
+      return renderMockReactFlow(props);
+    },
   };
 });
+
+const renderMockReactFlow = (props) => (
+  <div data-testid="mock-reactflow">
+    <button
+      data-testid="node-custominput"
+      onMouseEnter={(e) =>
+        props.onNodeMouseEnter(e, { id: "1", type: "custominput", position: { x: 0, y: 0 } })
+      }
+      onMouseLeave={(e) => props.onNodeMouseLeave(e, { id: "1", type: "custominput" })}
+      onMouseMove={(e) => props.onNodeMouseMove?.(e)}
+    >
+      Node 1
+    </button>
+    <button
+      data-testid="node-unknown"
+      onMouseEnter={(e) =>
+        props.onNodeMouseEnter(e, { id: "2", type: "unknown", position: { x: 0, y: 0 } })
+      }
+      onMouseLeave={(e) => props.onNodeMouseLeave(e, { id: "2", type: "unknown" })}
+    >
+      Node 2
+    </button>
+    {props.children}
+  </div>
+);
 
 describe("Canvas Tooltip", () => {
   beforeEach(() => {
@@ -193,5 +214,131 @@ describe("Canvas MiniMap", () => {
     expect(getMiniMapNodeColor({ type: "genericlayer" })).toBe(MINIMAP_FALLBACK_COLOR);
     expect(getMiniMapNodeColor({ type: "lstm" })).toBe(MINIMAP_FALLBACK_COLOR);
     expect(getMiniMapNodeColor({})).toBe(MINIMAP_FALLBACK_COLOR);
+  });
+});
+
+describe("Canvas connection guard", () => {
+  // Canvas restores this draft on mount (no projectId in MemoryRouter).
+  const DRAFT_KEY = "tensormap_draft_default";
+  const layer = (id, layerType) => ({
+    id,
+    type: "genericlayer",
+    position: { x: 0, y: 0 },
+    data: { layerType, params: {}, label: layerType },
+  });
+  const draft = {
+    modelName: "",
+    nodes: [
+      layer("n1", "input"),
+      layer("n2", "dense"),
+      layer("n3", "dense"),
+      layer("n4", "concatenate"),
+    ],
+    edges: [
+      { id: "e1", source: "n1", target: "n2" },
+      { id: "e2", source: "n1", target: "n4", targetHandle: "input-0" },
+    ],
+  };
+  const connection = (source, target, targetHandle = null) => ({
+    source,
+    sourceHandle: null,
+    target,
+    targetHandle,
+  });
+
+  const renderCanvas = () => {
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+    return render(
+      <RecoilRoot>
+        <MemoryRouter>
+          <Canvas />
+        </MemoryRouter>
+      </RecoilRoot>,
+    );
+  };
+
+  const attempt = (conn) => {
+    let result;
+    act(() => {
+      result = reactFlowProps.current.isValidConnection(conn);
+    });
+    return result;
+  };
+
+  afterEach(() => {
+    localStorage.removeItem(DRAFT_KEY);
+    vi.useRealTimers();
+    vi.clearAllMocks();
+  });
+
+  it("refuses a self-loop", () => {
+    renderCanvas();
+    expect(attempt(connection("n2", "n2"))).toBe(false);
+    expect(screen.getByRole("alert")).toHaveTextContent("A layer cannot connect to itself");
+  });
+
+  it("refuses a duplicate edge", () => {
+    renderCanvas();
+    expect(attempt(connection("n1", "n2"))).toBe(false);
+    expect(screen.getByRole("alert")).toHaveTextContent("These layers are already connected");
+  });
+
+  it("refuses a second input on a single-input layer", () => {
+    renderCanvas();
+    expect(attempt(connection("n3", "n2"))).toBe(false);
+    expect(screen.getByRole("alert")).toHaveTextContent("Dense accepts only one input");
+  });
+
+  it("allows a second input on a merge layer", () => {
+    renderCanvas();
+    expect(attempt(connection("n3", "n4", "input-1"))).toBe(true);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("accepts a valid connection, adds the edge and pushes an undo snapshot", () => {
+    renderCanvas();
+    const undoButton = screen.getByTitle(/^Undo/);
+    expect(undoButton).toBeDisabled();
+    expect(reactFlowProps.current.edges).toHaveLength(2);
+
+    const conn = connection("n2", "n3");
+    expect(attempt(conn)).toBe(true);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+    act(() => {
+      reactFlowProps.current.onConnect(conn);
+    });
+
+    expect(reactFlowProps.current.edges).toHaveLength(3);
+    expect(reactFlowProps.current.edges[2]).toMatchObject({ source: "n2", target: "n3" });
+    expect(undoButton).toBeEnabled();
+  });
+
+  it("dismisses the notice after 3 seconds", () => {
+    vi.useFakeTimers();
+    renderCanvas();
+    attempt(connection("n2", "n2"));
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+
+    act(() => {
+      vi.advanceTimersByTime(2999);
+    });
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("clears the notice as soon as a valid connection is made", () => {
+    renderCanvas();
+    attempt(connection("n3", "n2"));
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+
+    act(() => {
+      reactFlowProps.current.onConnect(connection("n2", "n3"));
+    });
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });

@@ -3,6 +3,7 @@ import { useParams } from "react-router-dom";
 import { createPortal } from "react-dom";
 import { Trash2, Undo2, Redo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   Dialog,
   DialogContent,
@@ -37,7 +38,7 @@ import GlobalAvgPoolNode from "./CustomNodes/GlobalAvgPoolNode/GlobalAvgPoolNode
 import GenericLayerNode from "../nodes/GenericLayerNode";
 import Sidebar from "./Sidebar";
 import NodePropertiesPanel from "./NodePropertiesPanel";
-import { canSaveModelSimple, generateModelJSON } from "./Helpers";
+import { canSaveModelSimple, generateModelJSON, getConnectionError } from "./Helpers";
 import ModelSummaryPanel from "./ModelSummaryPanel";
 import { getAllModels, getModelGraph, saveModel } from "../../services/ModelServices";
 import { trainingHistory as trainingHistoryAtom } from "../../shared/atoms";
@@ -46,6 +47,9 @@ import useUndoRedo from "../../hooks/useUndoRedo";
 import { useLayerRegistry, getLayerSpec, getAllLayerSpecs } from "../../hooks/useLayerRegistry";
 import { LEGACY_TYPE_MAP } from "../../types/registry";
 import { getMiniMapNodeColor } from "../../constants/nodeColors";
+
+// How long the "connection refused" notice stays on the canvas.
+const CONNECTION_NOTICE_MS = 3000;
 
 const isMac =
   typeof navigator !== "undefined"
@@ -130,6 +134,8 @@ function Canvas() {
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [nodeToDelete, setNodeToDelete] = useState(null);
+  const [connectionNotice, setConnectionNotice] = useState(null);
+  const connectionNoticeTimerRef = useRef(null);
   const defaultViewport = { x: 10, y: 15, zoom: 0.5 };
 
   // Hook to get layer registry (getLayerSpec uses the cached registry internally).
@@ -354,12 +360,46 @@ function Canvas() {
     setModelName("");
   }, [draftKey, setNodes, setEdges]);
 
+  const showConnectionNotice = useCallback((message) => {
+    setConnectionNotice(message);
+    if (connectionNoticeTimerRef.current) clearTimeout(connectionNoticeTimerRef.current);
+    connectionNoticeTimerRef.current = setTimeout(
+      () => setConnectionNotice(null),
+      CONNECTION_NOTICE_MS,
+    );
+  }, []);
+
+  const clearConnectionNotice = useCallback(() => {
+    if (connectionNoticeTimerRef.current) clearTimeout(connectionNoticeTimerRef.current);
+    connectionNoticeTimerRef.current = null;
+    setConnectionNotice(null);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (connectionNoticeTimerRef.current) clearTimeout(connectionNoticeTimerRef.current);
+    };
+  }, []);
+
+  // ReactFlow calls this on every pointer move near a handle while an edge is
+  // being dragged, so the handle is marked invalid before the drop and the
+  // notice names the reason. Reads the refs so the callback stays stable.
+  const isValidConnection = useCallback(
+    (connection) => {
+      const error = getConnectionError(connection, nodesRef.current, edgesRef.current);
+      if (error) showConnectionNotice(error);
+      return !error;
+    },
+    [showConnectionNotice],
+  );
+
   const onConnect = useCallback(
     (params) => {
+      clearConnectionNotice();
       takeSnapshotAndUpdate(nodesRef.current, edgesRef.current);
       setEdges((eds) => addEdge(params, eds));
     },
-    [setEdges, takeSnapshotAndUpdate],
+    [setEdges, takeSnapshotAndUpdate, clearConnectionNotice],
   );
 
   const handleNodesChange = useCallback(
@@ -742,6 +782,7 @@ function Canvas() {
                 onNodesChange={handleNodesChange}
                 onEdgesChange={handleEdgesChange}
                 onConnect={onConnect}
+                isValidConnection={isValidConnection}
                 onInit={setReactFlowInstance}
                 onDrop={onDrop}
                 onDragOver={onDragOver}
@@ -778,6 +819,16 @@ function Canvas() {
                     <Redo2 className="h-4 w-4" />
                   </Button>
                 </Panel>
+                {connectionNotice && (
+                  <Panel position="top-center">
+                    <Alert
+                      variant="destructive"
+                      className="w-auto whitespace-nowrap bg-white px-3 py-2 shadow-md"
+                    >
+                      <AlertDescription>{connectionNotice}</AlertDescription>
+                    </Alert>
+                  </Panel>
+                )}
                 <Controls />
                 {/* Hidden below xl: the sidebar and properties panel leave the
                     canvas narrower than the minimap's fixed 200px, which would

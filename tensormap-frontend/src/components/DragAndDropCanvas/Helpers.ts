@@ -144,6 +144,59 @@ function validateMergeLayerEdges(
   return null;
 }
 
+interface Connection {
+  source: string | null;
+  sourceHandle?: string | null;
+  target: string | null;
+  targetHandle?: string | null;
+}
+
+/**
+ * Explain why a dragged connection must be refused, or return null when it is
+ * allowed. Mirrors the topology rules the backend enforces in validate_ir_graph:
+ * no self-loops, no duplicate edges, and one input per layer unless the layer's
+ * registry spec is flagged `merge` (Concatenate).
+ */
+export function getConnectionError(
+  connection: Connection,
+  nodes: any[],
+  edges: any[],
+): string | null {
+  const { source, target } = connection;
+  if (!source || !target) return null;
+
+  if (source === target) {
+    return "A layer cannot connect to itself";
+  }
+
+  const sourceHandle = connection.sourceHandle ?? null;
+  const targetHandle = connection.targetHandle ?? null;
+  const isDuplicate = edges.some(
+    (edge) =>
+      edge.source === source &&
+      edge.target === target &&
+      (edge.sourceHandle ?? null) === sourceHandle &&
+      (edge.targetHandle ?? null) === targetHandle,
+  );
+  if (isDuplicate) {
+    return "These layers are already connected";
+  }
+
+  const hasInput = edges.some((edge) => edge.target === target);
+  if (hasInput) {
+    const targetNode = nodes.find((node) => node.id === target);
+    const layerSpec = targetNode
+      ? getLayerSpec(getRegistryTypeKey(targetNode.data?.layerType || targetNode.type))
+      : null;
+    if (!layerSpec?.merge) {
+      const name = layerSpec?.display_name || targetNode?.data?.label || "This layer";
+      return `${name} accepts only one input`;
+    }
+  }
+
+  return null;
+}
+
 /**
  * Registry-driven validation function.
  * Returns { valid: boolean, errors: ValidationError[] }

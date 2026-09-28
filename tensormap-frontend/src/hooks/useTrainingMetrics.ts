@@ -35,6 +35,20 @@ interface UseTrainingMetricsReturn {
   isCompleted: boolean;
 }
 
+export function mergeEpochMetric(metrics: EpochMetric[], incoming: EpochMetric): EpochMetric[] {
+  const existing = metrics.find((metric) => metric.epoch === incoming.epoch);
+  if (!existing) return [...metrics, incoming];
+  return metrics.map((metric) => {
+    if (metric.epoch !== incoming.epoch) return metric;
+    const merged = { ...metric, ...incoming };
+    for (const key of ["loss", "accuracy"] as const) {
+      if (incoming[key] == null && metric[key] != null) merged[key] = metric[key];
+    }
+    if (incoming.phase === "validation") merged.phase = metric.phase || "train";
+    return merged;
+  });
+}
+
 export function useTrainingMetrics(
   jobId: string | null,
   totalEpochs: number,
@@ -77,15 +91,21 @@ export function useTrainingMetrics(
         setStartedAt(data.started_at);
       }
     } else if (data.type === "metrics") {
-      // Append new metric
+      // Live metrics use the same one-record-per-epoch shape as catch-up.
       const newMetric: EpochMetric = {
-        epoch: data.epoch,
-        loss: data.loss,
-        accuracy: data.accuracy,
-        val_loss: data.val_loss,
-        val_accuracy: data.val_accuracy,
-      };
-      setMetrics((prev) => [...prev, newMetric]);
+      epoch: data.epoch,
+      loss: data.loss,
+      accuracy: data.accuracy,
+      val_loss: data.val_loss,
+      val_accuracy: data.val_accuracy,
+      phase: data.phase,
+      batch: data.batch,
+      steps: data.steps,
+      timestamp: data.timestamp,
+      job_id: data.job_id,
+      version: data.version,
+    };
+      setMetrics((prev) => mergeEpochMetric(prev, newMetric));
       setCurrentEpoch(data.epoch);
       setStatus("running");
     } else if (data.type === "status") {

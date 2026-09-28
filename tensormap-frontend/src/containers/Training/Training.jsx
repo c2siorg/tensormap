@@ -17,7 +17,9 @@ import {
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -54,9 +56,34 @@ const metricOptions = [
   { key: "acc_2", label: "MSE", value: "mse" },
 ];
 
+// Values must match the LossFunction enum on the backend.
+const lossOptions = [
+  {
+    group: "Classification",
+    label: "Sparse Categorical Crossentropy",
+    value: "sparse_categorical_crossentropy",
+  },
+  { group: "Classification", label: "Categorical Crossentropy", value: "categorical_crossentropy" },
+  { group: "Classification", label: "Binary Crossentropy", value: "binary_crossentropy" },
+  { group: "Regression", label: "Mean Squared Error", value: "mean_squared_error" },
+  { group: "Regression", label: "Mean Absolute Error", value: "mean_absolute_error" },
+  { group: "Regression", label: "Huber", value: "huber" },
+];
+
+const lossOptionGroups = ["Classification", "Regression"].map((group) => ({
+  label: group,
+  options: lossOptions.filter((o) => o.group === group),
+}));
+
+// defaultLoss is preselected when the problem type changes; the user can override it.
 const problemTypeOptions = [
-  { key: "prob_type_1", label: "Multi class classification", value: "1" },
-  { key: "prob_type_2", label: "Linear Regression", value: "2" },
+  {
+    key: "prob_type_1",
+    label: "Multi class classification",
+    value: "1",
+    defaultLoss: "sparse_categorical_crossentropy",
+  },
+  { key: "prob_type_2", label: "Linear Regression", value: "2", defaultLoss: "mean_squared_error" },
 ];
 
 export default function Training() {
@@ -93,6 +120,7 @@ export default function Training() {
     target_field: "",
     problem_type_id: "",
     optimizer: "adam",
+    loss: "",
     metric: "",
     epochs: "",
     batch_size: "",
@@ -104,6 +132,7 @@ export default function Training() {
     file_id: "",
     problem_type_id: "",
     optimizer: "",
+    loss: "",
     metric: "",
     target_field: "",
     epochs: "",
@@ -266,6 +295,13 @@ export default function Training() {
     return "";
   }, []);
 
+  const validateLoss = useCallback((value) => {
+    if (!value) {
+      return "Loss function must be selected";
+    }
+    return "";
+  }, []);
+
   const validateMetric = useCallback((value) => {
     if (!value) {
       return "Result metric must be selected";
@@ -306,6 +342,9 @@ export default function Training() {
         case "optimizer":
           error = validateOptimizer(value);
           break;
+        case "loss":
+          error = validateLoss(value);
+          break;
         case "metric":
           error = validateMetric(value);
           break;
@@ -325,6 +364,7 @@ export default function Training() {
       validateFile,
       validateProblemType,
       validateOptimizer,
+      validateLoss,
       validateMetric,
       validateTargetField,
       setValidationErrors,
@@ -343,6 +383,7 @@ export default function Training() {
       file_id: validateFile(trainingConfig.file_id),
       problem_type_id: validateProblemType(trainingConfig.problem_type_id),
       optimizer: validateOptimizer(trainingConfig.optimizer),
+      loss: validateLoss(trainingConfig.loss),
       metric: validateMetric(trainingConfig.metric),
       target_field: validateTargetField(trainingConfig.target_field),
       epochs: validateEpochs(trainingConfig.epochs),
@@ -358,6 +399,7 @@ export default function Training() {
     validateFile,
     validateProblemType,
     validateOptimizer,
+    validateLoss,
     validateMetric,
     validateTargetField,
     validateEpochs,
@@ -407,6 +449,7 @@ export default function Training() {
       training_split: Number(trainingConfig.training_split) * 100,
       problem_type_id: Number(trainingConfig.problem_type_id),
       optimizer: trainingConfig.optimizer,
+      loss: trainingConfig.loss,
       metric: trainingConfig.metric,
       epochs: Number(trainingConfig.epochs),
       batch_size: trainingConfig.batch_size ? Number(trainingConfig.batch_size) : 32,
@@ -432,6 +475,7 @@ export default function Training() {
     trainingConfig.file_id &&
     trainingConfig.problem_type_id &&
     trainingConfig.optimizer &&
+    trainingConfig.loss &&
     trainingConfig.metric &&
     trainingConfig.epochs &&
     trainingConfig.batch_size &&
@@ -672,8 +716,15 @@ export default function Training() {
                 <Select
                   value={trainingConfig.problem_type_id || ""}
                   onValueChange={(v) => {
-                    setTrainingConfig((prev) => ({ ...prev, problem_type_id: v }));
+                    const defaultLoss =
+                      problemTypeOptions.find((o) => o.value === v)?.defaultLoss ?? "";
+                    setTrainingConfig((prev) => ({
+                      ...prev,
+                      problem_type_id: v,
+                      loss: defaultLoss,
+                    }));
                     updateValidationErrors("problem_type_id", v);
+                    updateValidationErrors("loss", defaultLoss);
                     setConfigSaved(false);
                   }}
                 >
@@ -760,6 +811,37 @@ export default function Training() {
                 </Select>
                 {validationErrors.optimizer && (
                   <p className="text-sm text-red-500">{validationErrors.optimizer}</p>
+                )}
+              </div>
+
+              <div className="space-y-1">
+                <Label>Loss Function</Label>
+                <Select
+                  value={trainingConfig.loss || ""}
+                  onValueChange={(v) => {
+                    setTrainingConfig((prev) => ({ ...prev, loss: v }));
+                    updateValidationErrors("loss", v);
+                    setConfigSaved(false);
+                  }}
+                >
+                  <SelectTrigger className={validationErrors.loss ? "border-red-500" : ""}>
+                    <SelectValue placeholder="Select loss function" />
+                  </SelectTrigger>
+                  <SelectContent className="z-[9999] bg-white shadow-lg border backdrop-blur-sm">
+                    {lossOptionGroups.map((group) => (
+                      <SelectGroup key={group.label}>
+                        <SelectLabel>{group.label}</SelectLabel>
+                        {group.options.map((o) => (
+                          <SelectItem key={o.value} value={o.value}>
+                            {o.label}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {validationErrors.loss && (
+                  <p className="text-sm text-red-500">{validationErrors.loss}</p>
                 )}
               </div>
 

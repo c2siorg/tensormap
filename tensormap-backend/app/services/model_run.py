@@ -17,7 +17,7 @@ from app.shared.constants import (
     SOCKETIO_DL_NAMESPACE,
     SOCKETIO_LISTENER,
 )
-from app.shared.enums import ProblemType
+from app.shared.enums import LossFunction, ProblemType
 from app.shared.logging_config import get_logger
 from app.socketio_instance import sio
 
@@ -51,6 +51,49 @@ def _validate_training_params(batch_size, epochs, training_split):
                 errors.append(f"training_split must be between 0 and 100, got {ts}")
     if errors:
         raise ValueError("Invalid training parameters: " + "; ".join(errors))
+
+
+# Keras loss classes keyed by the name stored on ModelBasic.loss.
+_LOSS_CLASSES: dict[str, type[tf.keras.losses.Loss]] = {
+    LossFunction.SPARSE_CATEGORICAL_CROSSENTROPY: tf.keras.losses.SparseCategoricalCrossentropy,
+    LossFunction.CATEGORICAL_CROSSENTROPY: tf.keras.losses.CategoricalCrossentropy,
+    LossFunction.BINARY_CROSSENTROPY: tf.keras.losses.BinaryCrossentropy,
+    LossFunction.MEAN_SQUARED_ERROR: tf.keras.losses.MeanSquaredError,
+    LossFunction.MEAN_ABSOLUTE_ERROR: tf.keras.losses.MeanAbsoluteError,
+    LossFunction.HUBER: tf.keras.losses.Huber,
+}
+# Cross-entropy losses need to know whether the output layer already applies
+# softmax/sigmoid; the regression losses take no such flag.
+_LOGIT_LOSSES = frozenset(
+    {
+        LossFunction.SPARSE_CATEGORICAL_CROSSENTROPY,
+        LossFunction.CATEGORICAL_CROSSENTROPY,
+        LossFunction.BINARY_CROSSENTROPY,
+    }
+)
+
+
+def _emits_logits(model: tf.keras.Model) -> bool:
+    """True unless the model's output layer already applies softmax or sigmoid."""
+    output_layer = model.layers[-1]
+    activation = getattr(output_layer, "activation", None)
+    name = getattr(activation, "__name__", type(output_layer).__name__).lower()
+    return name not in ("softmax", "sigmoid")
+
+
+def resolve_loss(name: str | None, from_logits: bool) -> tf.keras.losses.Loss:
+    """Build the Keras loss for a stored loss name.
+
+    Raises ValueError for names outside ``LossFunction`` instead of silently
+    compiling with mean squared error.
+    """
+    loss_cls = _LOSS_CLASSES.get(name)
+    if loss_cls is None:
+        valid = ", ".join(_LOSS_CLASSES)
+        raise ValueError(f"Unsupported loss function: {name!r}. Valid: {valid}")
+    if name in _LOGIT_LOSSES:
+        return loss_cls(from_logits=from_logits)
+    return loss_cls()
 
 
 # Context variable holding the event loop for each concurrent training task,
@@ -305,13 +348,9 @@ def _run(model_name: str, db: Session, job_id: str | None = None) -> None:
         json_string = f.read()
     model = tf.keras.models.model_from_json(json_string, custom_objects=None)
     model.summary()
-    if model_configs.loss == "sparse_categorical_crossentropy":
-        loss = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
-    else:
-        loss = tf.keras.losses.MeanSquaredError()
     model.compile(
         optimizer=model_configs.optimizer,
-        loss=loss,
+        loss=resolve_loss(model_configs.loss, from_logits=_emits_logits(model)),
         metrics=[model_configs.metric],
     )
 

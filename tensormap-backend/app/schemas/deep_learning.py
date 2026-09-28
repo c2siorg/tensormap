@@ -5,6 +5,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from app.shared.enums import LossFunction
+
 
 # --- "code" sub-models ---
 class DatasetConfig(BaseModel):
@@ -106,4 +108,7 @@ class TrainingConfigRequest(BaseModel):
     metric: str = Field(min_length=1)
     epochs: int = Field(gt=0)
     batch_size: int = Field(default=32, gt=0)
+    # Optional so clients that predate the field keep working; the service
+    # falls back to the problem-type default when it is omitted.
+    loss: LossFunction | None = None
     project_id: uuid_pkg.UUID | None = None

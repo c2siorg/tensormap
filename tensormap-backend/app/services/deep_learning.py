@@ -35,7 +35,7 @@ from app.shared.constants import (
     MODEL_TRAINING_SPLIT,
     PROBLEM_TYPE,
 )
-from app.shared.enums import ProblemType
+from app.shared.enums import LossFunction, ProblemType
 from app.shared.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -45,6 +45,13 @@ tf = None
 def _resp(status_code: int, success: bool, message: str, data: Any = None) -> tuple:
     """Build a standard API response tuple of (body_dict, status_code)."""
     return {"success": success, "message": message, "data": data}, status_code
+
+
+def _default_loss(problem_type_id: int) -> str:
+    """Loss used when a training config does not name one (and for models saved before the field existed)."""
+    if problem_type_id in (ProblemType.CLASSIFICATION, ProblemType.IMAGE_CLASSIFICATION):
+        return LossFunction.SPARSE_CATEGORICAL_CROSSENTROPY.value
+    return LossFunction.MEAN_SQUARED_ERROR.value
 
 
 def _sanitize_model_name(name: str) -> str:
@@ -216,11 +223,6 @@ def model_validate_service(db: Session, incoming: dict, project_id: uuid_pkg.UUI
     if existing:
         return _resp(400, False, "Model name already used. Use a different name")
 
-    if code[PROBLEM_TYPE] in (ProblemType.CLASSIFICATION, ProblemType.IMAGE_CLASSIFICATION):
-        loss = "sparse_categorical_crossentropy"
-    else:
-        loss = "mean_squared_error"
-
     model = ModelBasic(
         model_name=code[DL_MODEL][MODEL_NAME],
         file_id=code[DATASET][FILE_ID],
@@ -231,7 +233,7 @@ def model_validate_service(db: Session, incoming: dict, project_id: uuid_pkg.UUI
         optimizer=code[DL_MODEL][MODEL_OPTIMIZER],
         metric=code[DL_MODEL][MODEL_METRIC],
         epochs=code[DL_MODEL][MODEL_EPOCHS],
-        loss=loss,
+        loss=_default_loss(code[PROBLEM_TYPE]),
         graph_json=_extract_graph(incoming),
         graph_ir=graph_ir_data,  # NEW: Dual-write to graph_ir
     )
@@ -429,10 +431,7 @@ def update_training_config_service(
         return _resp(404, False, "Model not found")
 
     problem_type_id = config["problem_type_id"]
-    if problem_type_id in (ProblemType.CLASSIFICATION, ProblemType.IMAGE_CLASSIFICATION):
-        loss = "sparse_categorical_crossentropy"
-    else:
-        loss = "mean_squared_error"
+    loss = config.get("loss") or _default_loss(problem_type_id)
 
     model.file_id = config["file_id"]
     model.model_type = problem_type_id
@@ -442,7 +441,7 @@ def update_training_config_service(
     model.metric = config["metric"]
     model.epochs = config["epochs"]
     model.batch_size = config.get("batch_size", 32)
-    model.loss = loss
+    model.loss = LossFunction(loss).value
 
     try:
         db.add(model)

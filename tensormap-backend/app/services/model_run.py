@@ -7,6 +7,7 @@ import tensorflow as tf
 from sqlmodel import Session, select
 
 from app.callbacks import CancellationCheckCallback, MetricsCallback
+from app.callbacks.metrics_callback import _event_envelope
 from app.config import get_settings
 from app.models.data import DataFile, ImageProperties
 from app.models.ml import ModelBasic
@@ -192,7 +193,21 @@ def model_run(
             try:
                 with make_session() as session:
                     update_job_status(job_id, TrainingStatus.FAILED, session, error_message=str(e))
-                schedule_room_emit(sio, loop, job_id, {"type": "status", "status": "failed", "error": str(e)})
+                schedule_room_emit(
+                    sio,
+                    loop,
+                    job_id,
+                    _event_envelope(
+                        job_id,
+                        "status",
+                        status="failed",
+                        phase=None,
+                        epoch=None,
+                        batch=None,
+                        steps=None,
+                        error=str(e),
+                    ),
+                )
             except Exception:  # noqa: BLE001 - never mask the original training error
                 logger.exception("Failed to mark job %s as failed", job_id)
         else:

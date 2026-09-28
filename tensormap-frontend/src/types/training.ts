@@ -9,6 +9,13 @@ export interface EpochMetric {
   accuracy?: number;
   val_loss?: number;
   val_accuracy?: number;
+
+  phase?: "train" | "validation";
+  batch?: number;
+  steps?: number;
+  timestamp?: string;
+  job_id?: string;
+  version?: number;
 }
 
 export interface TrainingState {

@@ -12,6 +12,8 @@ import axios from "../shared/Axios";
 import * as urls from "../constants/Urls";
 import * as strings from "../constants/Strings";
 
+const SUPPORTED_TRAINING_EVENT_VERSION = 1;
+
 let socket = null;
 
 /** Lazily create (once) and return the shared training socket. */
@@ -43,12 +45,20 @@ export function subscribeToJob(jobId, onEvent) {
   const s = getTrainingSocket();
 
   const handler = (data) => {
-    if (data && (data.type === "metrics" || data.type === "catchup" || data.type === "status")) {
+    if (!data || data.version !== SUPPORTED_TRAINING_EVENT_VERSION) {
+      return;
+    }
+
+    if (
+      data.type === "metrics" ||
+      data.type === "catchup" ||
+      data.type === "status"
+    ) {
       onEvent(data);
     }
   };
-  s.on(strings.DL_RESULT_LISTENER, handler);
 
+  s.on(strings.DL_RESULT_LISTENER, handler);
   // Re-join the room on every (re)connect: a reconnect gives a fresh server-side
   // session, so the previous room membership is gone. Re-subscribing triggers a
   // catch-up so no metrics are missed across the gap.

@@ -78,14 +78,32 @@ export function useTrainingMetrics(
       }
     } else if (data.type === "metrics") {
       // Append new metric
-      const newMetric: EpochMetric = {
-        epoch: data.epoch,
-        loss: data.loss,
-        accuracy: data.accuracy,
-        val_loss: data.val_loss,
-        val_accuracy: data.val_accuracy,
-      };
-      setMetrics((prev) => [...prev, newMetric]);
+     const newMetric: EpochMetric = {
+      epoch: data.epoch,
+      loss: data.loss,
+      accuracy: data.accuracy,
+      val_loss: data.val_loss,
+      val_accuracy: data.val_accuracy,
+      phase: data.phase,
+      batch: data.batch,
+      steps: data.steps,
+      timestamp: data.timestamp,
+      job_id: data.job_id,
+      version: data.version,
+    };
+      setMetrics((prev) => {
+        const existing = prev.find((metric) => metric.epoch === data.epoch);
+
+        if (!existing) {
+          return [...prev, newMetric];
+        }
+
+        return prev.map((metric) =>
+          metric.epoch === data.epoch
+            ? { ...metric, ...newMetric }
+            : metric
+        );
+      });
       setCurrentEpoch(data.epoch);
       setStatus("running");
     } else if (data.type === "status") {

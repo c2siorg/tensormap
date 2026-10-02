@@ -98,12 +98,23 @@ def test_metrics_emitted_to_job_room(training_session_factory):
         cb.on_epoch_end(0, {"loss": 0.5, "accuracy": 0.8})
 
     # The emit is scheduled on the loop; assert it targets this job's room only.
+        # The emit is scheduled on the loop; assert it targets this job's room only.
     assert sio.emit.called
-    _, kwargs = sio.emit.call_args
+    args, kwargs = sio.emit.call_args
+
     assert kwargs["room"] == job_id
     assert kwargs["namespace"] == "/dl-result"
-    assert rcts.called
 
+    payload = args[1]
+    assert payload["version"] == 1
+    assert payload["type"] == "metrics"
+    assert payload["job_id"] == job_id
+    assert payload["phase"] == "train"
+    assert "timestamp" in payload
+    assert payload["batch"] == 0
+    assert payload["steps"] == 0
+
+    assert rcts.called
 
 def test_cancellation_stops_training(training_session_factory):
     job_id = _seed_job(training_session_factory, status=TrainingStatus.CANCELLED)

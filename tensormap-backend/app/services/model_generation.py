@@ -3,6 +3,8 @@
 import json
 from collections import defaultdict
 
+from app.layers.registry import LAYER_REGISTRY
+from app.shared.errors import layer_shape_mismatch_message
 from app.shared.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -40,6 +42,35 @@ def _require_node_params(node: dict, *required: str) -> dict:
             f"{', '.join(repr(key) for key in missing)} in data.params."
         )
     return params
+
+
+def _coerce_param(node: dict, key: str, value, cast=int):
+    """Convert a raw node parameter with ``cast`` (``int`` or ``float``).
+
+    Raises:
+        ValueError: Naming the node id, the parameter and the value received,
+            instead of the bare ``int()``/``float()`` error.
+    """
+    try:
+        return cast(value)
+    except (TypeError, ValueError) as e:
+        expected = "a whole number" if cast is int else "a number"
+        raise ValueError(
+            f"Node {node.get('id', '<unknown>')}: parameter {key!r} must be {expected}, got {value!r}."
+        ) from e
+
+
+def _apply_layer(layer, input_tensor, node_id: str, source_ids):
+    """Apply a built Keras layer to its input tensor.
+
+    Keras rejects an incompatible input with a ValueError that only names the
+    Keras layer and its ndim. Re-raise it as a message naming both canvas nodes,
+    the incoming shape and what to change, keeping the original as the cause.
+    """
+    try:
+        return layer(input_tensor)
+    except ValueError as e:
+        raise ValueError(layer_shape_mismatch_message(node_id, source_ids, input_tensor.shape, layer)) from e
 
 
 def model_generation(model_params: dict) -> dict:
@@ -100,7 +131,7 @@ def model_generation(model_params: dict) -> dict:
 
     for node in input_nodes:
         input_params = _node_params(node)
-        dims = [int(input_params.get(f"dim-{i + 1}", 0) or 0) for i in range(3)]
+        dims = [_coerce_param(node, f"dim-{i + 1}", input_params.get(f"dim-{i + 1}", 0) or 0) for i in range(3)]
         dims = [d for d in dims if d != 0]
         keras_tensors[node["id"]] = tf.keras.Input(shape=dims, name=node["id"])
         visited.add(node["id"])
@@ -126,7 +157,7 @@ def model_generation(model_params: dict) -> dict:
                 input_tensor = source_tensors[0]
 
             node = nodes_by_id[target_id]
-            keras_tensors[target_id] = _build_layer(node, input_tensor)
+            keras_tensors[target_id] = _build_layer(node, input_tensor, all_sources)
 
     # Every node must be reachable from an input layer. Anything left unvisited is
     # either an orphan the user forgot to wire up or part of a cycle -- the BFS never
@@ -198,8 +229,11 @@ def build_model_from_ir(graph: "IRGraph") -> dict:  # type: ignore  # noqa: F821
     return json.loads(model.to_json())
 
 
-def _build_layer(node: dict, input_tensor):
+def _build_layer(node: dict, input_tensor, source_ids=()):
     """Instantiate a single Keras layer from a ReactFlow node and apply it to the input tensor.
+
+    ``source_ids`` are the ids of the nodes feeding ``input_tensor``; they are
+    only used to name the upstream node in a shape mismatch error.
 
     LEGACY: This function is maintained for backward compatibility with the old
     ReactFlow format. New code should use TensorFlowGenerator._build_layer() instead.
@@ -214,43 +248,53 @@ def _build_layer(node: dict, input_tensor):
     if node_type == "customdense":
         _require_node_params(node, "units", "activation")
         activation = params["activation"]
-        return tf.keras.layers.Dense(
-            units=int(params["units"]),
+        layer = tf.keras.layers.Dense(
+            units=_coerce_param(node, "units", params["units"]),
             activation="linear" if activation == "none" else activation,
             name=name,
-        )(input_tensor)
+        )
 
     elif node_type == "customflatten":
-        return tf.keras.layers.Flatten(name=name)(input_tensor)
+        layer = tf.keras.layers.Flatten(name=name)
 
     elif node_type == "custommaxpool":
-        return tf.keras.layers.MaxPooling2D(
-            pool_size=int(params.get("pool_size", 2)),
-            strides=int(params.get("stride", 2)),
+        layer = tf.keras.layers.MaxPooling2D(
+            pool_size=_coerce_param(node, "pool_size", params.get("pool_size", 2)),
+            strides=_coerce_param(node, "stride", params.get("stride", 2)),
             padding=params.get("padding", "valid"),
             name=name,
-        )(input_tensor)
+        )
 
     elif node_type == "customglobalavgpool":
-        return tf.keras.layers.GlobalAveragePooling2D(name=name)(input_tensor)
+        layer = tf.keras.layers.GlobalAveragePooling2D(name=name)
 
     elif node_type == "customconv":
         _require_node_params(node, "filter", "kernelX", "kernelY", "strideX", "strideY", "padding", "activation")
         activation = params["activation"]
-        return tf.keras.layers.Conv2D(
-            filters=int(params["filter"]),
-            kernel_size=(int(params["kernelX"]), int(params["kernelY"])),
-            strides=(int(params["strideX"]), int(params["strideY"])),
+        layer = tf.keras.layers.Conv2D(
+            filters=_coerce_param(node, "filter", params["filter"]),
+            kernel_size=(
+                _coerce_param(node, "kernelX", params["kernelX"]),
+                _coerce_param(node, "kernelY", params["kernelY"]),
+            ),
+            strides=(
+                _coerce_param(node, "strideX", params["strideX"]),
+                _coerce_param(node, "strideY", params["strideY"]),
+            ),
             padding=params["padding"],
             activation="linear" if activation == "none" else activation,
             name=name,
-        )(input_tensor)
+        )
 
     elif node_type == "customdropout":
-        rate = float(params.get("rate", 0.5))
+        rate = _coerce_param(node, "rate", params.get("rate", 0.5), float)
         if not 0.0 <= rate < 1.0:
             raise ValueError(f"Dropout rate must be in [0, 1), got {rate!r}.")
-        return tf.keras.layers.Dropout(rate=rate, name=name)(input_tensor)
+        layer = tf.keras.layers.Dropout(rate=rate, name=name)
 
     else:
-        raise ValueError(f"Unknown node type: {node_type}")
+        raise ValueError(
+            f"Unknown node type: {node_type} (node {name}). Supported layer types: {', '.join(sorted(LAYER_REGISTRY))}."
+        )
+
+    return _apply_layer(layer, input_tensor, name, source_ids)

@@ -991,3 +991,189 @@ class TestServiceLayerMalformedGraph:
         joined = "; ".join(blocking)
         assert "ghost" in joined
         assert "multiple input nodes" not in joined.lower()
+
+
+# ===================================================================
+# Tests for explanatory validation errors (issue #146)
+# ===================================================================
+
+
+def _assert_no_framework_internals(message: str) -> None:
+    """User-facing messages must not carry Keras jargon, class names, paths or traces."""
+    for fragment in ("ndim", "Conv2D", "MaxPooling2D", "Traceback", ".py", "/"):
+        assert fragment not in message, f"{fragment!r} leaked into: {message}"
+
+
+class TestShapeMismatchMessages:
+    """A shape mismatch between adjacent layers must name both nodes, the
+    incoming shape and what to change, in both generator paths."""
+
+    def _conv_after_dense(self) -> dict:
+        return {
+            "nodes": [_input_node("in1", [10]), _dense_node("d1", 32), _conv_node("c1")],
+            "edges": [_edge("in1", "d1"), _edge("d1", "c1")],
+        }
+
+    def test_conv_after_dense_names_both_nodes_and_shapes(self):
+        with pytest.raises(ValueError) as exc_info:
+            model_generation(self._conv_after_dense())
+        message = str(exc_info.value)
+        assert "Shape mismatch between d1 and c1" in message
+        assert "c1 expects a 4-D input but receives the 2-D output of d1 with shape (None, 32)" in message
+        assert "Place c1 before any Flatten or Dense layer" in message
+        assert "3-D shape such as (height, width, channels)" in message
+        _assert_no_framework_internals(message)
+        # The Keras error stays attached as the cause for server-side logs.
+        assert isinstance(exc_info.value.__cause__, ValueError)
+
+    def test_higher_rank_input_suggests_flatten(self):
+        """A layer fed more dimensions than it accepts gets a Flatten hint.
+        Legacy inputs cap at three dims, so this goes through _build_layer."""
+        input_t = tf.keras.Input(shape=(2, 4, 4, 1), name="in1")
+        with pytest.raises(ValueError) as exc_info:
+            _build_layer(_maxpool_node("p1"), input_t, ["in1"])
+        message = str(exc_info.value)
+        assert "p1 expects a 4-D input but receives the 5-D output of in1 with shape (None, 2, 4, 4, 1)" in message
+        assert "Add a Flatten or Reshape layer between in1 and p1" in message
+        _assert_no_framework_internals(message)
+
+    def test_kernel_larger_than_input_names_nodes_and_shape(self):
+        """A non-rank shape failure still names both nodes and the incoming shape."""
+        params = {
+            "nodes": [_input_node("in1", [8, 8, 1]), _conv_node("c1", kernel=(20, 20))],
+            "edges": [_edge("in1", "c1")],
+        }
+        with pytest.raises(ValueError) as exc_info:
+            model_generation(params)
+        message = str(exc_info.value)
+        assert "Shape mismatch between in1 and c1" in message
+        assert "with shape (None, 8, 8, 1)" in message
+        assert "Check the parameters of c1" in message
+        _assert_no_framework_internals(message)
+
+    def test_dense_after_conv_is_accepted(self):
+        """Keras applies Dense to the last axis, so Conv -> Dense without a
+        Flatten is a valid graph and must not be reported as a mismatch."""
+        params = {
+            "nodes": [_input_node("in1", [8, 8, 1]), _conv_node("c1"), _dense_node("d1", 4)],
+            "edges": [_edge("in1", "c1"), _edge("c1", "d1")],
+        }
+        model = tf.keras.models.model_from_json(json.dumps(model_generation(params)))
+        assert model.output_shape == (None, 6, 6, 4)
+
+    def test_valid_conv_flatten_dense_still_builds(self):
+        params = {
+            "nodes": [_input_node("in1", [8, 8, 1]), _conv_node("c1"), _flatten_node("f1"), _dense_node("d1", 3)],
+            "edges": [_edge("in1", "c1"), _edge("c1", "f1"), _edge("f1", "d1")],
+        }
+        model = tf.keras.models.model_from_json(json.dumps(model_generation(params)))
+        assert model.output_shape == (None, 3)
+
+    def test_registry_generator_conv_after_dense_names_both_nodes(self):
+        from app.generators.tensorflow_generator import TensorFlowGenerator, TensorFlowGeneratorError
+        from app.ir.translator import reactflow_to_ir
+
+        canvas = {
+            "nodes": [
+                {"id": "in1", "type": "input", "data": {"params": {"shape": 10}}},
+                {"id": "d1", "type": "dense", "data": {"params": {"units": 5}}},
+                {"id": "c1", "type": "conv2d", "data": {"params": {"filters": 4, "kernel_size": 3}}},
+            ],
+            "edges": [_edge("in1", "d1"), _edge("d1", "c1")],
+        }
+        with pytest.raises(TensorFlowGeneratorError) as exc_info:
+            TensorFlowGenerator().build_model(reactflow_to_ir(canvas))
+        message = str(exc_info.value)
+        assert "Shape mismatch between d1 and c1" in message
+        assert "c1 expects a 4-D input but receives the 2-D output of d1 with shape (None, 5)" in message
+        _assert_no_framework_internals(message)
+
+    def test_model_validate_service_returns_400_with_shape_explanation(self):
+        from unittest.mock import MagicMock
+
+        from app.services.deep_learning import model_validate_service
+
+        response, status = model_validate_service(MagicMock(), {"model": self._conv_after_dense()})
+        assert status == 400
+        assert response["success"] is False
+        assert "Shape mismatch between d1 and c1" in response["message"]
+        _assert_no_framework_internals(response["message"])
+
+
+class TestParameterCoercionMessages:
+    """Non-numeric layer parameters must name the node, the parameter and the
+    value received instead of surfacing a bare int()/float() error."""
+
+    def test_non_numeric_units_names_node_parameter_and_value(self):
+        params = {
+            "nodes": [_input_node("in1", [10]), _dense_node("d1", "abc")],
+            "edges": [_edge("in1", "d1")],
+        }
+        with pytest.raises(ValueError, match=r"Node d1: parameter 'units' must be a whole number, got 'abc'\."):
+            model_generation(params)
+
+    def test_none_filter_raises_value_error_not_type_error(self):
+        """int(None) used to raise TypeError, which the service reported as a 500."""
+        conv = _conv_node("c1")
+        conv["data"]["params"]["filter"] = None
+        params = {"nodes": [_input_node("in1", [8, 8, 1]), conv], "edges": [_edge("in1", "c1")]}
+        with pytest.raises(ValueError, match=r"Node c1: parameter 'filter' must be a whole number, got None\."):
+            model_generation(params)
+
+    def test_non_numeric_input_dimension_names_the_dimension(self):
+        inp = _input_node("in1", [10])
+        inp["data"]["params"]["dim-1"] = "28px"
+        params = {"nodes": [inp, _dense_node("d1")], "edges": [_edge("in1", "d1")]}
+        with pytest.raises(ValueError, match=r"Node in1: parameter 'dim-1' must be a whole number, got '28px'\."):
+            model_generation(params)
+
+    def test_non_numeric_dropout_rate_names_node_and_parameter(self):
+        input_t = tf.keras.Input(shape=(5,), name="in1")
+        with pytest.raises(ValueError, match=r"Node do1: parameter 'rate' must be a number, got 'high'\."):
+            _build_layer(_dropout_node("do1", "high"), input_t)
+
+    def test_model_validate_service_returns_400_naming_the_parameter(self):
+        from unittest.mock import MagicMock
+
+        from app.services.deep_learning import model_validate_service
+
+        canvas = {
+            "nodes": [_input_node("in1", [10]), _dense_node("d1", "abc")],
+            "edges": [_edge("in1", "d1")],
+        }
+        response, status = model_validate_service(MagicMock(), {"model": canvas})
+        assert status == 400
+        assert response["success"] is False
+        assert "Node d1: parameter 'units' must be a whole number, got 'abc'." in response["message"]
+        _assert_no_framework_internals(response["message"])
+
+
+class TestUnknownTypeMessages:
+    """Unknown node/layer type errors must list the supported types, taken
+    from LAYER_REGISTRY so the list cannot drift from it."""
+
+    def test_legacy_unknown_node_type_lists_registry_types(self):
+        from app.layers.registry import LAYER_REGISTRY
+
+        input_t = tf.keras.Input(shape=(5,), name="in1")
+        node = {"id": "z", "type": "customfoo", "data": {"params": {}}}
+        with pytest.raises(ValueError) as exc_info:
+            _build_layer(node, input_t)
+        message = str(exc_info.value)
+        assert "Unknown node type: customfoo (node z)" in message
+        assert f"Supported layer types: {', '.join(sorted(LAYER_REGISTRY))}." in message
+
+    def test_registry_generator_unknown_layer_type_lists_registry_types(self, monkeypatch):
+        from app.generators.tensorflow_generator import TensorFlowGenerator, TensorFlowGeneratorError
+        from app.ir.schema import DenseParams, IRNode
+        from app.layers.registry import LAYER_REGISTRY
+
+        node = IRNode(id="z", node_params=DenseParams(layer_type="dense", units=1))
+        # layer_type is a Literal on the IR models, so a type the registry does
+        # not know can only reach _build_layer if the two drift apart.
+        monkeypatch.setattr(node.node_params, "layer_type", "foo")
+        with pytest.raises(TensorFlowGeneratorError) as exc_info:
+            TensorFlowGenerator()._build_layer(node)
+        message = str(exc_info.value)
+        assert "Unknown layer type: foo (node z)" in message
+        assert f"Supported layer types: {', '.join(sorted(LAYER_REGISTRY))}." in message

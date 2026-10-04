@@ -20,6 +20,7 @@ from typing import Any
 from app.ir.schema import IRGraph, IRNode
 from app.ir.translator import ir_to_keras_build_args
 from app.layers.registry import LAYER_REGISTRY
+from app.shared.errors import layer_shape_mismatch_message
 from app.shared.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -148,7 +149,14 @@ class TensorFlowGenerator:
                         input_tensor = source_tensors[0]
 
                     layer = self._build_layer(node)
-                    keras_tensors[target_id] = layer(input_tensor)
+                    try:
+                        keras_tensors[target_id] = layer(input_tensor)
+                    except ValueError as e:
+                        # Keras names only its own layer and ndim here; report the
+                        # two canvas nodes, the incoming shape and what to change.
+                        raise TensorFlowGeneratorError(
+                            layer_shape_mismatch_message(target_id, all_sources, input_tensor.shape, layer)
+                        ) from e
 
         # Identify inputs and outputs
         inputs = [keras_tensors[n.id] for n in input_nodes]
@@ -190,7 +198,10 @@ class TensorFlowGenerator:
 
         # Look up layer spec in registry
         if layer_type not in LAYER_REGISTRY:
-            raise TensorFlowGeneratorError(f"Unknown layer type: {layer_type}")
+            raise TensorFlowGeneratorError(
+                f"Unknown layer type: {layer_type} (node {node.id}). "
+                f"Supported layer types: {', '.join(sorted(LAYER_REGISTRY))}."
+            )
 
         spec = LAYER_REGISTRY[layer_type]
 

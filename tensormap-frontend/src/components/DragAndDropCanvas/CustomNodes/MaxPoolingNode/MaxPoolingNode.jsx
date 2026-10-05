@@ -1,5 +1,6 @@
 import PropTypes from "prop-types";
 import { Handle, Position } from "reactflow";
+import NodeShapeBadge from "../../../nodes/NodeShapeBadge";
 
 function MaxPoolingNode({ data, id }) {
   const { pool_size, stride, padding } = data.params;
@@ -14,6 +15,7 @@ function MaxPoolingNode({ data, id }) {
       <div className="px-3 py-2 text-xs text-muted-foreground">
         {isConfigured ? `Pool: ${pool_size} | Stride: ${stride} | ${padding}` : "Not configured"}
       </div>
+      <NodeShapeBadge analysis={data?.analysis} />
       <Handle type="source" position={Position.Right} isConnectable id={`${id}_out`} />
     </div>
   );
@@ -26,6 +28,7 @@ MaxPoolingNode.propTypes = {
       stride: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
       padding: PropTypes.string,
     }).isRequired,
+    analysis: PropTypes.object,
   }).isRequired,
   id: PropTypes.string.isRequired,
 };

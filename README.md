@@ -12,6 +12,7 @@ A web application for visually creating machine learning algorithms via drag-and
 - Real-time model training with live progress via WebSocket
 - CSV and image dataset upload and preprocessing
 - Correlation matrix visualization and target field selection
+- Live model check: inferred output shapes and parameter counts on every layer, with problems pointed at the layer that causes them (see [graph analysis](tensormap-backend/docs/GRAPH_ANALYSIS.md))
 
 ## Prerequisites
 

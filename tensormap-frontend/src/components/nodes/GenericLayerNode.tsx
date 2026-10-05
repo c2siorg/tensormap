@@ -25,11 +25,15 @@ import {
   CATEGORY_BORDER_COLORS,
   TYPE_ABBREVIATIONS,
 } from "../../types/registry";
+import type { NodeAnalysisView } from "../../types/graphAnalysis";
+import NodeShapeBadge from "./NodeShapeBadge";
 
 interface GenericLayerNodeData {
   layerType: string;
   label?: string;
   params: Record<string, any>;
+  /** Attached by the canvas from the static graph analysis; absent until it arrives. */
+  analysis?: NodeAnalysisView;
 }
 
 /**
@@ -179,6 +183,7 @@ const GenericLayerNode = memo(({ data, selected }: NodeProps<GenericLayerNodeDat
       <div className="px-3 py-2 bg-white">
         <div className="text-xs text-gray-600 line-clamp-2">{paramSummary}</div>
       </div>
+      <NodeShapeBadge analysis={data.analysis} />
 
       {/* Input Handles */}
       {isMergeLayer ? (

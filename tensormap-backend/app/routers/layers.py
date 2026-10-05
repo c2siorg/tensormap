@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
+from app.ir.analysis import GraphAnalysis, analyze_canvas, analyze_graph
 from app.ir.schema import IRGraph, validate_ir_graph
 from app.layers.registry import LAYER_CATEGORIES, LAYER_REGISTRY, get_layers_by_category
 
@@ -45,6 +46,28 @@ async def validate_graph_endpoint(body: dict[str, Any]):
         return {"valid": True}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@router.post("/analyze-graph", response_model=GraphAnalysis)
+async def analyze_graph_endpoint(body: dict[str, Any]):
+    """
+    Statically analyses a graph without building it in TensorFlow.
+
+    Receives either {"graph_ir": {...}} (a validated IRGraph) or {"canvas": {"nodes": [...], "edges": [...]}}
+    (a ReactFlow payload, which may still contain nodes with invalid parameters).
+
+    Always returns 200 with the analysis: per-node output shapes and parameter counts, model totals, and
+    diagnostics naming the layer that causes each problem. An invalid graph is a result, not an HTTP error.
+    """
+    if "graph_ir" in body:
+        try:
+            return analyze_graph(IRGraph(**body["graph_ir"]))
+        except ValidationError as e:
+            raise HTTPException(status_code=422, detail=e.errors()) from e
+    canvas = body.get("canvas")
+    if not isinstance(canvas, dict):
+        raise HTTPException(status_code=400, detail="Provide either 'graph_ir' or 'canvas' in the request body.")
+    return analyze_canvas(canvas)
 
 
 @router.get("/{type_key}")

@@ -438,14 +438,17 @@ class TestLazyTensorFlowImport:
 
         import sys
 
-        # Remove tensorflow from sys.modules if present
-        tf_modules = [mod for mod in sys.modules if "tensorflow" in mod]
-        for mod in tf_modules:
-            del sys.modules[mod]
+        # Hide tensorflow from sys.modules for this check only. Leaving it deleted makes the next
+        # test that builds a Keras model re-import TensorFlow and abort the whole pytest process.
+        saved = {mod: sys.modules.pop(mod) for mod in [m for m in sys.modules if "tensorflow" in m]}
+        try:
+            # Import generator module (should NOT import TF)
+            from app.generators import tensorflow_generator  # noqa: F401
 
-        # Import generator module (should NOT import TF)
-        from app.generators import tensorflow_generator  # noqa: F401
-
-        # Check if TensorFlow was imported
-        tf_in_modules = any("tensorflow" in mod for mod in sys.modules)
+            # Check if TensorFlow was imported
+            tf_in_modules = any(mod == "tensorflow" or mod.startswith("tensorflow.") for mod in sys.modules)
+        finally:
+            for mod in [m for m in sys.modules if m not in saved and "tensorflow" in m]:
+                del sys.modules[mod]
+            sys.modules.update(saved)
         assert not tf_in_modules, "TensorFlow should not be imported at module level (lazy import required)"

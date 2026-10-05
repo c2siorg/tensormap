@@ -102,6 +102,30 @@ def translate_params_to_ir(layer_type: str, raw_params: dict) -> NodeParams:
         raise TranslationError(f"Unexpected error validating {layer_type}: {str(e)}") from e
 
 
+def resolve_layer_type(node: dict) -> str:
+    """Return the registry layer type of a ReactFlow node.
+
+    Accepts the current ``"<type>Node"`` form, the legacy ``"custom<type>"`` form and a bare
+    ``layer_type`` inside the node params.
+
+    Raises:
+        TranslationError: If the type cannot be determined.
+    """
+    nparams = node.get("data", {}).get("params", {})
+    ntype = node.get("type", "").lower().replace("node", "")
+
+    # Handle legacy "custom" prefix (e.g., "custominput" → "input")
+    if ntype.startswith("custom"):
+        ntype = ntype[6:]  # Remove "custom" prefix
+
+    # old format might map ntype directly if we align it
+    if not ntype and "layer_type" in nparams:
+        ntype = nparams["layer_type"]
+    elif not ntype:
+        raise TranslationError(f"Node {node.get('id')}: Unable to determine layer type from node type or params")
+    return ntype
+
+
 def reactflow_to_ir(canvas_json: dict) -> IRGraph:
     nodes = []
     edges = []
@@ -115,17 +139,7 @@ def reactflow_to_ir(canvas_json: dict) -> IRGraph:
     for n in canvas_json.get("nodes", []):
         ndata = n.get("data", {})
         nparams = ndata.get("params", {})
-        ntype = n.get("type", "").lower().replace("node", "")
-
-        # Handle legacy "custom" prefix (e.g., "custominput" → "input")
-        if ntype.startswith("custom"):
-            ntype = ntype[6:]  # Remove "custom" prefix
-
-        # old format might map ntype directly if we align it
-        if not ntype and "layer_type" in nparams:
-            ntype = nparams["layer_type"]
-        elif not ntype:
-            raise TranslationError(f"Node {n.get('id')}: Unable to determine layer type from node type or params")
+        ntype = resolve_layer_type(n)
 
         try:
             typed_params = translate_params_to_ir(ntype, nparams)

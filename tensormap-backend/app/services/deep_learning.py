@@ -730,69 +730,18 @@ def get_model_architecture_service(db: Session, model_id: int, include_stats: bo
 
 
 def _estimate_param_count(graph_ir: dict) -> int:
-    """Estimate parameter count from graph IR.
+    """Count a stored graph's parameters with the static analyzer, without building it in Keras.
 
-    This is a rough estimation based on layer types and configurations.
-    For accurate counts, the model would need to be built and model.count_params() called.
+    Raises:
+        ValueError: If the graph cannot be analysed, so the count would be wrong.
     """
-    param_count = 0
-    nodes = graph_ir.get("nodes", [])
+    from app.ir.analysis import analyze_graph
+    from app.ir.schema import IRGraph
 
-    # Track previous layer output shape for Dense layers
-    prev_shape = None
-
-    for node in nodes:
-        node_params = node.get("node_params", {})
-        layer_type = node_params.get("layer_type", "").lower()
-
-        if layer_type == "input":
-            shape = node_params.get("shape", [])
-            if isinstance(shape, list) and len(shape) > 0:
-                # For input, store the last dimension
-                prev_shape = shape[-1] if shape[-1] is not None else 128  # default guess
-            elif isinstance(shape, int):
-                prev_shape = shape
-
-        elif layer_type == "dense":
-            units = node_params.get("units", 0)
-            if prev_shape is not None:
-                # weights: (prev_shape, units) + bias: (units,)
-                param_count += (prev_shape * units) + units
-            prev_shape = units
-
-        elif layer_type == "conv2d":
-            filters = node_params.get("filters", 0)
-            kernel_size = node_params.get("kernel_size", [3, 3])
-            if isinstance(kernel_size, int):
-                kernel_size = [kernel_size, kernel_size]
-            # Rough estimate: kernel_h * kernel_w * input_channels * filters + bias
-            # Assume 3 input channels for simplicity (or use prev_shape if known)
-            input_channels = 3 if prev_shape is None else prev_shape
-            param_count += (kernel_size[0] * kernel_size[1] * input_channels * filters) + filters
-            prev_shape = filters
-
-        elif layer_type == "lstm":
-            units = node_params.get("units", 0)
-            # LSTM has 4 gates, each with weights and recurrent weights
-            # Rough estimate: 4 * (input_dim * units + units * units + units)
-            input_dim = prev_shape if prev_shape is not None else 128
-            param_count += 4 * (input_dim * units + units * units + units)
-            prev_shape = units
-
-        elif layer_type == "gru":
-            units = node_params.get("units", 0)
-            # GRU has 3 gates
-            input_dim = prev_shape if prev_shape is not None else 128
-            param_count += 3 * (input_dim * units + units * units + units)
-            prev_shape = units
-
-        elif layer_type == "embedding":
-            input_dim = node_params.get("input_dim", 0)
-            output_dim = node_params.get("output_dim", 0)
-            param_count += input_dim * output_dim
-            prev_shape = output_dim
-
-    return param_count
+    analysis = analyze_graph(IRGraph(**graph_ir))
+    if not analysis.complete:
+        raise ValueError("; ".join(d.message for d in analysis.errors()) or "graph could not be analysed")
+    return analysis.total_params
 
 
 def get_training_history_service(

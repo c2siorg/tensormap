@@ -1,5 +1,6 @@
 import PropTypes from "prop-types";
 import { Handle, Position } from "reactflow";
+import NodeShapeBadge from "../../../nodes/NodeShapeBadge";
 
 function InputNode({ data, id }) {
   const dims = [data.params["dim-1"], data.params["dim-2"], data.params["dim-3"]]
@@ -14,6 +15,7 @@ function InputNode({ data, id }) {
       <div className="px-3 py-2 text-xs text-muted-foreground">
         {dims ? `Dim: ${dims}` : "No dimensions set"}
       </div>
+      <NodeShapeBadge analysis={data?.analysis} />
       <Handle type="source" position={Position.Right} isConnectable id={`${id}_out`} />
     </div>
   );
@@ -26,6 +28,7 @@ InputNode.propTypes = {
       "dim-2": PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
       "dim-3": PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
     }).isRequired,
+    analysis: PropTypes.object,
   }).isRequired,
   id: PropTypes.string.isRequired,
 };

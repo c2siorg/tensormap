@@ -40,6 +40,9 @@ import Sidebar from "./Sidebar";
 import NodePropertiesPanel from "./NodePropertiesPanel";
 import { canSaveModelSimple, generateModelJSON, getConnectionError } from "./Helpers";
 import ModelSummaryPanel from "./ModelSummaryPanel";
+import GraphAnalysisPanel from "./GraphAnalysisPanel";
+import { decorateNodes } from "./analysisView";
+import { useGraphAnalysis } from "../../hooks/useGraphAnalysis";
 import { getAllModels, getModelGraph, saveModel } from "../../services/ModelServices";
 import { trainingHistory as trainingHistoryAtom } from "../../shared/atoms";
 import ContextMenu from "./ContextMenu";
@@ -483,6 +486,22 @@ function Canvas() {
 
   const selectedNode = selectedNodeId ? nodes.find((n) => n.id === selectedNodeId) : null;
 
+  // Live static analysis: inferred shapes on the nodes and a list of problems below the canvas.
+  const {
+    analysis,
+    loading: analysisLoading,
+    error: analysisError,
+  } = useGraphAnalysis(nodes, edges);
+  const displayNodes = useMemo(() => decorateNodes(nodes, analysis), [nodes, analysis]);
+
+  const focusNode = useCallback(
+    (nodeId) => {
+      setSelectedNodeId(nodeId);
+      reactFlowInstance?.fitView({ nodes: [{ id: nodeId }], duration: 300, maxZoom: 1 });
+    },
+    [reactFlowInstance],
+  );
+
   const onNodeClick = useCallback((_event, node) => {
     setSelectedNodeId(node.id);
   }, []);
@@ -777,7 +796,7 @@ function Canvas() {
             </div>
             <div className="min-w-0 h-[62vh] flex-1 rounded-md border" ref={reactFlowWrapper}>
               <ReactFlow
-                nodes={nodes}
+                nodes={displayNodes}
                 edges={edges}
                 onNodesChange={handleNodesChange}
                 onEdgesChange={handleEdgesChange}
@@ -859,6 +878,12 @@ function Canvas() {
                 />
               </ReactFlow>
             </div>
+            <GraphAnalysisPanel
+              analysis={analysis}
+              loading={analysisLoading}
+              error={analysisError}
+              onSelectNode={focusNode}
+            />
           </div>
           {contextMenu.nodeId && (
             <ContextMenu

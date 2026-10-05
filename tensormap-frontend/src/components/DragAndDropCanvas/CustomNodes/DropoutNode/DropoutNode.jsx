@@ -1,5 +1,6 @@
 import PropTypes from "prop-types";
 import { Handle, Position } from "reactflow";
+import NodeShapeBadge from "../../../nodes/NodeShapeBadge";
 
 function DropoutNode({ data, id }) {
   const { rate } = data.params;
@@ -12,6 +13,7 @@ function DropoutNode({ data, id }) {
       <div className="px-3 py-2 text-xs text-muted-foreground">
         {rate !== "" && rate !== undefined ? `Rate: ${rate}` : "Not configured"}
       </div>
+      <NodeShapeBadge analysis={data?.analysis} />
       <Handle type="source" position={Position.Right} isConnectable id={`${id}_out`} />
     </div>
   );
@@ -22,6 +24,7 @@ DropoutNode.propTypes = {
     params: PropTypes.shape({
       rate: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
     }).isRequired,
+    analysis: PropTypes.object,
   }).isRequired,
   id: PropTypes.string.isRequired,
 };

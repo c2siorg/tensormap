@@ -1,5 +1,6 @@
 import PropTypes from "prop-types";
 import { Handle, Position } from "reactflow";
+import NodeShapeBadge from "../../../nodes/NodeShapeBadge";
 
 function ConvNode({ data, id }) {
   const p = data.params;
@@ -20,6 +21,7 @@ function ConvNode({ data, id }) {
         Conv2D
       </div>
       <div className="px-3 py-2 text-xs text-muted-foreground">{parts || "Not configured"}</div>
+      <NodeShapeBadge analysis={data?.analysis} />
       <Handle type="source" position={Position.Right} isConnectable id={`${id}_out`} />
     </div>
   );
@@ -36,6 +38,7 @@ ConvNode.propTypes = {
       strideX: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
       strideY: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
     }).isRequired,
+    analysis: PropTypes.object,
   }).isRequired,
   id: PropTypes.string.isRequired,
 };

@@ -1,5 +1,6 @@
 import PropTypes from "prop-types";
 import { Handle, Position } from "reactflow";
+import NodeShapeBadge from "../../../nodes/NodeShapeBadge";
 
 function DenseNode({ data, id }) {
   const { units, activation } = data.params;
@@ -14,6 +15,7 @@ function DenseNode({ data, id }) {
         Dense
       </div>
       <div className="px-3 py-2 text-xs text-muted-foreground">{summary || "Not configured"}</div>
+      <NodeShapeBadge analysis={data?.analysis} />
       <Handle type="source" position={Position.Right} isConnectable id={`${id}_out`} />
     </div>
   );
@@ -25,6 +27,7 @@ DenseNode.propTypes = {
       units: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
       activation: PropTypes.string,
     }).isRequired,
+    analysis: PropTypes.object,
   }).isRequired,
   id: PropTypes.string.isRequired,
 };

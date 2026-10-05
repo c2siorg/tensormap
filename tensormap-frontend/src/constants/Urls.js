@@ -30,3 +30,4 @@ export const BACKEND_PROJECT = "/project";
 export const BACKEND_MODEL_ANALYSIS = "/model/analysis";
 export const BACKEND_GET_COLUMN_STATS = "/data/process/stats/";
 export const BACKEND_MODEL_TUNING = "/model/tuning";
+export const BACKEND_ANALYZE_GRAPH = "/layers/analyze-graph";

@@ -22,6 +22,22 @@ vi.mock("../../services/ModelServices", () => ({
   saveModel: vi.fn(),
 }));
 
+// The canvas asks the backend to analyse the graph after every edit; these tests don't need it.
+vi.mock("../../services/graphAnalysisService", () => ({
+  analyzeGraph: vi.fn().mockResolvedValue({
+    ok: true,
+    complete: true,
+    nodes: [],
+    diagnostics: [],
+    output_node_ids: [],
+    total_params: 0,
+    trainable_params: 0,
+    non_trainable_params: 0,
+    macs: 0,
+    size_bytes: 0,
+  }),
+}));
+
 // Only `merge` matters to the connection guard; Concatenate is the one layer
 // the backend registry flags as accepting multiple inputs.
 vi.mock("../../hooks/useLayerRegistry", async (importOriginal) => {

@@ -123,6 +123,37 @@ describe("GenericLayerNode", () => {
     expect(screen.getByText(/units: 64/)).toBeInTheDocument();
   });
 
+  it("shows the inferred output shape and parameter count when analysis is attached", () => {
+    const data = {
+      layerType: "dense",
+      params: { units: 64 },
+      analysis: { outputShape: [64], params: 704, severity: null },
+    };
+
+    renderWithProvider(<GenericLayerNode data={data} selected={false} id="node-1" />);
+
+    expect(screen.getByTestId("node-output-shape")).toHaveTextContent("(64,) · 704 params");
+  });
+
+  it("shows no shape row before the analysis arrives or when the shape is unknown", () => {
+    const data = { layerType: "dense", params: { units: 64 } };
+    const { rerender } = renderWithProvider(
+      <GenericLayerNode data={data} selected={false} id="node-1" />,
+    );
+    expect(screen.queryByTestId("node-output-shape")).not.toBeInTheDocument();
+
+    rerender(
+      <ReactFlowProvider>
+        <GenericLayerNode
+          data={{ ...data, analysis: { outputShape: null, params: 0, severity: "error" } }}
+          selected={false}
+          id="node-1"
+        />
+      </ReactFlowProvider>,
+    );
+    expect(screen.queryByTestId("node-output-shape")).not.toBeInTheDocument();
+  });
+
   it("renders lstm layer correctly", () => {
     const data = {
       layerType: "lstm",
@@ -142,7 +173,9 @@ describe("GenericLayerNode", () => {
       params: { axis: -1 },
     };
 
-    const { container } = renderWithProvider(<GenericLayerNode data={data} selected={false} id="node-3" />);
+    const { container } = renderWithProvider(
+      <GenericLayerNode data={data} selected={false} id="node-3" />,
+    );
 
     expect(screen.getByText("Concatenate")).toBeInTheDocument();
 
@@ -163,7 +196,9 @@ describe("GenericLayerNode", () => {
       params: {},
     };
 
-    const { container } = renderWithProvider(<GenericLayerNode data={data} selected={false} id="node-4" />);
+    const { container } = renderWithProvider(
+      <GenericLayerNode data={data} selected={false} id="node-4" />,
+    );
 
     // Check for skeleton animation
     expect(container.querySelector(".animate-pulse")).toBeInTheDocument();
@@ -189,7 +224,9 @@ describe("GenericLayerNode", () => {
       params: { units: 64 },
     };
 
-    const { container } = renderWithProvider(<GenericLayerNode data={data} selected={false} id="node-6" />);
+    const { container } = renderWithProvider(
+      <GenericLayerNode data={data} selected={false} id="node-6" />,
+    );
 
     // Check for blue color class (core category)
     expect(container.querySelector(".bg-blue-500")).toBeInTheDocument();

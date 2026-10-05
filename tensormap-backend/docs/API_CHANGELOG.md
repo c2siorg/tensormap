@@ -45,6 +45,18 @@
 | POST | /api/v1/model/code | Generate training code |
 | POST | /api/v1/model/run | Run model training |
 
+### Layers and graph analysis
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | /api/v1/layers | Layer registry grouped by category |
+| GET | /api/v1/layers/{type_key} | One layer spec |
+| POST | /api/v1/layers/validate-graph | Structural validation of an IR graph |
+| POST | /api/v1/layers/analyze-graph | Static analysis: per-layer output shapes, parameter counts and diagnostics (see [GRAPH_ANALYSIS.md](GRAPH_ANALYSIS.md)) |
+
+`analyze-graph` takes `{"graph_ir": {...}}` or `{"canvas": {"nodes": [...], "edges": [...]}}` and always returns
+200 with the analysis; an invalid graph is reported in `diagnostics`. It returns 400 when neither key is present
+and 422 when `graph_ir` does not parse. It does not use the `{success, message, data}` envelope.
+
 ## Response Format
 
 ```json

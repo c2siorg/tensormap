@@ -18,6 +18,21 @@ describe("DenseNode", () => {
     },
   };
 
+  it("shows the inferred output shape once the canvas attaches the analysis", () => {
+    render(
+      <DenseNode
+        {...defaultProps}
+        data={{ ...defaultProps.data, analysis: { outputShape: [16], params: 80, severity: null } }}
+      />,
+    );
+    expect(screen.getByTestId("node-output-shape")).toHaveTextContent("(16,) · 80 params");
+  });
+
+  it("shows no shape line without analysis", () => {
+    render(<DenseNode {...defaultProps} />);
+    expect(screen.queryByTestId("node-output-shape")).not.toBeInTheDocument();
+  });
+
   it("renders the title correctly", () => {
     render(<DenseNode {...defaultProps} />);
     expect(screen.getByText("Dense")).toBeInTheDocument();

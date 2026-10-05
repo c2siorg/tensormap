@@ -52,3 +52,16 @@ body {
 code {
   font-family: source-code-pro, Menlo, Monaco, Consolas, "Courier New", monospace;
 }
+
+/* Layers the static analysis flagged. Applied by Canvas through the node className. */
+.react-flow__node.analysis-error > div {
+  outline: 2px solid #dc2626;
+  outline-offset: 2px;
+  border-radius: 0.5rem;
+}
+
+.react-flow__node.analysis-warning > div {
+  outline: 2px dashed #d97706;
+  outline-offset: 2px;
+  border-radius: 0.5rem;
+}

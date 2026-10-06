@@ -35,7 +35,7 @@ from app.shared.constants import (
     MODEL_TRAINING_SPLIT,
     PROBLEM_TYPE,
 )
-from app.shared.enums import LossFunction, ProblemType
+from app.shared.enums import CLASSIFICATION_LOSSES, LossFunction, ProblemType, losses_for_problem_type
 from app.shared.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -432,6 +432,11 @@ def update_training_config_service(
 
     problem_type_id = config["problem_type_id"]
     loss = config.get("loss") or _default_loss(problem_type_id)
+    if LossFunction(loss) not in losses_for_problem_type(problem_type_id):
+        # A mismatch only fails (or trains to nonsense) at run time, so refuse it here.
+        kind = "classification" if losses_for_problem_type(problem_type_id) is CLASSIFICATION_LOSSES else "regression"
+        allowed = ", ".join(sorted(x.value for x in losses_for_problem_type(problem_type_id)))
+        return _resp(400, False, f"Loss {loss!r} cannot be used for {kind}. Choose one of: {allowed}.")
 
     model.file_id = config["file_id"]
     model.model_type = problem_type_id

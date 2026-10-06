@@ -18,3 +18,20 @@ class LossFunction(StrEnum):
     MEAN_SQUARED_ERROR = "mean_squared_error"
     MEAN_ABSOLUTE_ERROR = "mean_absolute_error"
     HUBER = "huber"
+
+
+CLASSIFICATION_LOSSES = frozenset(
+    {
+        LossFunction.SPARSE_CATEGORICAL_CROSSENTROPY,
+        LossFunction.CATEGORICAL_CROSSENTROPY,
+        LossFunction.BINARY_CROSSENTROPY,
+    }
+)
+REGRESSION_LOSSES = frozenset({LossFunction.MEAN_SQUARED_ERROR, LossFunction.MEAN_ABSOLUTE_ERROR, LossFunction.HUBER})
+
+
+def losses_for_problem_type(problem_type: int) -> frozenset[LossFunction]:
+    """Losses that make sense for a problem type; the Training page offers all of them."""
+    if problem_type in (ProblemType.CLASSIFICATION, ProblemType.IMAGE_CLASSIFICATION):
+        return CLASSIFICATION_LOSSES
+    return REGRESSION_LOSSES

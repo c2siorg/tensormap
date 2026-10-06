@@ -18,8 +18,17 @@ branch_labels = None
 depends_on = None
 
 
+def _is_sqlite() -> bool:
+    return op.get_bind().dialect.name == "sqlite"
+
+
 def upgrade():
     """Add ON DELETE CASCADE to training_job.model_id FK constraint."""
+    # SQLite cannot ALTER a constraint, and the FK created for it has no name to drop. It does not
+    # enforce foreign keys unless PRAGMA foreign_keys is on, so there is nothing to change there.
+    if _is_sqlite():
+        return
+
     # Drop the existing FK constraint (no cascade)
     op.drop_constraint("training_job_model_id_fkey", "training_job", type_="foreignkey")
 
@@ -36,6 +45,9 @@ def upgrade():
 
 def downgrade():
     """Remove ON DELETE CASCADE from training_job.model_id FK constraint."""
+    if _is_sqlite():
+        return
+
     # Drop the CASCADE FK constraint
     op.drop_constraint("training_job_model_id_fkey", "training_job", type_="foreignkey")
 

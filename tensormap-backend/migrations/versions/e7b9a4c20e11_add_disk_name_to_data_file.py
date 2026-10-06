@@ -32,7 +32,9 @@ def upgrade() -> None:
         WHERE disk_name IS NULL
         """
     )
-    op.alter_column("data_file", "disk_name", nullable=False)
+    # batch_alter_table: most SQLite versions have no ALTER COLUMN, so it rebuilds the table there.
+    with op.batch_alter_table("data_file") as batch_op:
+        batch_op.alter_column("disk_name", existing_type=sa.String(length=150), nullable=False)
 
 
 def downgrade() -> None:

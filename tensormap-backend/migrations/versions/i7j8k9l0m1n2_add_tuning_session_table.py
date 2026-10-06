@@ -55,19 +55,21 @@ def upgrade():
     op.create_index("ix_tuning_session_status", "tuning_session", ["status"])
 
     # Add FK constraint on the existing training_job.tuning_session_id column.
-    op.create_foreign_key(
-        "fk_training_job_tuning_session_id",
-        "training_job",
-        "tuning_session",
-        ["tuning_session_id"],
-        ["id"],
-        ondelete="SET NULL",
-    )
+    # batch_alter_table so SQLite, which cannot ALTER a constraint, rebuilds the table instead.
+    with op.batch_alter_table("training_job") as batch_op:
+        batch_op.create_foreign_key(
+            "fk_training_job_tuning_session_id",
+            "tuning_session",
+            ["tuning_session_id"],
+            ["id"],
+            ondelete="SET NULL",
+        )
 
 
 def downgrade():
     """Drop FK on training_job.tuning_session_id and tuning_session table."""
-    op.drop_constraint("fk_training_job_tuning_session_id", "training_job", type_="foreignkey")
+    with op.batch_alter_table("training_job") as batch_op:
+        batch_op.drop_constraint("fk_training_job_tuning_session_id", type_="foreignkey")
     op.drop_index("ix_tuning_session_status", table_name="tuning_session")
     op.drop_index("ix_tuning_session_model_id", table_name="tuning_session")
     op.drop_table("tuning_session")

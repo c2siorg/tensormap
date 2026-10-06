@@ -101,6 +101,30 @@ describe("Training page loss function", () => {
     ).toEqual(["Mean Squared Error", "Mean Absolute Error", "Huber"]);
   });
 
+  it("offers only the losses that fit the chosen problem type", async () => {
+    const user = userEvent.setup();
+    renderTraining();
+    await selectSavedModel(user);
+
+    const losses = async () => {
+      await user.click(selectTrigger("Loss Function"));
+      const options = within(await screen.findByRole("listbox")).getAllByRole("option");
+      const names = options.map((o) => o.textContent);
+      await user.keyboard("{Escape}");
+      return names;
+    };
+
+    await pickOption(user, "Problem Type", "Multi class classification");
+    expect(await losses()).toEqual([
+      "Sparse Categorical Crossentropy",
+      "Categorical Crossentropy",
+      "Binary Crossentropy",
+    ]);
+
+    await pickOption(user, "Problem Type", "Linear Regression");
+    expect(await losses()).toEqual(["Mean Squared Error", "Mean Absolute Error", "Huber"]);
+  });
+
   it("preselects the default loss for the chosen problem type", async () => {
     const user = userEvent.setup();
     renderTraining();

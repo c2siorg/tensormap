@@ -75,15 +75,23 @@ const lossOptionGroups = ["Classification", "Regression"].map((group) => ({
   options: lossOptions.filter((o) => o.group === group),
 }));
 
-// defaultLoss is preselected when the problem type changes; the user can override it.
+// defaultLoss is preselected when the problem type changes; the user can override it, but only with
+// a loss from lossGroup (the backend rejects the others).
 const problemTypeOptions = [
   {
     key: "prob_type_1",
     label: "Multi class classification",
     value: "1",
     defaultLoss: "sparse_categorical_crossentropy",
+    lossGroup: "Classification",
   },
-  { key: "prob_type_2", label: "Linear Regression", value: "2", defaultLoss: "mean_squared_error" },
+  {
+    key: "prob_type_2",
+    label: "Linear Regression",
+    value: "2",
+    defaultLoss: "mean_squared_error",
+    lossGroup: "Regression",
+  },
 ];
 
 export default function Training() {
@@ -126,6 +134,13 @@ export default function Training() {
     batch_size: "",
     training_split: "",
   });
+  // Until a problem type is chosen every loss is listed; afterwards only the ones that fit it.
+  const problemLossGroup = problemTypeOptions.find(
+    (o) => o.value === trainingConfig.problem_type_id,
+  )?.lossGroup;
+  const visibleLossGroups = problemLossGroup
+    ? lossOptionGroups.filter((g) => g.label === problemLossGroup)
+    : lossOptionGroups;
   // Validation state
   const [validationErrors, setValidationErrors] = useState({
     model: "",
@@ -828,7 +843,7 @@ export default function Training() {
                     <SelectValue placeholder="Select loss function" />
                   </SelectTrigger>
                   <SelectContent className="z-[9999] bg-white shadow-lg border backdrop-blur-sm">
-                    {lossOptionGroups.map((group) => (
+                    {visibleLossGroups.map((group) => (
                       <SelectGroup key={group.label}>
                         <SelectLabel>{group.label}</SelectLabel>
                         {group.options.map((o) => (

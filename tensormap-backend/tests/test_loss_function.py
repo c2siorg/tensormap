@@ -12,9 +12,9 @@ from pydantic import ValidationError
 
 from app.models.ml import ModelBasic
 from app.schemas.deep_learning import TrainingConfigRequest
-from app.services.deep_learning import update_training_config_service
+from app.services.deep_learning import _default_loss, update_training_config_service
 from app.services.model_run import _LOSS_CLASSES, _emits_logits, resolve_loss
-from app.shared.enums import LossFunction, ProblemType
+from app.shared.enums import LossFunction, ProblemType, losses_for_problem_type
 
 EXPECTED_LOSS_CLASSES = {
     "sparse_categorical_crossentropy": tf.keras.losses.SparseCategoricalCrossentropy,
@@ -132,10 +132,41 @@ class TestUpdateTrainingConfigServiceLoss:
         model = ModelBasic(model_name="my_model")
         db = _db_returning(model)
 
-        _, status = update_training_config_service(db, "my_model", _training_config(loss=LossFunction.HUBER))
+        _, status = update_training_config_service(
+            db, "my_model", _training_config(problem_type_id=ProblemType.REGRESSION, loss=LossFunction.HUBER)
+        )
 
         assert status == 200
         assert model.loss == "huber"
+
+    @pytest.mark.parametrize(
+        ("problem_type", "loss"),
+        [
+            (ProblemType.CLASSIFICATION, LossFunction.MEAN_SQUARED_ERROR),
+            (ProblemType.CLASSIFICATION, LossFunction.HUBER),
+            (ProblemType.IMAGE_CLASSIFICATION, LossFunction.MEAN_ABSOLUTE_ERROR),
+            (ProblemType.REGRESSION, LossFunction.SPARSE_CATEGORICAL_CROSSENTROPY),
+            (ProblemType.REGRESSION, LossFunction.CATEGORICAL_CROSSENTROPY),
+            (ProblemType.REGRESSION, LossFunction.BINARY_CROSSENTROPY),
+        ],
+    )
+    def test_rejects_a_loss_that_does_not_fit_the_problem_type(self, problem_type, loss):
+        model = ModelBasic(model_name="my_model")
+        db = _db_returning(model)
+
+        body, status = update_training_config_service(
+            db, "my_model", _training_config(problem_type_id=problem_type, loss=loss)
+        )
+
+        assert status == 400
+        assert loss.value in body["message"]
+        assert "Choose one of" in body["message"]
+        assert model.loss is None
+        db.commit.assert_not_called()
+
+    @pytest.mark.parametrize("problem_type", list(ProblemType))
+    def test_every_problem_type_default_is_an_allowed_loss(self, problem_type):
+        assert _default_loss(problem_type) in {x.value for x in losses_for_problem_type(problem_type)}
 
     @pytest.mark.parametrize(
         ("problem_type", "expected"),

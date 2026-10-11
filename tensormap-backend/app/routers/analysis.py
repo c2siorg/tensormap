@@ -178,6 +178,13 @@ async def get_feature_importance(
     # Verify job exists and is completed
     _verify_job_completed(job_id, db)
 
+    analysis_type = get_analysis_type(job_id, db)
+    if analysis_type == "image_classification":
+        raise HTTPException(
+            status_code=400,
+            detail="Feature importance not available for image classification models.",
+        )
+
     result = await _service.compute_feature_importance_async(job_id, db)
     if result is None:
         return JSONResponse(status_code=202, content={"status": "computing"})
@@ -243,6 +250,11 @@ async def get_predictions(
         raise HTTPException(
             status_code=400,
             detail="Prediction explorer not available for regression models.",
+        )
+    if analysis_type == "image_classification":
+        raise HTTPException(
+            status_code=400,
+            detail="Prediction explorer not available for image classification models.",
         )
 
     # Validate filter parameter

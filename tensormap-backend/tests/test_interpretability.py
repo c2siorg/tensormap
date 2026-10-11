@@ -760,3 +760,188 @@ def test_residuals_endpoint_classification_job(db_session, export_dir):
     assert response.status_code == 400
     data = response.json()
     assert "only available for regression" in data["detail"].lower()
+
+
+# ------------------------------------------------------------------
+# Test 21: Unit tests for _resolve_classification_predictions
+# ------------------------------------------------------------------
+
+
+def test_resolve_classification_predictions_binary_and_multiclass():
+    """Verify prediction and probability resolution for binary and multiclass models."""
+    from app.services.interpretability import (
+        _resolve_classification_predictions,
+        _resolve_ground_truth_classes,
+    )
+
+    # Binary single-column 2D: shape (4, 1)
+    raw_2d = np.array([[0.9], [0.1], [0.5], [0.49]], dtype=np.float32)
+    classes, probs = _resolve_classification_predictions(raw_2d)
+    assert np.array_equal(classes, np.array([1, 0, 1, 0]))
+    assert probs.shape == (4, 2)
+    assert np.isclose(probs[0, 0], 0.1)
+    assert np.isclose(probs[0, 1], 0.9)
+    assert np.isclose(probs[1, 0], 0.9)
+    assert np.isclose(probs[1, 1], 0.1)
+
+    # Binary 1D: shape (4,)
+    raw_1d = np.array([0.8, 0.2, 0.7, 0.3], dtype=np.float32)
+    classes_1d, probs_1d = _resolve_classification_predictions(raw_1d)
+    assert np.array_equal(classes_1d, np.array([1, 0, 1, 0]))
+    assert probs_1d.shape == (4, 2)
+
+    # Multi-class: shape (3, 3)
+    raw_multi = np.array([[0.1, 0.7, 0.2], [0.8, 0.1, 0.1], [0.2, 0.3, 0.5]], dtype=np.float32)
+    classes_m, probs_m = _resolve_classification_predictions(raw_multi)
+    assert np.array_equal(classes_m, np.array([1, 0, 2]))
+    assert np.array_equal(probs_m, raw_multi)
+
+    # Ground truth resolution
+    y_1d = np.array([0, 1, 0])
+    assert np.array_equal(_resolve_ground_truth_classes(y_1d), np.array([0, 1, 0]))
+    y_col = np.array([[0], [1], [0]])
+    assert np.array_equal(_resolve_ground_truth_classes(y_col), np.array([0, 1, 0]))
+    y_onehot = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
+    assert np.array_equal(_resolve_ground_truth_classes(y_onehot), np.array([0, 1, 2]))
+
+
+# ------------------------------------------------------------------
+# Test 22: Binary classification model confusion matrix & predictions
+# ------------------------------------------------------------------
+
+
+@pytest.mark.slow
+def test_binary_classification_confusion_matrix_and_predictions(db_session, export_dir):
+    """Binary classifier with 1 sigmoid output unit produces valid predictions and 2x2 confusion matrix."""
+    import tensorflow as tf
+
+    # Create a small binary model (1 sigmoid output)
+    num_features = 4
+    model = tf.keras.Sequential(
+        [
+            tf.keras.layers.Input(shape=(num_features,)),
+            tf.keras.layers.Dense(8, activation="relu"),
+            tf.keras.layers.Dense(1, activation="sigmoid"),
+        ]
+    )
+    model.compile(optimizer="adam", loss="binary_crossentropy", metrics=["accuracy"])
+
+    # Synthetic binary data
+    np.random.seed(42)
+    X_train = np.random.randn(80, num_features).astype(np.float32)
+    y_train = (X_train[:, 0] > 0).astype(np.float32)
+    X_test = np.random.randn(20, num_features).astype(np.float32)
+    y_test = (X_test[:, 0] > 0).astype(np.float32)
+    feature_names = [f"f_{i}" for i in range(num_features)]
+    class_names = ["class_0", "class_1"]
+
+    model.fit(X_train, y_train, epochs=3, verbose=0)
+
+    # Save model
+    job_id = str(uuid4())
+    job_dir = export_dir / job_id
+    job_dir.mkdir(parents=True, exist_ok=True)
+    model.save(str(job_dir / "model.keras"))
+
+    # DB records
+    db_model = ModelBasic(
+        model_name=f"test_binary_{uuid4().hex[:8]}",
+        model_type=ProblemType.CLASSIFICATION,
+        graph_ir={},
+    )
+    db_session.add(db_model)
+    db_session.commit()
+    db_session.refresh(db_model)
+
+    job = TrainingJob(
+        id=job_id,
+        model_id=db_model.id,
+        status=TrainingStatus.COMPLETED,
+        hyperparams={},
+        started_at=datetime.now(UTC),
+        completed_at=datetime.now(UTC),
+    )
+    db_session.add(job)
+    db_session.commit()
+
+    service = InterpretabilityService()
+
+    with (
+        patch.object(
+            service,
+            "_load_test_data",
+            return_value=(X_test, y_test, class_names),
+        ),
+        patch(
+            "app.services.interpretability.EXPORTS_BASE",
+            export_dir,
+        ),
+    ):
+        cm_result = service._compute_confusion_matrix_sync(job_id, db_session)
+
+    # Confusion matrix must be 2x2
+    cm = cm_result["confusion_matrix"]
+    assert len(cm) == 2
+    assert len(cm[0]) == 2
+    assert cm_result["n_samples"] == len(y_test)
+
+    # Predictions sync
+    with (
+        patch.object(
+            service,
+            "_load_test_data_complete",
+            return_value=(X_test, y_test, class_names, feature_names),
+        ),
+        patch(
+            "app.services.interpretability.EXPORTS_BASE",
+            export_dir,
+        ),
+    ):
+        pred_result = service._compute_all_predictions_sync(job_id, db_session)
+
+    predictions = pred_result["predictions"]
+    assert len(predictions) == len(X_test)
+    for p in predictions:
+        assert len(p["probabilities"]) == 2, "Binary model probabilities must have length 2 [p0, p1]"
+        assert np.isclose(sum(p["probabilities"]), 1.0, atol=1e-5), "Probabilities must sum to 1"
+        assert p["predicted_class"] in (0, 1)
+        assert p["confidence"] >= 0.5, "Confidence in binary prediction should be >= 0.5"
+
+
+# ------------------------------------------------------------------
+# Test 23: Image classification guards on feature importance & predictions
+# ------------------------------------------------------------------
+
+
+def test_image_classification_analysis_endpoints_guard(db_session):
+    """GET /feature-importance and /predictions return 400 for image classification jobs."""
+    db_model = ModelBasic(
+        model_name=f"test_img_clf_{uuid4().hex[:8]}",
+        model_type=ProblemType.IMAGE_CLASSIFICATION,
+        graph_ir={},
+    )
+    db_session.add(db_model)
+    db_session.commit()
+    db_session.refresh(db_model)
+
+    job_id = str(uuid4())
+    job = TrainingJob(
+        id=job_id,
+        model_id=db_model.id,
+        status=TrainingStatus.COMPLETED,
+        hyperparams={},
+        started_at=datetime.now(UTC),
+        completed_at=datetime.now(UTC),
+    )
+    db_session.add(job)
+    db_session.commit()
+
+    # Feature importance should reject image classification with 400
+    fi_resp = client.get(f"/api/v1/model/analysis/{job_id}/feature-importance")
+    assert fi_resp.status_code == 400
+    assert "image classification" in fi_resp.json()["detail"].lower()
+
+    # Predictions explorer should reject image classification with 400
+    pred_resp = client.get(f"/api/v1/model/analysis/{job_id}/predictions")
+    assert pred_resp.status_code == 400
+    assert "image classification" in pred_resp.json()["detail"].lower()

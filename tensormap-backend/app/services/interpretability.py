@@ -29,6 +29,40 @@ logger = get_logger(__name__)
 EXPORTS_BASE = Path("./exports")
 
 
+def _resolve_classification_predictions(y_pred_raw: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Resolve predicted class labels and probability distribution from raw model output.
+
+    Handles multi-class models (softmax/logits over K classes, shape (N, K))
+    as well as binary classification models with a single output unit (sigmoid/logit,
+    shape (N, 1) or (N,)).
+
+    Returns:
+        Tuple of (y_pred_classes, y_pred_probs):
+        - y_pred_classes: 1D array of predicted class integers (shape (N,))
+        - y_pred_probs: 2D array of class probabilities (shape (N, K))
+    """
+    if y_pred_raw.ndim == 1 or (y_pred_raw.ndim == 2 and y_pred_raw.shape[1] == 1):
+        p1 = np.clip(y_pred_raw.flatten(), 0.0, 1.0)
+        p0 = 1.0 - p1
+        y_pred_probs = np.column_stack([p0, p1])
+        y_pred_classes = (p1 >= 0.5).astype(int)
+    else:
+        y_pred_probs = y_pred_raw
+        y_pred_classes = np.argmax(y_pred_probs, axis=1)
+    return y_pred_classes, y_pred_probs
+
+
+def _resolve_ground_truth_classes(y_true: np.ndarray) -> np.ndarray:
+    """Resolve ground truth class integer labels from y_true array.
+
+    Handles 1D label vectors (N,), 2D single-column vectors (N, 1),
+    and 2D one-hot encoded label matrices (N, K).
+    """
+    if y_true.ndim == 1 or (y_true.ndim == 2 and y_true.shape[1] == 1):
+        return y_true.flatten().astype(int)
+    return np.argmax(y_true, axis=1).astype(int)
+
+
 class AnalysisCache:
     """Manages caching of analysis results in training_job.analysis_cache JSON column.
 
@@ -346,8 +380,8 @@ class InterpretabilityService:
         X_test, y_test, class_names = self._load_test_data(job_id, session)
 
         y_pred = model.predict(X_test, verbose=0)
-        y_pred_classes = np.argmax(y_pred, axis=1)
-        y_true_classes = y_test if y_test.ndim == 1 else np.argmax(y_test, axis=1)
+        y_pred_classes, _ = _resolve_classification_predictions(y_pred)
+        y_true_classes = _resolve_ground_truth_classes(y_test)
 
         cm = confusion_matrix(y_true_classes, y_pred_classes)
         report = classification_report(
@@ -515,7 +549,7 @@ class InterpretabilityService:
         MAX_FEATURES = 20
         n_samples = min(MAX_SAMPLES, len(X_test))
         X_sample = X_test[:n_samples]
-        y_sample = y_test[:n_samples]
+        y_sample = _resolve_ground_truth_classes(y_test[:n_samples])
 
         if X_sample.shape[1] > MAX_FEATURES:
             # Select top 20 features by variance
@@ -539,7 +573,8 @@ class InterpretabilityService:
 
             def predict(self, X):
                 preds = self.model.predict(X, verbose=0)
-                return np.argmax(preds, axis=1)
+                pred_classes, _ = _resolve_classification_predictions(preds)
+                return pred_classes
 
         estimator = _KerasEstimatorWrapper(keras_model)
 
@@ -650,9 +685,9 @@ class InterpretabilityService:
         X_test, y_test, class_names, feature_names = self._load_test_data_complete(job_id, session)
 
         # Run predictions
-        y_pred_probs = model.predict(X_test, verbose=0)
-        y_pred_classes = np.argmax(y_pred_probs, axis=1)
-        y_true_classes = y_test if y_test.ndim == 1 else np.argmax(y_test, axis=1)
+        y_pred_raw = model.predict(X_test, verbose=0)
+        y_pred_classes, y_pred_probs = _resolve_classification_predictions(y_pred_raw)
+        y_true_classes = _resolve_ground_truth_classes(y_test)
 
         # Build prediction records
         predictions = []

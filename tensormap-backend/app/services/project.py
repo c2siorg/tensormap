@@ -127,7 +127,7 @@ def update_project_service(db: Session, project_id: uuid_pkg.UUID, data: Project
         update_data = data.model_dump(exclude_unset=True)
         for key, value in update_data.items():
             setattr(project, key, value)
-        project.updated_on = datetime.utcnow()
+        project.updated_on = datetime.now(UTC)
 
         db.add(project)
         db.commit()

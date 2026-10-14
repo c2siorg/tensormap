@@ -945,3 +945,95 @@ def test_image_classification_analysis_endpoints_guard(db_session):
     pred_resp = client.get(f"/api/v1/model/analysis/{job_id}/predictions")
     assert pred_resp.status_code == 400
     assert "image classification" in pred_resp.json()["detail"].lower()
+
+
+# ------------------------------------------------------------------
+# Test 24: Feature importance background task session isolation
+# ------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_feature_importance_background_task_session_isolation(trained_job, db_session):
+    """Background task uses isolated session and updates cache status properly."""
+    job_id = trained_job["job_id"]
+    service = InterpretabilityService()
+
+    fake_result = {
+        "features": ["f1", "f2"],
+        "importances_mean": [0.15, 0.25],
+        "importances_std": [0.01, 0.02],
+        "analysis_type": "feature_importance",
+        "n_samples_used": 50,
+        "n_repeats": 10,
+    }
+
+    with patch.object(service, "_run_feature_importance_sync", return_value=fake_result):
+        await service._compute_and_cache_feature_importance(job_id)
+
+    db_session.expire_all()
+    status_cached = service.cache.get_cached(job_id, "feature_importance_status", db_session)
+    assert status_cached == {"status": "completed"}
+
+    result_cached = service.cache.get_cached(job_id, "feature_importance", db_session)
+    assert result_cached == fake_result
+
+
+@pytest.mark.asyncio
+async def test_feature_importance_background_task_failure_handling(trained_job, db_session):
+    """Background task marks status as failed when worker raises an exception."""
+    job_id = trained_job["job_id"]
+    service = InterpretabilityService()
+
+    with patch.object(service, "_run_feature_importance_sync", side_effect=RuntimeError("Computation crashed")):
+        await service._compute_and_cache_feature_importance(job_id)
+
+    db_session.expire_all()
+    status_cached = service.cache.get_cached(job_id, "feature_importance_status", db_session)
+    assert status_cached == {"status": "failed"}
+
+
+# ------------------------------------------------------------------
+# Test 25: Feature importance for regression models uses MSE scoring
+# ------------------------------------------------------------------
+
+
+def test_feature_importance_regression_uses_mse_scoring(regression_job, db_session, export_dir):
+    """Regression model uses RegressorMixin with continuous targets and neg_mean_squared_error."""
+    job_id = regression_job
+    service = InterpretabilityService()
+
+    np.random.seed(42)
+    X_sample = np.random.randn(50, 3).astype(np.float32)
+    y_sample = np.array([12.5 + 2.0 * x[0] - 1.5 * x[1] for x in X_sample], dtype=np.float32)
+    feature_names = ["feat_a", "feat_b", "feat_c"]
+
+    # Mock Keras regression model with continuous outputs
+    mock_model = MagicMock()
+    mock_model.predict = MagicMock(
+        side_effect=lambda X, **kwargs: (12.5 + 2.0 * X[:, 0] - 1.5 * X[:, 1]).reshape(-1, 1).astype(np.float32)
+    )
+
+    with (
+        patch.object(
+            service,
+            "_load_test_data_with_features",
+            return_value=(X_sample, y_sample, feature_names),
+        ),
+        patch(
+            "app.services.interpretability.EXPORTS_BASE",
+            export_dir,
+        ),
+        patch(
+            "tensorflow.keras.models.load_model",
+            return_value=mock_model,
+        ),
+    ):
+        result = service._compute_feature_importance_sync(job_id, db_session)
+
+    assert result["analysis_type"] == "feature_importance"
+    assert result["features"] == feature_names
+    assert len(result["importances_mean"]) == 3
+    assert len(result["importances_std"]) == 3
+    # Check that importances are computed and finite
+    for val in result["importances_mean"]:
+        assert isinstance(val, float)

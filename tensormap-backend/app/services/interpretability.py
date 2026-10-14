@@ -28,6 +28,9 @@ logger = get_logger(__name__)
 
 EXPORTS_BASE = Path("./exports")
 
+# Strong references to in-flight feature importance background tasks to prevent GC
+_feature_importance_tasks: set[asyncio.Task] = set()
+
 
 def _resolve_classification_predictions(y_pred_raw: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Resolve predicted class labels and probability distribution from raw model output.
@@ -499,26 +502,41 @@ class InterpretabilityService:
         # Mark as computing
         self.cache.set_cached(job_id, "feature_importance_status", {"status": "computing"}, session)
 
-        # Fire background computation
-        asyncio.create_task(self._compute_and_cache_feature_importance(job_id, session))
+        # Fire background computation with task tracking
+        task = asyncio.create_task(self._compute_and_cache_feature_importance(job_id))
+        _feature_importance_tasks.add(task)
+        task.add_done_callback(_feature_importance_tasks.discard)
         return None  # Will be 202
 
-    async def _compute_and_cache_feature_importance(self, job_id: str, session: Session) -> None:
+    async def _compute_and_cache_feature_importance(self, job_id: str) -> None:
         """Background task that computes feature importance and caches the result.
 
-        Args:
-            job_id: Training job ID
-            session: Database session
+        Uses its own isolated database sessions to ensure safety after the HTTP
+        request completes and closes the request-scoped session.
         """
+        from app.database import get_session
+
         try:
-            result = await asyncio.to_thread(self._compute_feature_importance_sync, job_id, session)
-            self.cache.set_cached(job_id, "feature_importance", result, session)
-            # Clear the computing sentinel
-            self.cache.set_cached(job_id, "feature_importance_status", {"status": "completed"}, session)
-            logger.info(f"Feature importance computation completed for job {job_id}")
+            result = await asyncio.to_thread(self._run_feature_importance_sync, job_id)
+            with get_session() as session:
+                self.cache.set_cached(job_id, "feature_importance", result, session)
+                # Clear the computing sentinel
+                self.cache.set_cached(job_id, "feature_importance_status", {"status": "completed"}, session)
+            logger.info("Feature importance computation completed for job %s", job_id)
         except Exception:
-            logger.exception(f"Feature importance computation failed for job {job_id}")
-            self.cache.set_cached(job_id, "feature_importance_status", {"status": "failed"}, session)
+            logger.exception("Feature importance computation failed for job %s", job_id)
+            try:
+                with get_session() as session:
+                    self.cache.set_cached(job_id, "feature_importance_status", {"status": "failed"}, session)
+            except Exception:
+                logger.exception("Failed to mark feature importance status as failed for job %s", job_id)
+
+    def _run_feature_importance_sync(self, job_id: str) -> dict:
+        """Thread helper to execute feature importance with a dedicated session."""
+        from app.database import get_session
+
+        with get_session() as session:
+            return self._compute_feature_importance_sync(job_id, session)
 
     def _compute_feature_importance_sync(self, job_id: str, session: Session) -> dict:
         """Compute permutation feature importance (blocking).
@@ -526,6 +544,10 @@ class InterpretabilityService:
         Guardrails:
         - Sample capped at min(1000, len(X_test))
         - Feature count capped at 20 (top by variance)
+
+        Supports:
+        - Classification models: accuracy-based scoring using ClassifierMixin
+        - Regression models: MSE-based scoring (neg_mean_squared_error) using RegressorMixin
 
         Args:
             job_id: Training job ID
@@ -536,8 +558,22 @@ class InterpretabilityService:
             n_samples_used, n_repeats, analysis_type
         """
         import tensorflow as tf
-        from sklearn.base import BaseEstimator, ClassifierMixin
+        from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
         from sklearn.inspection import permutation_importance
+
+        from app.models.ml import ModelBasic
+        from app.models.training_job import TrainingJob
+        from app.shared.enums import ProblemType
+
+        job = session.get(TrainingJob, job_id)
+        if not job:
+            raise ValueError(f"Training job not found: {job_id}")
+
+        model_basic = session.get(ModelBasic, job.model_id)
+        if not model_basic:
+            raise ValueError(f"Model not found for job: {job_id}")
+
+        is_regression = model_basic.model_type == ProblemType.REGRESSION
 
         model_path = EXPORTS_BASE / job_id / "model.keras"
         keras_model = tf.keras.models.load_model(model_path)
@@ -549,7 +585,6 @@ class InterpretabilityService:
         MAX_FEATURES = 20
         n_samples = min(MAX_SAMPLES, len(X_test))
         X_sample = X_test[:n_samples]
-        y_sample = _resolve_ground_truth_classes(y_test[:n_samples])
 
         if X_sample.shape[1] > MAX_FEATURES:
             # Select top 20 features by variance
@@ -559,24 +594,50 @@ class InterpretabilityService:
             X_sample = X_sample[:, top_indices]
             feature_names = [feature_names[i] for i in top_indices]
 
-        # Wrap Keras model in a sklearn-compatible estimator so
-        # permutation_importance can call .predict() and .score()
-        class _KerasEstimatorWrapper(BaseEstimator, ClassifierMixin):
-            """Minimal sklearn wrapper around a trained Keras model."""
+        if is_regression:
+            y_sample = y_test[:n_samples].astype(float)
 
-            def __init__(self, model):
-                self.model = model
-                self.classes_ = np.unique(y_sample)
+            class _KerasRegressorWrapper(BaseEstimator, RegressorMixin):
+                """Minimal sklearn wrapper around a trained Keras regression model."""
 
-            def fit(self, X, y=None):
-                return self  # Already trained
+                def __init__(self, model):
+                    self.model = model
 
-            def predict(self, X):
-                preds = self.model.predict(X, verbose=0)
-                pred_classes, _ = _resolve_classification_predictions(preds)
-                return pred_classes
+                def fit(self, X, y=None):
+                    return self  # Already trained
 
-        estimator = _KerasEstimatorWrapper(keras_model)
+                def predict(self, X):
+                    raw_pred = self.model.predict(X, verbose=0)
+                    if raw_pred.ndim == 2 and raw_pred.shape[1] == 1:
+                        return raw_pred.flatten()
+                    elif raw_pred.ndim == 2:
+                        return raw_pred[:, 0]
+                    return raw_pred.flatten()
+
+            estimator = _KerasRegressorWrapper(keras_model)
+            scoring = "neg_mean_squared_error"
+        else:
+            y_sample = _resolve_ground_truth_classes(y_test[:n_samples])
+
+            # Wrap Keras model in a sklearn-compatible estimator so
+            # permutation_importance can call .predict() and .score()
+            class _KerasEstimatorWrapper(BaseEstimator, ClassifierMixin):
+                """Minimal sklearn wrapper around a trained Keras classification model."""
+
+                def __init__(self, model):
+                    self.model = model
+                    self.classes_ = np.unique(y_sample)
+
+                def fit(self, X, y=None):
+                    return self  # Already trained
+
+                def predict(self, X):
+                    preds = self.model.predict(X, verbose=0)
+                    pred_classes, _ = _resolve_classification_predictions(preds)
+                    return pred_classes
+
+            estimator = _KerasEstimatorWrapper(keras_model)
+            scoring = "accuracy"
 
         result = permutation_importance(
             estimator,
@@ -584,7 +645,7 @@ class InterpretabilityService:
             y_sample,
             n_repeats=10,
             random_state=42,
-            scoring="accuracy",
+            scoring=scoring,
         )
 
         return {

@@ -945,3 +945,181 @@ def test_image_classification_analysis_endpoints_guard(db_session):
     pred_resp = client.get(f"/api/v1/model/analysis/{job_id}/predictions")
     assert pred_resp.status_code == 400
     assert "image classification" in pred_resp.json()["detail"].lower()
+
+
+# ------------------------------------------------------------------
+# Test 24: test_feature_importance_with_real_keras_model_more_than_20_features
+# ------------------------------------------------------------------
+
+
+def test_feature_importance_with_real_keras_model_more_than_20_features(db_session, export_dir):
+    """Real Keras model with 25 features evaluates without shape mismatch and returns 20 features."""
+    job_id, X_test, y_test, feature_names, model = create_test_training_job(
+        session=db_session,
+        export_dir=export_dir,
+        model_name=f"test_real_25feat_{uuid4().hex[:8]}",
+        num_features=25,
+        num_classes=3,
+        epochs=2,
+    )
+
+    service = InterpretabilityService()
+
+    with (
+        patch.object(
+            service,
+            "_load_test_data_with_features",
+            return_value=(X_test, y_test, feature_names),
+        ),
+        patch(
+            "app.services.interpretability.EXPORTS_BASE",
+            export_dir,
+        ),
+    ):
+        result = service._compute_feature_importance_sync(job_id, db_session)
+
+    assert len(result["features"]) == 20
+    assert len(result["importances_mean"]) == 20
+    assert len(result["importances_std"]) == 20
+    assert result["analysis_type"] == "feature_importance"
+
+
+# ------------------------------------------------------------------
+# Test 25: test_feature_importance_regression_model
+# ------------------------------------------------------------------
+
+
+@pytest.mark.slow
+def test_feature_importance_regression_model(db_session, export_dir):
+    """Regression model computes feature importance using r2 scoring without classification errors."""
+    import tensorflow as tf
+
+    num_features = 6
+    X_train = np.random.randn(100, num_features).astype(np.float32)
+    y_train = (X_train[:, 0] * 2.5 + X_train[:, 1] * 1.2 + np.random.randn(100) * 0.1).astype(np.float32)
+    X_test = np.random.randn(30, num_features).astype(np.float32)
+    y_test = (X_test[:, 0] * 2.5 + X_test[:, 1] * 1.2 + np.random.randn(30) * 0.1).astype(np.float32)
+    feature_names = [f"reg_feat_{i}" for i in range(num_features)]
+
+    reg_model = tf.keras.Sequential(
+        [
+            tf.keras.layers.Input(shape=(num_features,)),
+            tf.keras.layers.Dense(8, activation="relu"),
+            tf.keras.layers.Dense(1),
+        ]
+    )
+    reg_model.compile(optimizer="adam", loss="mse")
+    reg_model.fit(X_train, y_train, epochs=2, verbose=0)
+
+    model_record = ModelBasic(
+        model_name=f"test_reg_fi_{uuid4().hex[:8]}",
+        model_type=ProblemType.REGRESSION,
+        graph_ir={},
+    )
+    db_session.add(model_record)
+    db_session.commit()
+    db_session.refresh(model_record)
+
+    job_id = str(uuid4())
+    job = TrainingJob(
+        id=job_id,
+        model_id=model_record.id,
+        status=TrainingStatus.COMPLETED,
+        hyperparams={},
+        started_at=datetime.now(UTC),
+        completed_at=datetime.now(UTC),
+    )
+    db_session.add(job)
+    db_session.commit()
+
+    job_export_dir = export_dir / job_id
+    job_export_dir.mkdir(parents=True, exist_ok=True)
+    reg_model.save(str(job_export_dir / "model.keras"))
+
+    service = InterpretabilityService()
+
+    with (
+        patch.object(
+            service,
+            "_load_test_data_with_features",
+            return_value=(X_test, y_test, feature_names),
+        ),
+        patch(
+            "app.services.interpretability.EXPORTS_BASE",
+            export_dir,
+        ),
+    ):
+        result = service._compute_feature_importance_sync(job_id, db_session)
+
+    assert len(result["features"]) == num_features
+    assert len(result["importances_mean"]) == num_features
+    assert result["analysis_type"] == "feature_importance"
+
+
+# ------------------------------------------------------------------
+# Test 26: test_feature_importance_failed_status_returns_500
+# ------------------------------------------------------------------
+
+
+def test_feature_importance_failed_status_returns_500(trained_job, db_session):
+    """When background task failed, endpoint returns generic 500 and clears failed sentinel."""
+    job_id = trained_job["job_id"]
+    cache = AnalysisCache()
+    cache.set_cached(
+        job_id,
+        "feature_importance_status",
+        {"status": "failed", "error": "Disk read failure"},
+        db_session,
+    )
+
+    response = client.get(f"/api/v1/model/analysis/{job_id}/feature-importance")
+    assert response.status_code == 500
+    assert response.json()["detail"] == "Feature importance computation failed"
+
+    # Verify sentinel was cleared to allow subsequent requests to retry
+    sentinel = cache.get_cached(job_id, "feature_importance_status", db_session)
+    assert sentinel is None
+
+
+# ------------------------------------------------------------------
+# Test 27: test_feature_importance_isolated_session_background_computation
+# ------------------------------------------------------------------
+
+
+def test_feature_importance_isolated_session_background_computation(trained_job, db_session):
+    """Background computation runs with an isolated session factory without request session leak."""
+    from contextlib import contextmanager
+
+    job_id = trained_job["job_id"]
+    X_test = trained_job["X_test"]
+    y_test = trained_job["y_test"]
+    feature_names = trained_job["feature_names"]
+
+    service = InterpretabilityService()
+
+    @contextmanager
+    def isolated_session_factory():
+        yield db_session
+
+    with (
+        patch.object(
+            service,
+            "_load_test_data_with_features",
+            return_value=(X_test, y_test, feature_names),
+        ),
+        patch(
+            "app.services.interpretability.EXPORTS_BASE",
+            trained_job["export_dir"],
+        ),
+    ):
+        asyncio.run(service._compute_and_cache_feature_importance(job_id, session_factory=isolated_session_factory))
+
+    # Verify cached result exists
+    cached = service.cache.get_cached(job_id, "feature_importance", db_session)
+    assert cached is not None
+    assert cached["analysis_type"] == "feature_importance"
+    assert len(cached["features"]) == len(feature_names)
+
+    # Verify status is completed
+    status = service.cache.get_cached(job_id, "feature_importance_status", db_session)
+    assert status == {"status": "completed"}

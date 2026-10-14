@@ -43,10 +43,12 @@ def _load_catchup(job_id: str) -> dict | None:
             return None
         return {
             "type": "catchup",
+            "version": 1,
+            "job_id": job_id,
             "status": job.status.value,
+            "started_at": job.started_at.isoformat() if job.started_at else None,
             "metrics": get_job_metrics_grouped(job_id, session),
         }
-
 
 @sio.on("subscribe_job", namespace=SOCKETIO_DL_NAMESPACE)
 async def subscribe_job(sid, data):

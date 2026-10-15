@@ -4,8 +4,11 @@ Exports are generated lazily on first request and cached in exports/{job_id}/.
 Background cleanup task removes exports older than retention_days.
 """
 
+import os
 import re
 import shutil
+import tempfile
+import threading
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -40,6 +43,33 @@ def _sanitize_filename(name: str) -> str:
     return name
 
 
+def _new_scratch_dir(export_dir: Path) -> Path:
+    """Create a private working directory inside a job's export directory.
+
+    SavedModel and TFLite exports both write an intermediate SavedModel, and the
+    download endpoint runs each request in a threadpool, so two requests for one
+    job can export at the same time. Writing into a shared ``savedmodel/``
+    directory made them race on TensorFlow's checkpoint files and one request
+    failed with a 500. Each export works in its own directory instead and only
+    publishes the finished file with an atomic rename.
+
+    The caller removes the directory in a ``finally`` block. If the process is killed
+    mid-export (OOM, SIGKILL) a ``.export-*`` directory is left behind; it is reclaimed
+    when the retention task deletes the whole job directory.
+    """
+    return Path(tempfile.mkdtemp(prefix=".export-", dir=export_dir))
+
+
+# Striped locks keyed by output file: concurrent requests for the same export wait for
+# the first one and reuse its file instead of generating it again. A fixed pool keeps
+# memory bounded no matter how many jobs are exported.
+_EXPORT_LOCKS = [threading.Lock() for _ in range(64)]
+
+
+def _export_lock(output_path: Path) -> threading.Lock:
+    return _EXPORT_LOCKS[hash(str(output_path)) % len(_EXPORT_LOCKS)]
+
+
 class ONNXUnsupportedError(Exception):
     """Raised when ONNX export is not supported for the model architecture."""
 
@@ -58,33 +88,39 @@ def export_savedmodel(job_id: str, model_name: str) -> Path:
     export_dir = EXPORTS_BASE / job_id
     zip_path = export_dir / f"{safe_name}.savedmodel.zip"
 
-    if zip_path.exists():
-        logger.info(f"SavedModel export already exists for job {job_id}")
-        return zip_path  # Already generated
+    with _export_lock(zip_path):
+        if zip_path.exists():
+            logger.info(f"SavedModel export already exists for job {job_id}")
+            return zip_path  # Already generated
 
-    model_path = export_dir / "model.keras"
-    if not model_path.exists():
-        raise FileNotFoundError(f"model.keras not found for job {job_id}")
+        model_path = export_dir / "model.keras"
+        if not model_path.exists():
+            raise FileNotFoundError(f"model.keras not found for job {job_id}")
 
-    # Lazy import to avoid loading TensorFlow in non-training processes
-    import tensorflow as tf
+        # Lazy import to avoid loading TensorFlow in non-training processes
+        import tensorflow as tf
 
-    logger.info(f"Loading model from {model_path}")
-    model = tf.keras.models.load_model(model_path)
+        logger.info(f"Loading model from {model_path}")
+        model = tf.keras.models.load_model(model_path)
 
-    savedmodel_dir = export_dir / "savedmodel"
-    logger.info(f"Saving SavedModel to {savedmodel_dir}")
-    # Keras 3 (bundled with the TensorFlow 2.16.x this project pins) dropped
-    # the ``save_format`` argument: ``save_model`` only writes ``.keras``/``.h5``
-    # checkpoints, so passing a directory plus ``save_format="tf"`` raised
-    #   ValueError: The `save_format` argument is deprecated in Keras 3.
-    # and every SavedModel download returned HTTP 500. ``Model.export`` is the
-    # supported way to write a SavedModel directory in Keras 3.
-    model.export(str(savedmodel_dir))
+        scratch_dir = _new_scratch_dir(export_dir)
+        try:
+            savedmodel_dir = scratch_dir / "savedmodel"
+            logger.info(f"Saving SavedModel to {savedmodel_dir}")
+            # Keras 3 (bundled with the TensorFlow 2.16.x this project pins) dropped
+            # the ``save_format`` argument: ``save_model`` only writes ``.keras``/``.h5``
+            # checkpoints, so passing a directory plus ``save_format="tf"`` raised
+            #   ValueError: The `save_format` argument is deprecated in Keras 3.
+            # and every SavedModel download returned HTTP 500. ``Model.export`` is the
+            # supported way to write a SavedModel directory in Keras 3.
+            model.export(str(savedmodel_dir))
 
-    # Zip the savedmodel directory
-    logger.info(f"Creating zip archive at {zip_path}")
-    shutil.make_archive(str(zip_path.with_suffix("")), "zip", str(export_dir), "savedmodel")
+            # Zip the savedmodel directory
+            logger.info(f"Creating zip archive at {zip_path}")
+            archive = shutil.make_archive(str(scratch_dir / "archive"), "zip", str(scratch_dir), "savedmodel")
+            os.replace(archive, zip_path)
+        finally:
+            shutil.rmtree(scratch_dir, ignore_errors=True)
 
     return zip_path
 
@@ -96,36 +132,43 @@ def export_tflite(job_id: str, model_name: str) -> Path:
     export_dir = EXPORTS_BASE / job_id
     tflite_path = export_dir / f"{safe_name}.tflite"
 
-    if tflite_path.exists():
-        logger.info(f"TFLite export already exists for job {job_id}")
-        return tflite_path
+    with _export_lock(tflite_path):
+        if tflite_path.exists():
+            logger.info(f"TFLite export already exists for job {job_id}")
+            return tflite_path
 
-    model_path = export_dir / "model.keras"
-    if not model_path.exists():
-        raise FileNotFoundError(f"model.keras not found for job {job_id}")
+        model_path = export_dir / "model.keras"
+        if not model_path.exists():
+            raise FileNotFoundError(f"model.keras not found for job {job_id}")
 
-    # Lazy import
-    import tensorflow as tf
+        # Lazy import
+        import tensorflow as tf
 
-    logger.info(f"Loading model from {model_path}")
-    model = tf.keras.models.load_model(model_path)
+        logger.info(f"Loading model from {model_path}")
+        model = tf.keras.models.load_model(model_path)
 
-    # TF 2.16's TFLiteConverter.from_keras_model() cannot handle Keras 3 models: it calls
-    # keras_deps.get_call_context_function(), which is only registered by the legacy Keras 2
-    # package (tf_keras), so conversion always dies with
-    #   TypeError: 'NoneType' object is not callable
-    # Exporting the model to a SavedModel first and converting from that directory uses the
-    # supported path and works for single-input and multi-input models alike.
-    savedmodel_dir = export_dir / "savedmodel"
-    logger.info(f"Exporting SavedModel to {savedmodel_dir} for TFLite conversion")
-    model.export(str(savedmodel_dir))
+        # TF 2.16's TFLiteConverter.from_keras_model() cannot handle Keras 3 models: it calls
+        # keras_deps.get_call_context_function(), which is only registered by the legacy Keras 2
+        # package (tf_keras), so conversion always dies with
+        #   TypeError: 'NoneType' object is not callable
+        # Exporting the model to a SavedModel first and converting from that directory uses the
+        # supported path and works for single-input and multi-input models alike.
+        scratch_dir = _new_scratch_dir(export_dir)
+        try:
+            savedmodel_dir = scratch_dir / "savedmodel"
+            logger.info(f"Exporting SavedModel to {savedmodel_dir} for TFLite conversion")
+            model.export(str(savedmodel_dir))
 
-    logger.info("Converting to TFLite")
-    converter = tf.lite.TFLiteConverter.from_saved_model(str(savedmodel_dir))
-    tflite_model = converter.convert()
+            logger.info("Converting to TFLite")
+            converter = tf.lite.TFLiteConverter.from_saved_model(str(savedmodel_dir))
+            tflite_model = converter.convert()
 
-    tflite_path.write_bytes(tflite_model)
-    logger.info(f"TFLite model saved to {tflite_path}")
+            staged_path = scratch_dir / "model.tflite"
+            staged_path.write_bytes(tflite_model)
+            os.replace(staged_path, tflite_path)
+        finally:
+            shutil.rmtree(scratch_dir, ignore_errors=True)
+        logger.info(f"TFLite model saved to {tflite_path}")
 
     return tflite_path
 

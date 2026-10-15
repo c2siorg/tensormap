@@ -88,6 +88,27 @@ describe("decorateNodes", () => {
     expect(b.className).toBeUndefined();
   });
 
+  it("outlines nodes listed in related_node_ids as well", () => {
+    const diag = {
+      code: "cycle",
+      severity: "error" as const,
+      message: "Cycle detected",
+      node_id: "a",
+      suggestion: null,
+      related_node_ids: ["b", "c"],
+    };
+    const [a, b, c, d] = decorateNodes([node("a"), node("b"), node("c"), node("d")], {
+      ...base,
+      ok: false,
+      nodes: [nodeResult("a", null), nodeResult("b", null), nodeResult("c", null), nodeResult("d", [4])],
+      diagnostics: [diag],
+    });
+    expect(a.className).toBe("analysis-error");
+    expect(b.className).toBe("analysis-error");
+    expect(c.className).toBe("analysis-error");
+    expect(d.className).toBeUndefined();
+  });
+
   it("does not mutate the input nodes", () => {
     const original = node("a");
     decorateNodes([original], { ...base, nodes: [nodeResult("a", [1])] });

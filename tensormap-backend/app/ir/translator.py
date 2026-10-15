@@ -105,22 +105,34 @@ def translate_params_to_ir(layer_type: str, raw_params: dict) -> NodeParams:
 def resolve_layer_type(node: dict) -> str:
     """Return the registry layer type of a ReactFlow node.
 
-    Accepts the current ``"<type>Node"`` form, the legacy ``"custom<type>"`` form and a bare
-    ``layer_type`` inside the node params.
+    Accepts the current ``"<type>Node"`` form, the legacy ``"custom<type>"`` form,
+    the generic canvas ``"genericlayer"`` form, and a bare ``layer_type`` inside
+    node data or params.
 
     Raises:
         TranslationError: If the type cannot be determined.
     """
-    nparams = node.get("data", {}).get("params", {})
-    ntype = node.get("type", "").lower().replace("node", "")
+    if not isinstance(node, dict):
+        raise TranslationError("Node must be a dictionary")
+
+    ndata = node.get("data") if isinstance(node.get("data"), dict) else {}
+    nparams = ndata.get("params") if isinstance(ndata.get("params"), dict) else {}
+    raw_type = node.get("type")
+    ntype = raw_type.lower().replace("node", "") if isinstance(raw_type, str) else ""
 
     # Handle legacy "custom" prefix (e.g., "custominput" → "input")
     if ntype.startswith("custom"):
         ntype = ntype[6:]  # Remove "custom" prefix
 
-    # old format might map ntype directly if we align it
+    # Handle generic canvas nodes carrying layerType on data
+    if ntype in ("genericlayer", "generic"):
+        ntype = ndata.get("layerType") or nparams.get("layer_type", "")
+
+    # Fallback to layer_type / layerType in params or data
     if not ntype and "layer_type" in nparams:
         ntype = nparams["layer_type"]
+    elif not ntype and "layerType" in ndata:
+        ntype = ndata["layerType"]
     elif not ntype:
         raise TranslationError(f"Node {node.get('id')}: Unable to determine layer type from node type or params")
     return ntype

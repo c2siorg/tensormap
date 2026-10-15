@@ -427,6 +427,101 @@ class TestCanvasAnalysis:
         a = analyze_canvas(canvas)
         assert DiagnosticCode.DANGLING_EDGE in codes(a)
 
+    def test_canvas_none_nodes_and_edges(self):
+        a = analyze_canvas({"nodes": None, "edges": None})
+        assert codes(a) == [DiagnosticCode.EMPTY_GRAPH]
+        assert not a.ok and not a.complete
+
+    def test_canvas_node_none_data(self):
+        a = analyze_canvas({"nodes": [{"id": "1", "type": "inputNode", "data": None}], "edges": []})
+        assert DiagnosticCode.INVALID_PARAMS in codes(a)
+
+    def test_canvas_non_dict_elements(self):
+        a = analyze_canvas({"nodes": [None, "invalid"], "edges": [None, 123]})
+        assert DiagnosticCode.EMPTY_GRAPH in codes(a)
+
+    def test_canvas_duplicate_node_ids(self):
+        canvas = {
+            "nodes": [
+                self.node("n1", "inputNode", shape=10),
+                self.node("n1", "denseNode", units=5),
+            ],
+            "edges": [],
+        }
+        a = analyze_canvas(canvas)
+        assert DiagnosticCode.DUPLICATE_NODE_ID in codes(a)
+        assert not a.ok
+
+    def test_canvas_duplicate_edge_prevents_param_inflation(self):
+        canvas = {
+            "nodes": [
+                self.node("in", "inputNode", shape=10),
+                self.node("d", "denseNode", units=4, activation="relu"),
+            ],
+            "edges": [
+                self.edge("in", "d"),
+                {"id": "e-dup", "source": "in", "target": "d"},
+            ],
+        }
+        a = analyze_canvas(canvas)
+        assert DiagnosticCode.DUPLICATE_EDGE in codes(a)
+        assert a.node("d").params == 44  # 10*4+4, not duplicated to 20*4+4 (84)
+
+    def test_canvas_self_loop_reported_specifically(self):
+        canvas = {
+            "nodes": [
+                self.node("in", "inputNode", shape=10),
+                self.node("d", "denseNode", units=4, activation="relu"),
+            ],
+            "edges": [
+                self.edge("in", "d"),
+                {"id": "e-loop", "source": "d", "target": "d"},
+            ],
+        }
+        a = analyze_canvas(canvas)
+        assert DiagnosticCode.SELF_LOOP in codes(a)
+        assert a.node("d").output_shape == (4,)
+
+    def test_canvas_disconnected_leaf_excluded_from_outputs(self):
+        canvas = {
+            "nodes": [
+                self.node("in", "inputNode", shape=10),
+                self.node("d1", "denseNode", units=64),
+                self.node("d2", "denseNode", units=10),
+                self.node("c1", "conv2dNode", filters=32, kernel_size=3),
+                self.node("d3", "denseNode", units=5),
+            ],
+            "edges": [
+                self.edge("in", "d1"),
+                self.edge("d1", "d2"),
+                self.edge("c1", "d3"),
+            ],
+        }
+        a = analyze_canvas(canvas)
+        assert not a.ok
+        assert a.output_node_ids == ["d2"]  # d3 is in a disconnected island without input
+
+    def test_canvas_genericlayer_resolves_layertype(self):
+        canvas = {
+            "nodes": [
+                {
+                    "id": "in",
+                    "type": "genericlayer",
+                    "data": {"layerType": "input", "params": {"shape": 10}},
+                },
+                {
+                    "id": "d",
+                    "type": "genericlayer",
+                    "data": {"layerType": "dense", "params": {"units": 4, "activation": "relu"}},
+                },
+            ],
+            "edges": [self.edge("in", "d")],
+        }
+        a = analyze_canvas(canvas)
+        assert a.ok and a.complete
+        assert a.node("d").output_shape == (4,)
+        assert a.node("d").params == 44
+
 
 class TestAnalyzeGraphEndpoint:
     @pytest.fixture

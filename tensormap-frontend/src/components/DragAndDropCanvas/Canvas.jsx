@@ -491,6 +491,7 @@ function Canvas() {
     analysis,
     loading: analysisLoading,
     error: analysisError,
+    isStale: analysisIsStale,
   } = useGraphAnalysis(nodes, edges);
   const displayNodes = useMemo(() => decorateNodes(nodes, analysis), [nodes, analysis]);
 
@@ -882,6 +883,7 @@ function Canvas() {
               analysis={analysis}
               loading={analysisLoading}
               error={analysisError}
+              isStale={analysisIsStale}
               onSelectNode={focusNode}
             />
           </div>

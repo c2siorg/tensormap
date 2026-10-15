@@ -9,6 +9,7 @@ interface GraphAnalysisPanelProps {
   analysis: GraphAnalysis | null;
   loading?: boolean;
   error?: string | null;
+  isStale?: boolean;
   /** Called with a node id when the user picks a diagnostic, so the canvas can focus that layer. */
   onSelectNode?: (nodeId: string) => void;
 }
@@ -21,6 +22,7 @@ export default function GraphAnalysisPanel({
   analysis,
   loading = false,
   error = null,
+  isStale = false,
   onSelectNode,
 }: GraphAnalysisPanelProps) {
   const [collapsed, setCollapsed] = useState(false);
@@ -31,7 +33,9 @@ export default function GraphAnalysisPanel({
   const warnings = analysis?.diagnostics.filter((d) => d.severity === "warning") ?? [];
 
   let status: string;
-  if (error) status = error;
+  if (error && !analysis) status = error;
+  else if (error && analysis) status = `${error} (cached)`;
+  else if (isStale) status = "Showing cached analysis";
   else if (errors.length) status = `${errors.length} ${errors.length === 1 ? "error" : "errors"}`;
   else if (warnings.length)
     status = `${warnings.length} ${warnings.length === 1 ? "warning" : "warnings"}`;
@@ -104,16 +108,33 @@ export default function GraphAnalysisPanel({
                 >
                   <div className="flex items-start justify-between gap-2">
                     <span>{d.message}</span>
-                    {d.node_id && onSelectNode && (
-                      <Button
-                        variant="link"
-                        size="sm"
-                        className="h-auto shrink-0 p-0 text-xs"
-                        onClick={() => onSelectNode(d.node_id as string)}
-                      >
-                        Show layer
-                      </Button>
-                    )}
+                    <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+                      {d.node_id && onSelectNode && (
+                        <Button
+                          variant="link"
+                          size="sm"
+                          className="h-auto shrink-0 p-0 text-xs"
+                          onClick={() => onSelectNode(d.node_id as string)}
+                        >
+                          Show layer
+                        </Button>
+                      )}
+                      {d.related_node_ids &&
+                        d.related_node_ids.length > 0 &&
+                        onSelectNode &&
+                        d.related_node_ids.map((relId) => (
+                          <Button
+                            key={relId}
+                            variant="link"
+                            size="sm"
+                            className="h-auto shrink-0 p-0 text-xs text-muted-foreground hover:text-foreground"
+                            onClick={() => onSelectNode(relId)}
+                            title={`Focus related layer ${relId}`}
+                          >
+                            Related ({relId})
+                          </Button>
+                        ))}
+                    </div>
                   </div>
                   {d.suggestion && (
                     <div className="mt-0.5 text-muted-foreground">{d.suggestion}</div>

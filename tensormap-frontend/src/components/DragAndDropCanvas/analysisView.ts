@@ -42,8 +42,12 @@ export function decorateNodes<T extends { id: string; className?: string; data?:
   const byNode = new Map(analysis.nodes.map((n) => [n.node_id, n]));
   const severity = new Map<string, DiagnosticSeverity>();
   for (const d of analysis.diagnostics) {
-    if (!d.node_id) continue;
-    if (severity.get(d.node_id) !== "error") severity.set(d.node_id, d.severity);
+    if (d.node_id) {
+      if (severity.get(d.node_id) !== "error") severity.set(d.node_id, d.severity);
+    }
+    for (const relId of d.related_node_ids || []) {
+      if (severity.get(relId) !== "error") severity.set(relId, d.severity);
+    }
   }
 
   return nodes.map((node) => {

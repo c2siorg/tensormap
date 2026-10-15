@@ -64,6 +64,12 @@ link that focuses the layer.
   batch axis, so `1` is the first feature axis; `0` (the batch itself) is rejected.
 - **Warnings are not errors.** `unflattened_dense` (Dense after Conv2D without Flatten) builds fine in Keras 3
   and is only flagged, because it is usually not what the user meant.
+- **Defensive canvas normalization.** `analyze_canvas` handles null values, malformed nodes, missing IDs,
+  and incomplete connections gracefully without raising unhandled server errors.
+- **Output leaf nodes.** Only valid layers that have a successfully inferred output shape and are reachable
+  from an Input layer are included in `output_node_ids`, matching Keras model generation semantics.
+- **Preserved analysis on network errors.** The canvas hook preserves the last successful analysis if a
+  temporary network disconnection occurs while sketching.
 
 ## Diagnostic codes
 
@@ -72,7 +78,7 @@ link that focuses the layer.
 | `empty_graph` | error | No layers on the canvas |
 | `no_input_node` | error | No Input layer |
 | `invalid_params` | error | A layer's type or settings do not validate |
-| `dangling_edge` | error | A connection points at a layer that does not exist |
+| `dangling_edge` | error | A connection points at a layer that does not exist or has missing endpoints |
 | `cycle` | error | The graph is not acyclic; `related_node_ids` lists the layers on the cycle |
 | `disconnected_node` | error | A non-input layer has no incoming connection |
 | `merge_arity` | error | Concatenate has fewer than two inputs |
@@ -80,6 +86,9 @@ link that focuses the layer.
 | `shape_mismatch` | error | Inputs cannot be concatenated, or the axis is invalid |
 | `invalid_output_size` | error | A `valid` kernel or pooling window is larger than the input |
 | `invalid_reshape` | error | Reshape target is malformed or its size does not match the input |
+| `duplicate_node_id` | error | Multiple layers share the same identifier |
+| `duplicate_edge` | error | Multiple connections exist between the same source and target layers |
+| `self_loop` | error | A layer connects directly into itself |
 | `input_has_incoming_edge` | warning | Connections into an Input layer are ignored |
 | `unflattened_dense` | warning | Dense applied to a 3-D or higher tensor keeps its rank |
 

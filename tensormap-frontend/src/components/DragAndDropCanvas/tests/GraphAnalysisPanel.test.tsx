@@ -67,6 +67,21 @@ describe("GraphAnalysisPanel", () => {
 
     fireEvent.click(screen.getAllByRole("button", { name: "Show layer" })[0]);
     expect(onSelectNode).toHaveBeenCalledWith("c");
+
+    fireEvent.click(screen.getByRole("button", { name: "Related (in)" }));
+    expect(onSelectNode).toHaveBeenCalledWith("in");
+  });
+
+  it("shows cached status when displaying preserved analysis after a network error", () => {
+    render(
+      <GraphAnalysisPanel
+        analysis={analysis()}
+        error="Could not analyse the model."
+        isStale={true}
+      />,
+    );
+    expect(screen.getByTestId("analysis-status")).toHaveTextContent("Could not analyse the model. (cached)");
+    expect(screen.getByText("2,883")).toBeInTheDocument();
   });
 
   it("offers no layer link for a graph-level problem", () => {

@@ -122,6 +122,7 @@ INVALID_GRAPHS = {
         ],
         [("in", "r1"), ("in", "r2"), ("r1", "cat"), ("r2", "cat")],
     ),
+    "self_loop": lambda: make_graph([inp(10), ("d", {"layer_type": "dense", "units": 4})], [("in", "d"), ("d", "d")]),
 }
 
 

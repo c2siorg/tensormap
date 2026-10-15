@@ -65,7 +65,7 @@ describe("useGraphAnalysis", () => {
     const { result: hook } = renderHook(() => useGraphAnalysis([], []));
     await flush();
     expect(analyzeGraph).not.toHaveBeenCalled();
-    expect(hook.current).toEqual({ analysis: null, loading: false, error: null });
+    expect(hook.current).toEqual({ analysis: null, loading: false, error: null, isStale: false });
   });
 
   it("analyses after the debounce and exposes the result", async () => {
@@ -150,6 +150,35 @@ describe("useGraphAnalysis", () => {
     expect(hook.current.analysis?.total_params).toBe(44);
   });
 
+  it("preserves previous successful analysis when a subsequent request fails", async () => {
+    const { result: hook, rerender } = renderHook(
+      ({ units }) =>
+        useGraphAnalysis(
+          [inputNode(), { ...denseNode, data: { ...denseNode.data, params: { units } } }],
+          [edge],
+        ),
+      { initialProps: { units: 4 } },
+    );
+    await flush();
+    expect(hook.current.analysis?.total_params).toBe(44);
+    expect(hook.current.isStale).toBe(false);
+
+    vi.mocked(analyzeGraph).mockRejectedValueOnce(new Error("network"));
+    rerender({ units: 5 });
+    await flush();
+
+    expect(hook.current.error).toBe("Could not analyse the model.");
+    expect(hook.current.isStale).toBe(true);
+    // Preserves last valid analysis
+    expect(hook.current.analysis?.total_params).toBe(44);
+
+    // Recovers on next success
+    rerender({ units: 6 });
+    await flush();
+    expect(hook.current.error).toBeNull();
+    expect(hook.current.isStale).toBe(false);
+  });
+
   it("clears the analysis when the canvas is emptied", async () => {
     const { result: hook, rerender } = renderHook(({ nodes }) => useGraphAnalysis(nodes, []), {
       initialProps: { nodes: [inputNode()] as any[] },
@@ -158,5 +187,6 @@ describe("useGraphAnalysis", () => {
     expect(hook.current.analysis).not.toBeNull();
     rerender({ nodes: [] });
     expect(hook.current.analysis).toBeNull();
+    expect(hook.current.isStale).toBe(false);
   });
 });

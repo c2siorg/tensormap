@@ -52,17 +52,63 @@ def analyze_canvas(canvas: dict) -> GraphAnalysis:
     """Analyse a ReactFlow canvas payload (``{"nodes": [...], "edges": [...]}``).
 
     Nodes whose type or parameters do not validate are reported as ``invalid_params``
-    diagnostics instead of aborting the analysis.
+    diagnostics instead of aborting the analysis. Tolerates null data, missing fields,
+    and malformed nodes/edges gracefully.
     """
     entries: list[_Entry] = []
     preset: list[Diagnostic] = []
-    for n in canvas.get("nodes", []):
-        node_id = str(n.get("id"))
-        name = n.get("data", {}).get("name", "")
+
+    raw_nodes = canvas.get("nodes") or []
+    if not isinstance(raw_nodes, list):
+        raw_nodes = []
+
+    seen_ids: set[str] = set()
+
+    for idx, n in enumerate(raw_nodes):
+        if not isinstance(n, dict):
+            preset.append(
+                Diagnostic(
+                    code=DiagnosticCode.INVALID_PARAMS,
+                    severity=Severity.ERROR,
+                    message=f"Canvas node at index {idx} is malformed.",
+                    suggestion="Remove or re-add the layer on the canvas.",
+                )
+            )
+            continue
+
+        raw_id = n.get("id")
+        if raw_id is None or str(raw_id).strip() == "":
+            preset.append(
+                Diagnostic(
+                    code=DiagnosticCode.INVALID_PARAMS,
+                    severity=Severity.ERROR,
+                    message=f"Canvas node at index {idx} is missing a valid identifier.",
+                    suggestion="Re-add the layer with a unique identifier.",
+                )
+            )
+            continue
+
+        node_id = str(raw_id)
+        if node_id in seen_ids:
+            preset.append(
+                Diagnostic(
+                    code=DiagnosticCode.DUPLICATE_NODE_ID,
+                    severity=Severity.ERROR,
+                    message=f"Multiple layers share the same ID '{node_id}'.",
+                    node_id=node_id,
+                    suggestion="Ensure each layer on the canvas has a unique ID.",
+                )
+            )
+        seen_ids.add(node_id)
+
+        ndata = n.get("data") if isinstance(n.get("data"), dict) else {}
+        name = ndata.get("name", "") if isinstance(ndata.get("name"), str) else ""
+        nparams = ndata.get("params") if isinstance(ndata.get("params"), dict) else {}
+
         layer_type = "unknown"
         try:
             layer_type = resolve_layer_type(n)
-            params = translate_params_to_ir(layer_type, n.get("data", {}).get("params", {}))
+            params = translate_params_to_ir(layer_type, nparams)
         except TranslationError as e:
             preset.append(
                 Diagnostic(
@@ -77,10 +123,19 @@ def analyze_canvas(canvas: dict) -> GraphAnalysis:
         else:
             entries.append(_Entry(node_id, layer_type, name, params))
 
-    edges = [
-        (e.get("source"), e.get("target"), e.get("id") or f"{e.get('source')}-{e.get('target')}")
-        for e in canvas.get("edges", [])
-    ]
+    raw_edges = canvas.get("edges") or []
+    if not isinstance(raw_edges, list):
+        raw_edges = []
+
+    edges = []
+    for e in raw_edges:
+        if not isinstance(e, dict):
+            continue
+        src = e.get("source")
+        tgt = e.get("target")
+        eid = e.get("id") or f"{src}-{tgt}"
+        edges.append((src, tgt, str(eid)))
+
     return _analyze(entries, edges, preset)
 
 
@@ -108,12 +163,44 @@ def _analyze(
         )
         return _finish([], diagnostics, [])
 
-    by_id = {e.id: e for e in entries}
+    # Disambiguate duplicate node IDs so graph traversal stays robust
+    by_id: dict[str, _Entry] = {}
+    unique_entries: list[_Entry] = []
+    for e in entries:
+        if e.id not in by_id:
+            by_id[e.id] = e
+            unique_entries.append(e)
+        else:
+            if not any(d.code == DiagnosticCode.DUPLICATE_NODE_ID and d.node_id == e.id for d in diagnostics):
+                diagnostics.append(
+                    Diagnostic(
+                        code=DiagnosticCode.DUPLICATE_NODE_ID,
+                        severity=Severity.ERROR,
+                        message=f"Multiple layers share the same ID '{e.id}'.",
+                        node_id=e.id,
+                        suggestion="Ensure each layer has a unique ID.",
+                    )
+                )
 
-    # Keep only edges between known nodes; report the rest.
+    # Validate connections: filter dangling edges, self-loops, and duplicate connections
     incoming: dict[str, list[str]] = defaultdict(list)
     outgoing: dict[str, list[str]] = defaultdict(list)
+    seen_edges: set[tuple[str, str]] = set()
+
     for source, target, edge_id in raw_edges:
+        if source is None or target is None:
+            anchor = source if source in by_id else (target if target in by_id else None)
+            diagnostics.append(
+                Diagnostic(
+                    code=DiagnosticCode.DANGLING_EDGE,
+                    severity=Severity.ERROR,
+                    message=f"Connection {edge_id} is missing a source or target layer.",
+                    node_id=anchor,
+                    suggestion="Delete the incomplete connection.",
+                )
+            )
+            continue
+
         missing = [x for x in (source, target) if x not in by_id]
         if missing:
             anchor = next((x for x in (source, target) if x in by_id), None)
@@ -127,10 +214,38 @@ def _analyze(
                 )
             )
             continue
-        incoming[target].append(source)  # type: ignore[index]
-        outgoing[source].append(target)  # type: ignore[index]
 
-    if not any(e.layer_type == "input" for e in entries):
+        if source == target:
+            diagnostics.append(
+                Diagnostic(
+                    code=DiagnosticCode.SELF_LOOP,
+                    severity=Severity.ERROR,
+                    message=f"{_label(by_id[source])} connects to itself; layers cannot be connected in a self-loop.",
+                    node_id=source,
+                    suggestion="Remove the self-connecting edge.",
+                )
+            )
+            continue
+
+        edge_key = (source, target)
+        if edge_key in seen_edges:
+            diagnostics.append(
+                Diagnostic(
+                    code=DiagnosticCode.DUPLICATE_EDGE,
+                    severity=Severity.ERROR,
+                    message=f"Duplicate connection from {_label(by_id[source])} to {_label(by_id[target])}.",
+                    node_id=target,
+                    related_node_ids=[source],
+                    suggestion="Remove the redundant connection between these layers.",
+                )
+            )
+            continue
+
+        seen_edges.add(edge_key)
+        incoming[target].append(source)
+        outgoing[source].append(target)
+
+    if not any(e.layer_type == "input" for e in unique_entries):
         diagnostics.append(
             Diagnostic(
                 code=DiagnosticCode.NO_INPUT_NODE,
@@ -140,7 +255,7 @@ def _analyze(
             )
         )
 
-    order, cyclic = _topological_order(entries, incoming, outgoing)
+    order, cyclic = _topological_order(unique_entries, incoming, outgoing)
     if cyclic:
         diagnostics.append(
             Diagnostic(
@@ -158,13 +273,32 @@ def _analyze(
         entry = by_id[node_id]
         results[node_id] = _analyze_node(entry, by_id, incoming.get(node_id, []), results, diagnostics)
 
-    # Nodes caught in a cycle never became ready, so they have no shape.
-    for entry in entries:
+    # Nodes caught in a cycle or disconnected never became ready, so they have no shape.
+    for entry in unique_entries:
         results.setdefault(entry.id, NodeAnalysis(node_id=entry.id, layer_type=entry.layer_type))
 
-    # A model's outputs are its leaf nodes; inputs never count, as in the Keras generator.
-    outputs = [e.id for e in entries if e.layer_type != "input" and not outgoing.get(e.id)]
-    return _finish([results[e.id] for e in _in_order(entries, order)], diagnostics, outputs)
+    # A model's outputs are its leaf nodes reachable from an input with a valid computed shape.
+    input_ids = [e.id for e in unique_entries if e.layer_type == "input"]
+    reachable: set[str] = set()
+    queue = deque(input_ids)
+    while queue:
+        cur = queue.popleft()
+        reachable.add(cur)
+        for nxt in outgoing.get(cur, []):
+            if nxt not in reachable:
+                reachable.add(nxt)
+                queue.append(nxt)
+
+    outputs = [
+        e.id
+        for e in unique_entries
+        if e.layer_type != "input"
+        and not outgoing.get(e.id)
+        and e.id in reachable
+        and results.get(e.id) is not None
+        and results[e.id].output_shape is not None
+    ]
+    return _finish([results[e.id] for e in _in_order(unique_entries, order)], diagnostics, outputs)
 
 
 def _in_order(entries: list[_Entry], order: list[str]) -> list[_Entry]:

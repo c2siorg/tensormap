@@ -35,6 +35,9 @@ class DiagnosticCode(StrEnum):
     INVALID_RESHAPE = "invalid_reshape"
     INPUT_HAS_INCOMING_EDGE = "input_has_incoming_edge"
     UNFLATTENED_DENSE = "unflattened_dense"
+    DUPLICATE_NODE_ID = "duplicate_node_id"
+    DUPLICATE_EDGE = "duplicate_edge"
+    SELF_LOOP = "self_loop"
 
 
 class Diagnostic(BaseModel):

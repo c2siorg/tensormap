@@ -26,6 +26,8 @@ interface UseGraphAnalysisResult {
   loading: boolean;
   /** Set when the backend could not be reached; the canvas keeps working without analysis. */
   error: string | null;
+  /** True when displaying an earlier analysis because the latest request failed. */
+  isStale: boolean;
 }
 
 /**
@@ -41,6 +43,7 @@ export function useGraphAnalysis(
   const [analysis, setAnalysis] = useState<GraphAnalysis | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isStale, setIsStale] = useState(false);
 
   const hasNodes = nodes.length > 0;
   // A string key, so the effect re-runs only when the graph really changes.
@@ -54,6 +57,7 @@ export function useGraphAnalysis(
       setAnalysis(null);
       setLoading(false);
       setError(null);
+      setIsStale(false);
       return undefined;
     }
 
@@ -65,11 +69,13 @@ export function useGraphAnalysis(
         if (cancelled) return;
         setAnalysis(result);
         setError(null);
+        setIsStale(false);
       } catch (err) {
         if (cancelled) return;
         logger.error("Graph analysis failed:", err);
-        setAnalysis(null);
+        // Preserve existing analysis if available so shape badges and stats remain visible
         setError("Could not analyse the model.");
+        setIsStale(true);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -81,5 +87,5 @@ export function useGraphAnalysis(
     };
   }, [key, debounceMs]);
 
-  return { analysis, loading, error };
+  return { analysis, loading, error, isStale };
 }

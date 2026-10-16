@@ -433,6 +433,36 @@ class TestGetFileData:
         assert body["pagination"]["total_pages"] == 0
         assert len(body["data"]) == 0
 
+    @pytest.mark.parametrize(
+        ("content", "expected_rows"),
+        [
+            ('a,b\n1,"line one\nline two"\n2,x\n3,y\n4,z\n', 4),
+            ("a,b\n1,x\n2,y\n\n\n", 2),
+        ],
+        ids=["quoted_line_break", "trailing_blank_lines"],
+    )
+    @patch("app.services.data_process.get_settings")
+    def test_get_file_data_counts_records_not_lines(
+        self, mock_settings, mock_db, file_id, tmp_path, content, expected_rows
+    ):
+        (tmp_path / "rows.csv").write_text(content)
+
+        rows_file = MagicMock(spec=DataFile)
+        rows_file.file_name = "rows"
+        rows_file.file_type = "csv"
+        rows_file.disk_name = "rows.csv"
+        rows_file.row_count = None
+
+        mock_settings.return_value.upload_folder = str(tmp_path)
+        mock_db.exec.return_value.first.return_value = rows_file
+
+        body, status = get_file_data(mock_db, file_id, page=1, page_size=2)
+
+        assert status == 200
+        assert body["pagination"]["total_rows"] == expected_rows
+        assert body["pagination"]["total_pages"] == (expected_rows + 1) // 2
+        assert len(body["data"]) == 2
+
     def test_file_not_in_db(self, mock_db, file_id):
         mock_db.exec.return_value.first.return_value = None
 

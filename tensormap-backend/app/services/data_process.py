@@ -1,4 +1,5 @@
 import contextlib
+import csv
 import json
 import os
 import shutil
@@ -264,8 +265,9 @@ def get_file_data(db: Session, file_id: uuid_pkg.UUID, page: int = 1, page_size:
     file_path = _get_file_path(file)
 
     try:
-        with open(file_path, "rb") as f:
-            total_rows = sum(1 for _ in f) - 1
+        # Count CSV records, not lines: a quoted value can span several lines, and pandas skips blank lines.
+        with open(file_path, newline="", encoding="utf-8", errors="replace") as f:
+            total_rows = sum(1 for row in csv.reader(f) if row) - 1
         total_rows = max(total_rows, 0)
     except FileNotFoundError:
         return _resp(500, False, f"File not found: {file_path}")

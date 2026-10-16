@@ -119,6 +119,12 @@ class GlobalAvgPool2DParams(BaseModel):
     layer_type: Literal["globalavgpool2d"]
 
 
+class GlobalMaxPool2DParams(BaseModel):
+    """Parameters for GlobalMaxPooling2D layer (no configurable params)."""
+
+    layer_type: Literal["globalmaxpool2d"]
+
+
 class LSTMParams(BaseModel):
     """Parameters for LSTM layer."""
 
@@ -183,6 +189,12 @@ class ConcatenateParams(BaseModel):
     axis: int = Field(default=-1, description="Axis along which to concatenate")
 
 
+class AddParams(BaseModel):
+    """Parameters for Add layer (element-wise addition for skip/residual connections)."""
+
+    layer_type: Literal["add"]
+
+
 # ============================================================================
 # Discriminated Union for All Layer Types
 # ============================================================================
@@ -195,6 +207,7 @@ NodeParams = Annotated[
     | MaxPool2DParams
     | AvgPool2DParams
     | GlobalAvgPool2DParams
+    | GlobalMaxPool2DParams
     | LSTMParams
     | GRUParams
     | SimpleRNNParams
@@ -202,7 +215,8 @@ NodeParams = Annotated[
     | DropoutParams
     | BatchNormParams
     | ReshapeParams
-    | ConcatenateParams,
+    | ConcatenateParams
+    | AddParams,
     Field(discriminator="layer_type"),
 ]
 
@@ -381,12 +395,13 @@ def validate_ir_graph(graph: IRGraph) -> list[IRValidationError]:
             incoming_edges[edge.target_id].append(edge.source_id)
             outgoing_edges[edge.source_id].append(edge.target_id)
 
-    # Check 2: Concatenate nodes must have at least 2 incoming edges
+    # Check 2: Merge nodes (Concatenate, Add) must have at least 2 incoming edges
     for node in graph.nodes:
-        if node.node_params.layer_type == "concatenate" and len(incoming_edges[node.id]) < 2:
+        if node.node_params.layer_type in ("concatenate", "add") and len(incoming_edges[node.id]) < 2:
+            layer_name = node.node_params.layer_type.capitalize()
             errors.append(
                 IRValidationError(
-                    message=f"Concatenate node must have at least 2 incoming edges, "
+                    message=f"{layer_name} node must have at least 2 incoming edges, "
                     f"but has {len(incoming_edges[node.id])}",
                     node_id=node.id,
                 )
@@ -422,5 +437,26 @@ def validate_ir_graph(graph: IRGraph) -> list[IRValidationError]:
             shape = getattr(node.node_params, "target_shape", None)
             if not shape:
                 errors.append(IRValidationError(message="Reshape node requires a target_shape", node_id=node.id))
+
+    # Check 6: Input nodes must have at least one outgoing edge
+    for node in inputs:
+        if not outgoing_edges[node.id]:
+            errors.append(
+                IRValidationError(
+                    message=f"Input node '{node.id}' has no outgoing connections.",
+                    node_id=node.id,
+                )
+            )
+
+    # Check 7: At least one non-input output node must exist
+    outputs = [
+        node.id for node in graph.nodes if node.node_params.layer_type != "input" and not outgoing_edges[node.id]
+    ]
+    if not outputs:
+        errors.append(
+            IRValidationError(
+                message="Graph has no output node (no layer downstream of an input node without outgoing edges)."
+            )
+        )
 
     return errors

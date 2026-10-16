@@ -438,25 +438,4 @@ def validate_ir_graph(graph: IRGraph) -> list[IRValidationError]:
             if not shape:
                 errors.append(IRValidationError(message="Reshape node requires a target_shape", node_id=node.id))
 
-    # Check 6: Input nodes must have at least one outgoing edge
-    for node in inputs:
-        if not outgoing_edges[node.id]:
-            errors.append(
-                IRValidationError(
-                    message=f"Input node '{node.id}' has no outgoing connections.",
-                    node_id=node.id,
-                )
-            )
-
-    # Check 7: At least one non-input output node must exist
-    outputs = [
-        node.id for node in graph.nodes if node.node_params.layer_type != "input" and not outgoing_edges[node.id]
-    ]
-    if not outputs:
-        errors.append(
-            IRValidationError(
-                message="Graph has no output node (no layer downstream of an input node without outgoing edges)."
-            )
-        )
-
     return errors

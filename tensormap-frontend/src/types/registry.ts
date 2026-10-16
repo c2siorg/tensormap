@@ -90,6 +90,8 @@ export const TYPE_ABBREVIATIONS: Record<string, string> = {
   batchnorm: "BN",
   reshape: "RS",
   concatenate: "CT",
+  add: "AD",
+  globalmaxpool2d: "GM",
 };
 
 /**

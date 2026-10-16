@@ -16,6 +16,7 @@ from dataclasses import dataclass
 
 from app.ir.analysis.models import DiagnosticCode, Severity, Shape
 from app.ir.schema import (
+    AddParams,
     AvgPool2DParams,
     BatchNormParams,
     ConcatenateParams,
@@ -25,6 +26,7 @@ from app.ir.schema import (
     EmbeddingParams,
     FlattenParams,
     GlobalAvgPool2DParams,
+    GlobalMaxPool2DParams,
     GRUParams,
     InputParams,
     LSTMParams,
@@ -271,6 +273,13 @@ def _globalavgpool2d(p: GlobalAvgPool2DParams, inputs: list[Shape]) -> LayerResu
     return LayerResult((shape[2],))
 
 
+@shape_rule("globalmaxpool2d")
+def _globalmaxpool2d(p: GlobalMaxPool2DParams, inputs: list[Shape]) -> LayerResult:
+    (shape,) = inputs
+    _need_rank(shape, 3, "(height, width, channels)", _image_hint(shape))
+    return LayerResult((shape[2],))
+
+
 def _recurrent(
     p: LSTMParams | GRUParams | SimpleRNNParams,
     inputs: list[Shape],
@@ -362,3 +371,33 @@ def _reshape(p: ReshapeParams, inputs: list[Shape]) -> LayerResult:
 @shape_rule("concatenate")
 def _concatenate(p: ConcatenateParams, inputs: list[Shape]) -> LayerResult:
     return LayerResult(concat_shapes(inputs, p.axis))
+
+
+@shape_rule("add")
+def _add(p: AddParams, inputs: list[Shape]) -> LayerResult:
+    if len(inputs) < 2:
+        raise ShapeError(
+            DiagnosticCode.MERGE_ARITY,
+            f"needs at least 2 incoming connections but has {len(inputs)}.",
+            "Connect another layer to the Add layer, or remove it.",
+        )
+    first_rank = len(inputs[0])
+    for s in inputs[1:]:
+        if len(s) != first_rank:
+            raise ShapeError(
+                DiagnosticCode.RANK_MISMATCH,
+                f"cannot add inputs with different ranks: {first_rank}-D {format_shape(inputs[0])} "
+                f"and {len(s)}-D {format_shape(s)}.",
+                "Use Flatten or Reshape so all inputs have the same number of dimensions before Add.",
+            )
+        if s != inputs[0]:
+            raise ShapeError(
+                DiagnosticCode.SHAPE_MISMATCH,
+                "all inputs to Add must have identical shapes, but received "
+                + ", ".join(format_shape(x) for x in inputs)
+                + ".",
+                "Ensure layers feeding into Add have matching dimensions, or use Conv2D/Dense to project them.",
+            )
+    out_shape = inputs[0]
+    macs = _prod(out_shape) * (len(inputs) - 1)
+    return LayerResult(out_shape, params=0, non_trainable=0, macs=macs)

@@ -101,6 +101,29 @@ GRAPHS = {
         ],
         [("i1", "cat"), ("i2", "cat"), ("cat", "out")],
     ),
+    "resnet_skip_connection": lambda: make_graph(
+        [
+            inp(16),
+            ("dense_branch1", {"layer_type": "dense", "units": 32, "activation": "relu"}),
+            ("dense_branch2", {"layer_type": "dense", "units": 32, "activation": "relu"}),
+            ("add", {"layer_type": "add"}),
+            ("out", {"layer_type": "dense", "units": 10, "activation": "softmax"}),
+        ],
+        [
+            ("in", "dense_branch1"),
+            ("in", "dense_branch2"),
+            ("dense_branch1", "add"),
+            ("dense_branch2", "add"),
+            ("add", "out"),
+        ],
+    ),
+    "cnn_globalmaxpool": lambda: chain(
+        inp(49),
+        ("rs", {"layer_type": "reshape", "target_shape": "7,7,1"}),
+        ("c", {"layer_type": "conv2d", "filters": 6, "kernel_size": 3, "padding": "same"}),
+        ("gmp", {"layer_type": "globalmaxpool2d"}),
+        ("out", {"layer_type": "dense", "units": 4}),
+    ),
 }
 
 # Graphs the analyzer must reject, and which Keras must fail to build too.
@@ -122,6 +145,20 @@ INVALID_GRAPHS = {
         ],
         [("in", "r1"), ("in", "r2"), ("r1", "cat"), ("r2", "cat")],
     ),
+    "add_shape_mismatch": lambda: make_graph(
+        [
+            inp(10),
+            ("d1", {"layer_type": "dense", "units": 16}),
+            ("d2", {"layer_type": "dense", "units": 32}),
+            ("add", {"layer_type": "add"}),
+        ],
+        [("in", "d1"), ("in", "d2"), ("d1", "add"), ("d2", "add")],
+    ),
+    "disconnected_input": lambda: make_graph(
+        [inp(10), ("in2", {"layer_type": "input", "shape": 5}), ("d", {"layer_type": "dense", "units": 4})],
+        [("in", "d")],
+    ),
+    "no_output_node": lambda: make_graph([inp(10)], []),
 }
 
 

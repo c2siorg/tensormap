@@ -64,6 +64,11 @@ link that focuses the layer.
   batch axis, so `1` is the first feature axis; `0` (the batch itself) is rejected.
 - **Warnings are not errors.** `unflattened_dense` (Dense after Conv2D without Flatten) builds fine in Keras 3
   and is only flagged, because it is usually not what the user meant.
+- **Multi-input and multi-output architectures.** Graphs can have multiple Input layers (e.g., multi-modal inputs
+  or separate feature branches) and multiple terminal output layers (e.g., multi-task heads). Outputs are
+  surfaced in `output_node_ids`. When a diagnostic involves multiple layers (such as all nodes in a `cycle` or
+  the incoming branches of a `shape_mismatch`), they are exposed in `related_node_ids`, highlighted on the canvas,
+  and presented as direct navigation buttons in the Model check panel.
 
 ## Diagnostic codes
 

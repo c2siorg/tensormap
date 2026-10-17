@@ -340,11 +340,14 @@ def validate_ir_graph(graph: IRGraph) -> list[IRValidationError]:
     Validate the IR graph structure and constraints.
 
     Checks:
-    1. Exactly one input node exists (layer_type == "input")
+    1. At least one input node exists (layer_type == "input")
     2. Concatenate nodes have at least 2 incoming edges
     3. No cycles exist in the graph (DAG constraint)
     4. All node IDs referenced in edges exist in nodes list
     5. Reshape nodes have valid target_shape
+
+    Multi-input models are fully supported by the analyzer, code
+    generator and training service, so multiple input nodes are allowed.
 
     Args:
         graph: The IR graph to validate
@@ -354,17 +357,10 @@ def validate_ir_graph(graph: IRGraph) -> list[IRValidationError]:
     """
     errors = []
 
-    # Check 1: Exactly one input node must exist
+    # Check 1: At least one input node must exist
     inputs = [n for n in graph.nodes if n.node_params.layer_type == "input"]
     if len(inputs) == 0:
-        errors.append(IRValidationError(message="Graph must contain exactly one input node (layer_type='input')"))
-    elif len(inputs) > 1:
-        errors.append(
-            IRValidationError(
-                message="Graph has multiple input nodes. Only one is allowed.",
-                code="multiple_input_nodes",
-            )
-        )
+        errors.append(IRValidationError(message="Graph must contain at least one input node (layer_type='input')"))
 
     # Build node ID set for reference checking
     node_ids = {node.id for node in graph.nodes}

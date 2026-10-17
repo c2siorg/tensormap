@@ -65,3 +65,9 @@ code {
   outline-offset: 2px;
   border-radius: 0.5rem;
 }
+
+.react-flow__node.analysis-related > div {
+  outline: 2px dotted #f59e0b;
+  outline-offset: 2px;
+  border-radius: 0.5rem;
+}

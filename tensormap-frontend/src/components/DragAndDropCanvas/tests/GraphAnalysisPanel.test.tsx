@@ -68,7 +68,9 @@ describe("GraphAnalysisPanel", () => {
     fireEvent.click(screen.getAllByRole("button", { name: "Show layer" })[0]);
     expect(onSelectNode).toHaveBeenCalledWith("c");
 
-    fireEvent.click(screen.getByRole("button", { name: "Related (in)" }));
+    const relButton = screen.getByRole("button", { name: "→ in" });
+    expect(relButton).toBeInTheDocument();
+    fireEvent.click(relButton);
     expect(onSelectNode).toHaveBeenCalledWith("in");
   });
 
@@ -80,8 +82,21 @@ describe("GraphAnalysisPanel", () => {
         isStale={true}
       />,
     );
-    expect(screen.getByTestId("analysis-status")).toHaveTextContent("Could not analyse the model. (cached)");
+    expect(screen.getByTestId("analysis-status")).toHaveTextContent(
+      "Could not analyse the model. (cached)",
+    );
     expect(screen.getByText("2,883")).toBeInTheDocument();
+  });
+
+  it("displays model outputs in summary when available", () => {
+    render(
+      <GraphAnalysisPanel
+        analysis={analysis({
+          output_node_ids: ["out_clf", "out_reg"],
+        })}
+      />,
+    );
+    expect(screen.getByText("out_clf, out_reg")).toBeInTheDocument();
   });
 
   it("offers no layer link for a graph-level problem", () => {

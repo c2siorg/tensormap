@@ -92,6 +92,12 @@ export default function GraphAnalysisPanel({
                 MACs per sample:{" "}
                 <strong className="text-foreground">{formatCount(analysis.macs)}</strong>
               </span>
+              {analysis.output_node_ids.length > 0 && (
+                <span>
+                  Outputs:{" "}
+                  <strong className="text-foreground">{analysis.output_node_ids.join(", ")}</strong>
+                </span>
+              )}
             </div>
           )}
 
@@ -122,18 +128,20 @@ export default function GraphAnalysisPanel({
                       {d.related_node_ids &&
                         d.related_node_ids.length > 0 &&
                         onSelectNode &&
-                        d.related_node_ids.map((relId) => (
-                          <Button
-                            key={relId}
-                            variant="link"
-                            size="sm"
-                            className="h-auto shrink-0 p-0 text-xs text-muted-foreground hover:text-foreground"
-                            onClick={() => onSelectNode(relId)}
-                            title={`Focus related layer ${relId}`}
-                          >
-                            Related ({relId})
-                          </Button>
-                        ))}
+                        Array.from(new Set(d.related_node_ids))
+                          .filter((id) => id !== d.node_id)
+                          .map((relId) => (
+                            <Button
+                              key={relId}
+                              variant="outline"
+                              size="sm"
+                              className="h-5 px-1.5 py-0 text-[10px] font-mono border-dashed hover:bg-accent"
+                              onClick={() => onSelectNode(relId)}
+                              title={`Focus related layer ${relId}`}
+                            >
+                              → {relId}
+                            </Button>
+                          ))}
                     </div>
                   </div>
                   {d.suggestion && (

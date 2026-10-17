@@ -64,7 +64,12 @@ describe("decorateNodes", () => {
 
   it("attaches output shape and params to each analysed node", () => {
     const [a] = decorateNodes([node("a")], { ...base, nodes: [nodeResult("a", [64], 704)] });
-    expect(a.data.analysis).toEqual({ outputShape: [64], params: 704, severity: null });
+    expect(a.data.analysis).toEqual({
+      outputShape: [64],
+      params: 704,
+      severity: null,
+      isRelated: false,
+    });
     expect(a.className).toBeUndefined();
   });
 
@@ -100,12 +105,17 @@ describe("decorateNodes", () => {
     const [a, b, c, d] = decorateNodes([node("a"), node("b"), node("c"), node("d")], {
       ...base,
       ok: false,
-      nodes: [nodeResult("a", null), nodeResult("b", null), nodeResult("c", null), nodeResult("d", [4])],
+      nodes: [
+        nodeResult("a", null),
+        nodeResult("b", null),
+        nodeResult("c", null),
+        nodeResult("d", [4]),
+      ],
       diagnostics: [diag],
     });
     expect(a.className).toBe("analysis-error");
-    expect(b.className).toBe("analysis-error");
-    expect(c.className).toBe("analysis-error");
+    expect(b.className).toBe("analysis-related");
+    expect(c.className).toBe("analysis-related");
     expect(d.className).toBeUndefined();
   });
 
@@ -118,5 +128,58 @@ describe("decorateNodes", () => {
   it("leaves nodes the analysis does not mention untouched", () => {
     const n = node("ghost");
     expect(decorateNodes([n], base)[0]).toBe(n);
+  });
+
+  it("highlights related nodes with analysis-related and sets isRelated", () => {
+    const [a, b, c] = decorateNodes([node("a"), node("b"), node("c")], {
+      ...base,
+      ok: false,
+      nodes: [nodeResult("a", null), nodeResult("b", [10]), nodeResult("c", [10])],
+      diagnostics: [
+        {
+          code: "cycle",
+          severity: "error",
+          message: "cycle",
+          node_id: "a",
+          suggestion: null,
+          related_node_ids: ["b", "c"],
+        },
+      ],
+    });
+    expect(a.className).toBe("analysis-error");
+    expect(a.data.analysis.isRelated).toBe(false);
+    expect(b.className).toBe("analysis-related");
+    expect(b.data.analysis.isRelated).toBe(true);
+    expect(c.className).toBe("analysis-related");
+    expect(c.data.analysis.isRelated).toBe(true);
+  });
+
+  it("ensures direct severity wins over related-node highlighting", () => {
+    const [a, b] = decorateNodes([node("a"), node("b")], {
+      ...base,
+      ok: false,
+      nodes: [nodeResult("a", null), nodeResult("b", null)],
+      diagnostics: [
+        {
+          code: "rank_mismatch",
+          severity: "error",
+          message: "error",
+          node_id: "a",
+          suggestion: null,
+          related_node_ids: ["b"],
+        },
+        {
+          code: "unflattened_dense",
+          severity: "warning",
+          message: "warning",
+          node_id: "b",
+          suggestion: null,
+          related_node_ids: [],
+        },
+      ],
+    });
+    expect(a.className).toBe("analysis-error");
+    expect(b.className).toBe("analysis-warning");
+    expect(b.data.analysis.isRelated).toBe(false);
   });
 });

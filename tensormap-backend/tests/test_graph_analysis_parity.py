@@ -101,6 +101,26 @@ GRAPHS = {
         ],
         [("i1", "cat"), ("i2", "cat"), ("cat", "out")],
     ),
+    "branching_multi_output": lambda: make_graph(
+        [
+            inp(10),
+            ("shared", {"layer_type": "dense", "units": 16}),
+            ("out_clf", {"layer_type": "dense", "units": 2, "activation": "softmax"}),
+            ("out_reg", {"layer_type": "dense", "units": 1}),
+        ],
+        [("in", "shared"), ("shared", "out_clf"), ("shared", "out_reg")],
+    ),
+    "two_inputs_two_outputs": lambda: make_graph(
+        [
+            ("i1", {"layer_type": "input", "shape": 8}),
+            ("i2", {"layer_type": "input", "shape": 12}),
+            ("d1", {"layer_type": "dense", "units": 6}),
+            ("cat", {"layer_type": "concatenate", "axis": -1}),
+            ("out_a", {"layer_type": "dense", "units": 4}),
+            ("out_b", {"layer_type": "dense", "units": 2}),
+        ],
+        [("i1", "cat"), ("i2", "d1"), ("d1", "cat"), ("cat", "out_a"), ("d1", "out_b")],
+    ),
 }
 
 # Graphs the analyzer must reject, and which Keras must fail to build too.

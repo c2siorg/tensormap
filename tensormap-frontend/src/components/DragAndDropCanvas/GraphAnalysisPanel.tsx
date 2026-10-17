@@ -88,6 +88,12 @@ export default function GraphAnalysisPanel({
                 MACs per sample:{" "}
                 <strong className="text-foreground">{formatCount(analysis.macs)}</strong>
               </span>
+              {analysis.output_node_ids.length > 0 && (
+                <span>
+                  Outputs:{" "}
+                  <strong className="text-foreground">{analysis.output_node_ids.join(", ")}</strong>
+                </span>
+              )}
             </div>
           )}
 
@@ -104,16 +110,35 @@ export default function GraphAnalysisPanel({
                 >
                   <div className="flex items-start justify-between gap-2">
                     <span>{d.message}</span>
-                    {d.node_id && onSelectNode && (
-                      <Button
-                        variant="link"
-                        size="sm"
-                        className="h-auto shrink-0 p-0 text-xs"
-                        onClick={() => onSelectNode(d.node_id as string)}
-                      >
-                        Show layer
-                      </Button>
-                    )}
+                    <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+                      {d.node_id && onSelectNode && (
+                        <Button
+                          variant="link"
+                          size="sm"
+                          className="h-auto p-0 text-xs"
+                          onClick={() => onSelectNode(d.node_id as string)}
+                        >
+                          Show layer
+                        </Button>
+                      )}
+                      {d.related_node_ids &&
+                        d.related_node_ids.length > 0 &&
+                        onSelectNode &&
+                        d.related_node_ids
+                          .filter((id) => id !== d.node_id)
+                          .map((relId) => (
+                            <Button
+                              key={relId}
+                              variant="outline"
+                              size="sm"
+                              className="h-5 px-1.5 py-0 text-[10px] font-mono border-dashed hover:bg-accent"
+                              onClick={() => onSelectNode(relId)}
+                              title={`Focus related layer ${relId}`}
+                            >
+                              → {relId}
+                            </Button>
+                          ))}
+                    </div>
                   </div>
                   {d.suggestion && (
                     <div className="mt-0.5 text-muted-foreground">{d.suggestion}</div>

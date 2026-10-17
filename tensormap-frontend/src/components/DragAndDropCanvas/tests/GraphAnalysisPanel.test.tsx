@@ -67,6 +67,22 @@ describe("GraphAnalysisPanel", () => {
 
     fireEvent.click(screen.getAllByRole("button", { name: "Show layer" })[0]);
     expect(onSelectNode).toHaveBeenCalledWith("c");
+
+    const relButton = screen.getByRole("button", { name: "→ in" });
+    expect(relButton).toBeInTheDocument();
+    fireEvent.click(relButton);
+    expect(onSelectNode).toHaveBeenCalledWith("in");
+  });
+
+  it("displays model outputs in summary when available", () => {
+    render(
+      <GraphAnalysisPanel
+        analysis={analysis({
+          output_node_ids: ["out_clf", "out_reg"],
+        })}
+      />,
+    );
+    expect(screen.getByText("out_clf, out_reg")).toBeInTheDocument();
   });
 
   it("offers no layer link for a graph-level problem", () => {

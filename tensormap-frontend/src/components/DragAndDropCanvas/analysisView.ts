@@ -31,7 +31,8 @@ const SEVERITY_CLASS: Record<DiagnosticSeverity, string> = {
  * the saved graph and drafts keep using the plain nodes.
  *
  * Each node gets its inferred output shape and parameter count in `data.analysis`, and a
- * class that outlines it when a diagnostic points at it (an error wins over a warning).
+ * class that outlines it when a diagnostic points at it (an error wins over a warning, and
+ * direct severity wins over related-node highlighting).
  */
 export function decorateNodes<T extends { id: string; className?: string; data?: any }>(
   nodes: T[],
@@ -41,16 +42,27 @@ export function decorateNodes<T extends { id: string; className?: string; data?:
 
   const byNode = new Map(analysis.nodes.map((n) => [n.node_id, n]));
   const severity = new Map<string, DiagnosticSeverity>();
+  const relatedNodeIds = new Set<string>();
+
   for (const d of analysis.diagnostics) {
-    if (!d.node_id) continue;
-    if (severity.get(d.node_id) !== "error") severity.set(d.node_id, d.severity);
+    if (d.node_id) {
+      if (severity.get(d.node_id) !== "error") severity.set(d.node_id, d.severity);
+    }
+    if (d.related_node_ids) {
+      for (const relId of d.related_node_ids) {
+        relatedNodeIds.add(relId);
+      }
+    }
   }
 
   return nodes.map((node) => {
     const result = byNode.get(node.id);
     const sev = severity.get(node.id) ?? null;
-    if (!result && !sev) return node;
-    const className = [node.className, sev ? SEVERITY_CLASS[sev] : null].filter(Boolean).join(" ");
+    const isRelated = !sev && relatedNodeIds.has(node.id);
+    if (!result && !sev && !isRelated) return node;
+
+    const highlightClass = sev ? SEVERITY_CLASS[sev] : isRelated ? "analysis-related" : null;
+    const className = [node.className, highlightClass].filter(Boolean).join(" ");
     return {
       ...node,
       className: className || undefined,
@@ -60,6 +72,7 @@ export function decorateNodes<T extends { id: string; className?: string; data?:
           outputShape: result?.output_shape ?? null,
           params: result?.params ?? 0,
           severity: sev,
+          isRelated,
         },
       },
     };

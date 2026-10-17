@@ -142,3 +142,72 @@ def test_get_single_layer_200():
 def test_get_single_layer_404():
     resp = client.get("/api/v1/layers/unknown_layer")
     assert resp.status_code == 404
+
+
+def test_valid_multi_input_graph_passes():
+    graph = IRGraph(
+        version="1.0",
+        nodes=[
+            IRNode(id="in1", node_params=InputParams(layer_type="input", shape=10), name="in1"),
+            IRNode(id="in2", node_params=InputParams(layer_type="input", shape=20), name="in2"),
+            IRNode(
+                id="cat",
+                node_params=ConcatenateParams(layer_type="concatenate", axis=-1),
+                name="cat",
+                input_node_ids=["in1", "in2"],
+            ),
+            IRNode(id="out", node_params=DenseParams(layer_type="dense", units=5), name="out"),
+        ],
+        edges=[
+            IREdge(id="e1", source_id="in1", target_id="cat"),
+            IREdge(id="e2", source_id="in2", target_id="cat"),
+            IREdge(id="e3", source_id="cat", target_id="out"),
+        ],
+    )
+    errors = validate_ir_graph(graph)
+    assert not errors
+
+
+def test_validate_graph_endpoint_200_multi_input():
+    graph_ir = {
+        "version": "1.0",
+        "nodes": [
+            {"id": "in1", "node_params": {"layer_type": "input", "shape": 10}, "input_node_ids": []},
+            {"id": "in2", "node_params": {"layer_type": "input", "shape": 20}, "input_node_ids": []},
+            {
+                "id": "cat",
+                "node_params": {"layer_type": "concatenate", "axis": -1},
+                "input_node_ids": ["in1", "in2"],
+            },
+        ],
+        "edges": [
+            {"id": "e1", "source_id": "in1", "target_id": "cat"},
+            {"id": "e2", "source_id": "in2", "target_id": "cat"},
+        ],
+    }
+    resp = client.post("/api/v1/layers/validate-graph", json={"graph_ir": graph_ir})
+    assert resp.status_code == 200
+    assert resp.json() == {"valid": True}
+
+
+def test_blocking_ir_errors_accepts_multi_input():
+    from app.services.deep_learning import _blocking_ir_errors
+
+    graph = IRGraph(
+        version="1.0",
+        nodes=[
+            IRNode(id="in1", node_params=InputParams(layer_type="input", shape=10), name="in1"),
+            IRNode(id="in2", node_params=InputParams(layer_type="input", shape=20), name="in2"),
+            IRNode(
+                id="cat",
+                node_params=ConcatenateParams(layer_type="concatenate", axis=-1),
+                name="cat",
+                input_node_ids=["in1", "in2"],
+            ),
+        ],
+        edges=[
+            IREdge(id="e1", source_id="in1", target_id="cat"),
+            IREdge(id="e2", source_id="in2", target_id="cat"),
+        ],
+    )
+    assert _blocking_ir_errors(graph) == []

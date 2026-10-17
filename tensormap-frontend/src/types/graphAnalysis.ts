@@ -46,4 +46,6 @@ export interface NodeAnalysisView {
   outputShape: number[] | null;
   params: number;
   severity: DiagnosticSeverity | null;
+  /** True when this node is referenced by related_node_ids of a diagnostic. */
+  isRelated?: boolean;
 }

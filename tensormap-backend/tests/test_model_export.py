@@ -463,6 +463,106 @@ def test_onnx_export_succeeds_with_fixed_shape(tmp_path, mock_keras_model):
         assert onnx_path.exists()
 
 
+def _fake_tf2onnx(from_keras):
+    """A stand-in tf2onnx module, so these tests run even where the real toolchain cannot import."""
+    from types import SimpleNamespace
+
+    return SimpleNamespace(convert=SimpleNamespace(from_keras=from_keras))
+
+
+def test_concurrent_onnx_exports_never_serve_a_partial_file(tmp_path, mock_keras_model):
+    """A second ONNX request for one job must not truncate the file the first one returned."""
+    import itertools
+    import sys
+
+    job_id = str(uuid4())
+    export_dir = tmp_path / "exports" / job_id
+    export_dir.mkdir(parents=True)
+    (export_dir / "model.keras").write_text("dummy")
+    onnx_bytes = b"onnx model bytes" * 1024
+
+    # Both requests get past the "already exported" check before either one writes, the
+    # way two requests handled in parallel by the download endpoint's threadpool do. The
+    # second conversion only finishes after the first request has returned its path.
+    both_converting = threading.Barrier(2)
+    first_done = threading.Event()
+    second_writing = threading.Event()
+    served_read = threading.Event()
+    call_numbers = itertools.count(1)
+
+    def from_keras(model, input_signature):
+        call_number = next(call_numbers)
+        with contextlib.suppress(threading.BrokenBarrierError):
+            both_converting.wait(timeout=1)
+        onnx_model = Mock()
+        if call_number == 1:
+            onnx_model.SerializeToString.return_value = onnx_bytes
+        else:
+            first_done.wait(timeout=5)
+
+            def serialize():
+                second_writing.set()
+                served_read.wait(timeout=5)
+                return onnx_bytes
+
+            onnx_model.SerializeToString.side_effect = serialize
+        return onnx_model, None
+
+    results, errors = [], []
+
+    def worker():
+        try:
+            results.append(export_onnx(job_id, "test_model"))
+            first_done.set()
+        except Exception as e:  # noqa: BLE001 - the test inspects whatever was raised
+            errors.append(e)
+
+    with (
+        patch("app.services.model_export.EXPORTS_BASE", tmp_path / "exports"),
+        patch("tensorflow.keras.models.load_model", return_value=mock_keras_model),
+        patch.dict(sys.modules, {"tf2onnx": _fake_tf2onnx(from_keras)}),
+    ):
+        threads = [threading.Thread(target=worker) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        first_done.wait(timeout=5)
+        second_writing.wait(timeout=2)
+        # The first request's response is being served from this path right now.
+        served = results[0].read_bytes()
+        served_read.set()
+        for thread in threads:
+            thread.join()
+
+    assert errors == []
+    assert served == onnx_bytes
+    assert results[0].read_bytes() == onnx_bytes
+    assert {p.name for p in export_dir.iterdir()} == {"model.keras", "test_model.onnx"}
+
+
+def test_failed_onnx_write_leaves_no_partial_file(tmp_path, mock_keras_model):
+    """A failed ONNX write must not leave a file that later requests serve as the export."""
+    import sys
+
+    job_id = str(uuid4())
+    export_dir = tmp_path / "exports" / job_id
+    export_dir.mkdir(parents=True)
+    (export_dir / "model.keras").write_text("dummy")
+
+    # protobuf refuses to serialize messages over 2 GB, so a very large model fails here.
+    too_large = Mock()
+    too_large.SerializeToString.side_effect = ValueError("Message onnx.ModelProto exceeds maximum protobuf size of 2GB")
+
+    with (
+        patch("app.services.model_export.EXPORTS_BASE", tmp_path / "exports"),
+        patch("tensorflow.keras.models.load_model", return_value=mock_keras_model),
+        patch.dict(sys.modules, {"tf2onnx": _fake_tf2onnx(Mock(return_value=(too_large, None)))}),
+        pytest.raises(ValueError),
+    ):
+        export_onnx(job_id, "test_model")
+
+    assert {p.name for p in export_dir.iterdir()} == {"model.keras"}
+
+
 def test_get_export_formats_structure(tmp_path):
     """get_export_formats returns correct structure."""
     job_id = str(uuid4())

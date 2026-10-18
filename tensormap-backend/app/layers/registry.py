@@ -266,6 +266,14 @@ LAYER_REGISTRY: dict[str, LayerSpec] = {
         params={},
         description="Global average pooling that reduces each feature map to a single value",
     ),
+    "globalmaxpool2d": LayerSpec(
+        type_key="globalmaxpool2d",
+        display_name="GlobalMaxPooling2D",
+        category="pooling",
+        keras_class="tf.keras.layers.GlobalMaxPooling2D",
+        params={},
+        description="Global max pooling that reduces each 2D feature map to its maximum value",
+    ),
     "lstm": LayerSpec(
         type_key="lstm",
         display_name="LSTM",
@@ -448,6 +456,15 @@ LAYER_REGISTRY: dict[str, LayerSpec] = {
         },
         merge=True,
         description="Concatenate layer for merging multiple input tensors along a specified axis",
+    ),
+    "add": LayerSpec(
+        type_key="add",
+        display_name="Add",
+        category="utility",
+        keras_class="tf.keras.layers.Add",
+        params={},
+        merge=True,
+        description="Element-wise addition of multiple input tensors with matching shapes for residual connections",
     ),
 }
 

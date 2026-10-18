@@ -21,6 +21,7 @@ from app.services.deep_learning import (  # noqa: E402
     check_model_name_service,
     delete_model_service,
     get_model_count_service,
+    model_validate_service,
 )
 
 # ---------------------------------------------------------------------------
@@ -181,3 +182,71 @@ class TestGetModelCountService:
         get_model_count_service(mock_db, project_id="proj-1")
         call_stmt = mock_db.exec.call_args[0][0]
         assert "project_id" in str(call_stmt)
+
+
+# ---------------------------------------------------------------------------
+# model_validate_service
+# ---------------------------------------------------------------------------
+
+
+class TestModelValidateService:
+    def test_creates_parent_directory_if_not_exists(self, mock_db, tmp_path):
+        """model_validate_service creates the parent directory if it does not exist."""
+        mock_db.exec.return_value.first.return_value = None
+
+        mock_keras = MagicMock()
+        mock_keras.layers = []
+        mock_keras.count_params.return_value = 0
+        mock_keras.trainable_weights = []
+        mock_keras.to_json.return_value = "{}"
+
+        payload = {
+            "model": {
+                "nodes": [
+                    {
+                        "id": "node-1",
+                        "type": "custominput",
+                        "data": {"name": "Input", "params": {"shape": "784"}},
+                        "position": {"x": 100, "y": 100},
+                    },
+                    {
+                        "id": "node-2",
+                        "type": "customdense",
+                        "data": {"name": "Dense", "params": {"units": "128", "activation": "relu"}},
+                        "position": {"x": 300, "y": 100},
+                    },
+                ],
+                "edges": [{"id": "edge-1", "source": "node-1", "target": "node-2"}],
+            },
+            "code": {
+                "dl_model": {
+                    "model_name": "test_validate_model",
+                    "optimizer": "adam",
+                    "metric": "accuracy",
+                    "epochs": 10,
+                },
+                "dataset": {
+                    "file_id": "00000000-0000-4000-a000-000000000001",
+                    "target_field": "target",
+                    "training_split": 80.0,
+                },
+                "problem_type_id": 1,
+            },
+        }
+
+        nested_dir = tmp_path / "nested" / "model_dir"
+        assert not nested_dir.exists()
+
+        with (
+            patch("app.services.deep_learning.MODEL_GENERATION_LOCATION", str(nested_dir) + "/"),
+            patch("app.services.deep_learning.MODEL_GENERATION_TYPE", ".json"),
+            patch("app.services.deep_learning.model_generation", return_value={"class_name": "Functional"}),
+            patch("app.services.deep_learning._get_tensorflow") as mock_get_tf,
+        ):
+            mock_get_tf.return_value.keras.models.model_from_json.return_value = mock_keras
+            body, status_code = model_validate_service(mock_db, payload)
+
+        assert status_code == 200
+        assert body["success"] is True
+        assert nested_dir.exists()
+        assert (nested_dir / "test_validate_model.json").exists()

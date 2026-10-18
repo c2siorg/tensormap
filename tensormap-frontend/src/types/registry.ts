@@ -3,7 +3,7 @@
  * These types must match the backend registry schema from app/layers/registry.py
  */
 
-export type ParamType = "int" | "float" | "bool" | "enum";
+export type ParamType = "int" | "float" | "bool" | "enum" | "string";
 
 export interface ParamSpec {
   name: string;

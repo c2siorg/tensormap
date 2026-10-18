@@ -245,6 +245,44 @@ class TestDiagnostics:
         a = analyze_graph(chain(inp(10), ("rs", {"layer_type": "reshape", "target_shape": "-1,4"})))
         assert codes(a) == [DiagnosticCode.INVALID_RESHAPE]
 
+    def test_reshape_accepts_parentheses_brackets_and_whitespace(self):
+        a = analyze_graph(
+            chain(
+                inp(28 * 28),
+                ("rs1", {"layer_type": "reshape", "target_shape": "(28, 28, 1)"}),
+            )
+        )
+        assert a.ok
+        rs1 = a.node("rs1")
+        assert rs1 is not None
+        assert rs1.output_shape == (28, 28, 1)
+
+        b = analyze_graph(
+            chain(
+                inp(64),
+                ("rs2", {"layer_type": "reshape", "target_shape": " [ 8, 8 ] "}),
+            )
+        )
+        assert b.ok
+        rs2 = b.node("rs2")
+        assert rs2 is not None
+        assert rs2.output_shape == (8, 8)
+
+    def test_flops_computed_property(self):
+        a = analyze_graph(
+            chain(
+                inp(10),
+                ("d1", {"layer_type": "dense", "units": 20, "activation": "relu"}),
+            )
+        )
+        assert a.ok
+        d1 = a.node("d1")
+        assert d1 is not None
+        assert d1.macs > 0
+        assert d1.flops == d1.macs * 2
+        assert a.macs == d1.macs
+        assert a.flops == a.macs * 2
+
     def test_concatenate_dimension_mismatch_names_both_branches(self):
         graph = make_graph(
             [

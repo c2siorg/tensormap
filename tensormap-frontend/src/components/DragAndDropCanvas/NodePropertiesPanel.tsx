@@ -174,6 +174,38 @@ const EnumInput = ({ paramName, spec, value, onChange, error }: ParamInputProps)
 };
 
 /**
+ * Render an input field for a string parameter.
+ */
+const StringInput = ({ paramName, spec, value, onChange, error }: ParamInputProps) => {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    onChange(val);
+  };
+
+  return (
+    <div className="space-y-1">
+      <Label className="text-xs flex items-center gap-1">
+        {paramName}
+        {spec.required && <span className="text-red-500">*</span>}
+        {spec.description && (
+          <HelpCircle className="h-3 w-3 text-gray-400" title={spec.description} />
+        )}
+      </Label>
+      <Input
+        type="text"
+        placeholder={
+          spec.default !== null && spec.default !== undefined ? String(spec.default) : ""
+        }
+        value={value ?? ""}
+        onChange={handleChange}
+        className={error ? "border-red-500" : ""}
+      />
+      {error && <p className="text-xs text-red-500">{error}</p>}
+    </div>
+  );
+};
+
+/**
  * Validate a parameter value against its spec.
  */
 function validateParam(paramName: string, value: any, spec: ParamSpec): string | null {
@@ -211,6 +243,12 @@ function validateParam(paramName: string, value: any, spec: ParamSpec): string |
     }
     if (spec.max !== undefined && spec.max !== null && num > spec.max) {
       return `${paramName} must be <= ${spec.max}`;
+    }
+  }
+
+  if (spec.type === "string") {
+    if (typeof value !== "string" && typeof value !== "number") {
+      return `${paramName} must be a valid text string`;
     }
   }
 
@@ -328,6 +366,8 @@ function NodePropertiesPanel({
         return <BoolInput key={paramName} {...commonProps} />;
       case "enum":
         return <EnumInput key={paramName} {...commonProps} />;
+      case "string":
+        return <StringInput key={paramName} {...commonProps} />;
       default:
         return null;
     }

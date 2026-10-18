@@ -24,6 +24,7 @@ export interface NodeAnalysis {
   trainable_params: number;
   non_trainable_params: number;
   macs: number;
+  flops?: number;
 }
 
 export interface GraphAnalysis {
@@ -36,6 +37,7 @@ export interface GraphAnalysis {
   trainable_params: number;
   non_trainable_params: number;
   macs: number;
+  flops?: number;
   size_bytes: number;
 }
 

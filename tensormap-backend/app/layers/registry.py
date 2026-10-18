@@ -48,6 +48,7 @@ class ParamType(StrEnum):
     FLOAT = "float"
     BOOL = "bool"
     ENUM = "enum"
+    STRING = "string"
 
 
 class ParamSpec(BaseModel):
@@ -425,7 +426,7 @@ LAYER_REGISTRY: dict[str, LayerSpec] = {
         params={
             "target_shape": ParamSpec(
                 name="target_shape",
-                type=ParamType.INT,
+                type=ParamType.STRING,
                 required=True,
                 description="Target shape as comma-separated integers (e.g., '7,7,64' for 7x7x64)",
             )

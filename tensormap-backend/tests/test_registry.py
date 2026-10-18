@@ -129,6 +129,14 @@ class TestLayerRegistry:
         shape_spec = LAYER_REGISTRY["input"].params["shape"]
         assert shape_spec.min == 1
 
+    def test_reshape_target_shape_param_type_is_string(self) -> None:
+        """Verify that reshape layer target_shape param is ParamType.STRING."""
+        assert ParamType.STRING == "string"
+        reshape_spec = LAYER_REGISTRY["reshape"]
+        param_spec = reshape_spec.params["target_shape"]
+        assert param_spec.type == ParamType.STRING
+        assert param_spec.required is True
+
 
 class TestIRSchema:
     """Tests for the IR schema Pydantic models and validation."""
@@ -373,3 +381,18 @@ def test_concatenate_input_node_ids_ordering():
     graph = reactflow_to_ir(rf_json)
     c_node = next(n for n in graph.nodes if getattr(n.node_params, "layer_type", "") == "concatenate")
     assert c_node.input_node_ids == ["in1", "in2"]
+
+
+def test_ir_build_args_reshape_formats():
+    rf_json = {
+        "nodes": [
+            {
+                "id": "r1",
+                "type": "reshapeNode",
+                "data": {"params": {"layer_type": "reshape", "target_shape": "(28, 28, 1)"}},
+            }
+        ]
+    }
+    graph = reactflow_to_ir(rf_json)
+    kwargs = ir_to_keras_build_args(graph.nodes[0])
+    assert kwargs.get("target_shape") == (28, 28, 1)

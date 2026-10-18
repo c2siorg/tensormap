@@ -328,7 +328,11 @@ def _batchnorm(p: BatchNormParams, inputs: list[Shape]) -> LayerResult:
 def _reshape(p: ReshapeParams, inputs: list[Shape]) -> LayerResult:
     (shape,) = inputs
     try:
-        target = [int(x) for x in p.target_shape.split(",")]
+        cleaned = p.target_shape.strip().strip("()[] ")
+        parts = [x.strip() for x in cleaned.split(",") if x.strip()]
+        if not parts:
+            raise ValueError
+        target = [int(x) for x in parts]
     except ValueError:
         raise ShapeError(
             DiagnosticCode.INVALID_RESHAPE,

@@ -199,9 +199,9 @@ def ir_to_keras_build_args(node: IRNode) -> dict:
 
     # Special handling for Reshape layer: convert target_shape string to tuple
     if node.node_params.layer_type == "reshape" and "target_shape" in params:
-        # Convert "7,7,64" → (7, 7, 64)
-        shape_str = params["target_shape"]
-        params["target_shape"] = tuple(int(x.strip()) for x in shape_str.split(","))
+        # Convert "7,7,64" or "(7, 7, 64)" → (7, 7, 64)
+        shape_str = str(params["target_shape"]).strip().strip("()[] ")
+        params["target_shape"] = tuple(int(x.strip()) for x in shape_str.split(",") if x.strip())
 
     if node.node_params.layer_type == "dropout" and "rate" in params:
         # test_ir_build_args_dropout expects {"rate": 0.5}

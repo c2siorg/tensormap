@@ -65,6 +65,24 @@ const mockLSTMSpec: LayerSpec = {
   },
 };
 
+const mockReshapeSpec: LayerSpec = {
+  type_key: "reshape",
+  display_name: "Reshape",
+  category: "utility",
+  keras_class: "tf.keras.layers.Reshape",
+  merge: false,
+  description: "Reshape layer",
+  params: {
+    target_shape: {
+      name: "target_shape",
+      type: "string" as const,
+      required: true,
+      default: null,
+      description: "Target shape as comma-separated integers",
+    },
+  },
+};
+
 describe("NodePropertiesPanel", () => {
   const mockOnModelNameChange = vi.fn();
   const mockOnSave = vi.fn();
@@ -75,6 +93,7 @@ describe("NodePropertiesPanel", () => {
     vi.mocked(registryHook.getLayerSpec).mockImplementation((typeKey: string) => {
       if (typeKey === "dense") return mockDenseSpec;
       if (typeKey === "lstm") return mockLSTMSpec;
+      if (typeKey === "reshape") return mockReshapeSpec;
       return null;
     });
   });
@@ -238,6 +257,41 @@ describe("NodePropertiesPanel", () => {
     expect(mockOnNodeUpdate).toHaveBeenCalledWith("node-1", {
       units: null,
       activation: "relu",
+    });
+  });
+
+  it("renders string input for target_shape param and handles user input", () => {
+    const selectedNode = {
+      id: "node-reshape-1",
+      type: "reshape",
+      data: {
+        layerType: "reshape",
+        params: { target_shape: "28,28,1" },
+      },
+    };
+
+    render(
+      <NodePropertiesPanel
+        selectedNode={selectedNode}
+        modelName="test-model"
+        onModelNameChange={mockOnModelNameChange}
+        onSave={mockOnSave}
+        canSave={true}
+        onNodeUpdate={mockOnNodeUpdate}
+      />,
+    );
+
+    expect(screen.getByText("Reshape Layer")).toBeInTheDocument();
+    expect(screen.getByText(/target_shape/i)).toBeInTheDocument();
+
+    const shapeInput = screen.getByDisplayValue("28,28,1");
+    expect(shapeInput).toBeInTheDocument();
+    expect(shapeInput).toHaveAttribute("type", "text");
+
+    fireEvent.change(shapeInput, { target: { value: "7, 7, 64" } });
+
+    expect(mockOnNodeUpdate).toHaveBeenCalledWith("node-reshape-1", {
+      target_shape: "7, 7, 64",
     });
   });
 });

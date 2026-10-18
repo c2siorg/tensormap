@@ -24,6 +24,8 @@ class DiagnosticCode(StrEnum):
 
     EMPTY_GRAPH = "empty_graph"
     NO_INPUT_NODE = "no_input_node"
+    NO_OUTPUT_NODE = "no_output_node"
+    DISCONNECTED_INPUT = "disconnected_input"
     INVALID_PARAMS = "invalid_params"
     DANGLING_EDGE = "dangling_edge"
     CYCLE = "cycle"

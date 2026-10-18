@@ -59,9 +59,10 @@ link that focuses the layer.
   skipped silently, so a bad Reshape does not produce a message on every layer after it.
 - **Edit-time tolerance.** `analyze_canvas` translates nodes one at a time. A node with missing or invalid
   settings gets an `invalid_params` diagnostic and the rest of the graph is still analysed.
-- **Several inputs to one layer.** A layer other than Concatenate that receives several connections merges
-  them along the last axis, as the Keras generator does. Concatenate's `axis` follows Keras and counts the
-  batch axis, so `1` is the first feature axis; `0` (the batch itself) is rejected.
+- **Several inputs to one layer.** Merge layers (`Concatenate`, `Add`) expect multiple incoming connections.
+  `Concatenate` joins tensors along an axis (defaulting to the last axis; `axis` follows Keras and counts the batch axis, so `1` is the first feature axis and `0` is rejected), while `Add` performs element-wise addition
+  requiring strictly identical input shapes (ideal for ResNet-style skip/residual connections). Other layers that
+  receive multiple connections merge them along the last axis as the Keras generator does.
 - **Warnings are not errors.** `unflattened_dense` (Dense after Conv2D without Flatten) builds fine in Keras 3
   and is only flagged, because it is usually not what the user meant.
 - **Defensive canvas normalization.** `analyze_canvas` handles null values, malformed nodes, missing IDs,
@@ -77,13 +78,15 @@ link that focuses the layer.
 |------|----------|---------|
 | `empty_graph` | error | No layers on the canvas |
 | `no_input_node` | error | No Input layer |
+| `no_output_node` | error | No terminal output layer downstream of an Input layer |
+| `disconnected_input` | error | An Input layer has no outgoing connection to downstream layers |
 | `invalid_params` | error | A layer's type or settings do not validate |
 | `dangling_edge` | error | A connection points at a layer that does not exist or has missing endpoints |
 | `cycle` | error | The graph is not acyclic; `related_node_ids` lists the layers on the cycle |
 | `disconnected_node` | error | A non-input layer has no incoming connection |
-| `merge_arity` | error | Concatenate has fewer than two inputs |
+| `merge_arity` | error | A merge layer (Concatenate, Add) has fewer than two inputs |
 | `rank_mismatch` | error | A layer needs a different number of dimensions than it receives |
-| `shape_mismatch` | error | Inputs cannot be concatenated, or the axis is invalid |
+| `shape_mismatch` | error | Inputs cannot be merged (axis mismatch or differing shapes for Add) |
 | `invalid_output_size` | error | A `valid` kernel or pooling window is larger than the input |
 | `invalid_reshape` | error | Reshape target is malformed or its size does not match the input |
 | `duplicate_node_id` | error | Multiple layers share the same identifier |

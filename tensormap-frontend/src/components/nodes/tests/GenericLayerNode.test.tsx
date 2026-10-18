@@ -88,6 +88,15 @@ const mockRegistryData: LayerRegistryResponse = {
           },
         },
       },
+      {
+        type_key: "add",
+        display_name: "Add",
+        category: "utility",
+        keras_class: "tf.keras.layers.Add",
+        merge: true,
+        description: "Add layer",
+        params: {},
+      },
     ],
   },
 };
@@ -180,6 +189,23 @@ describe("GenericLayerNode", () => {
     expect(screen.getByText("Concatenate")).toBeInTheDocument();
 
     // Check for multiple input handles
+    const inputHandles = container.querySelectorAll(".react-flow__handle-top");
+    expect(inputHandles.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("renders add layer with AD badge and two input handles", () => {
+    const data = {
+      layerType: "add",
+      params: {},
+    };
+
+    const { container } = renderWithProvider(
+      <GenericLayerNode data={data} selected={false} id="node-add" />,
+    );
+
+    expect(screen.getByText("Add")).toBeInTheDocument();
+    expect(screen.getByText("AD")).toBeInTheDocument();
+
     const inputHandles = container.querySelectorAll(".react-flow__handle-top");
     expect(inputHandles.length).toBeGreaterThanOrEqual(2);
   });

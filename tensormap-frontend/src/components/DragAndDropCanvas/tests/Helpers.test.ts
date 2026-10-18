@@ -78,6 +78,15 @@ const mockRegistryData: LayerRegistryResponse = {
           },
         },
       },
+      {
+        type_key: "add",
+        display_name: "Add",
+        category: "utility",
+        keras_class: "tf.keras.layers.Add",
+        merge: true,
+        description: "Add layer",
+        params: {},
+      },
     ],
   },
 };

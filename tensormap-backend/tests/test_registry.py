@@ -38,7 +38,7 @@ class TestLayerRegistry:
     """Tests for the layer registry structure and specifications."""
 
     def test_all_15_layers_present(self) -> None:
-        """Verify that all 15 expected layer types are present in the registry."""
+        """Verify that all expected layer types are present in the registry."""
         expected_layers = {
             "input",
             "dense",
@@ -47,6 +47,7 @@ class TestLayerRegistry:
             "maxpool2d",
             "avgpool2d",
             "globalavgpool2d",
+            "globalmaxpool2d",
             "lstm",
             "gru",
             "simplernn",
@@ -55,8 +56,9 @@ class TestLayerRegistry:
             "batchnorm",
             "reshape",
             "concatenate",
+            "add",
         }
-        assert set(LAYER_REGISTRY.keys()) == expected_layers, "Registry must contain exactly 15 layer types"
+        assert set(LAYER_REGISTRY.keys()) == expected_layers, "Registry must contain all expected layer types"
 
     def test_required_params_have_no_default(self) -> None:
         """Verify that required parameters have required=True and default=None."""
@@ -93,15 +95,15 @@ class TestLayerRegistry:
                     )
 
     def test_concatenate_is_merge_only_layer(self) -> None:
-        """Verify that only the 'concatenate' layer has merge=True."""
-        merge_layers = [key for key, spec in LAYER_REGISTRY.items() if spec.merge]
-        assert merge_layers == ["concatenate"], "Only 'concatenate' should have merge=True"
+        """Verify that merge layers ('concatenate', 'add') have merge=True."""
+        merge_layers = {key for key, spec in LAYER_REGISTRY.items() if spec.merge}
+        assert merge_layers == {"concatenate", "add"}, "Only 'concatenate' and 'add' should have merge=True"
 
     def test_serialize_registry_is_json_serializable(self) -> None:
         """Verify that serialize_registry() produces valid JSON."""
         serialized = serialize_registry()
         assert isinstance(serialized, list), "Serialized registry must be a list"
-        assert len(serialized) == 15, "Serialized registry must contain 15 layers"
+        assert len(serialized) == 17, "Serialized registry must contain 17 layers"
 
         # Verify it can be JSON-encoded
         json_str = json.dumps(serialized)

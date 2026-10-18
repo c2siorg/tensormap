@@ -1177,3 +1177,87 @@ class TestUnknownTypeMessages:
         message = str(exc_info.value)
         assert "Unknown layer type: foo (node z)" in message
         assert f"Supported layer types: {', '.join(sorted(LAYER_REGISTRY))}." in message
+
+
+class TestTensorFlowGeneratorAddAndDanglingInput:
+    """Tests for TensorFlowGenerator handling of Add layers and connectivity errors."""
+
+    def test_build_model_with_add_layer(self):
+        from app.generators.tensorflow_generator import TensorFlowGenerator
+        from app.ir.schema import AddParams, DenseParams, InputParams, IREdge, IRGraph, IRNode
+
+        graph = IRGraph(
+            nodes=[
+                IRNode(id="in", node_params=InputParams(layer_type="input", shape=8)),
+                IRNode(id="d1", node_params=DenseParams(layer_type="dense", units=16)),
+                IRNode(id="d2", node_params=DenseParams(layer_type="dense", units=16)),
+                IRNode(id="add", node_params=AddParams(layer_type="add")),
+                IRNode(id="out", node_params=DenseParams(layer_type="dense", units=2)),
+            ],
+            edges=[
+                IREdge(id="e1", source_id="in", target_id="d1"),
+                IREdge(id="e2", source_id="in", target_id="d2"),
+                IREdge(id="e3", source_id="d1", target_id="add"),
+                IREdge(id="e4", source_id="d2", target_id="add"),
+                IREdge(id="e5", source_id="add", target_id="out"),
+            ],
+        )
+        model = TensorFlowGenerator().build_model(graph)
+        assert model is not None
+        assert model.output_shape == (None, 2)
+
+    def test_add_layer_fewer_than_2_inputs_raises_generator_error(self):
+        from app.generators.tensorflow_generator import TensorFlowGenerator, TensorFlowGeneratorError
+        from app.ir.schema import AddParams, DenseParams, InputParams, IREdge, IRGraph, IRNode
+
+        graph = IRGraph(
+            nodes=[
+                IRNode(id="in", node_params=InputParams(layer_type="input", shape=8)),
+                IRNode(id="d1", node_params=DenseParams(layer_type="dense", units=16)),
+                IRNode(id="add", node_params=AddParams(layer_type="add")),
+            ],
+            edges=[
+                IREdge(id="e1", source_id="in", target_id="d1"),
+                IREdge(id="e2", source_id="d1", target_id="add"),
+            ],
+        )
+        with pytest.raises(TensorFlowGeneratorError, match="Add node add requires at least 2 inputs"):
+            TensorFlowGenerator().build_model(graph)
+
+    def test_dangling_input_raises_generator_error(self):
+        from app.generators.tensorflow_generator import TensorFlowGenerator, TensorFlowGeneratorError
+        from app.ir.schema import DenseParams, InputParams, IREdge, IRGraph, IRNode
+
+        graph = IRGraph(
+            nodes=[
+                IRNode(id="in1", node_params=InputParams(layer_type="input", shape=8)),
+                IRNode(id="in_orphan", node_params=InputParams(layer_type="input", shape=5)),
+                IRNode(id="out", node_params=DenseParams(layer_type="dense", units=2)),
+            ],
+            edges=[
+                IREdge(id="e1", source_id="in1", target_id="out"),
+            ],
+        )
+        with pytest.raises(
+            TensorFlowGeneratorError, match="Input layers are not connected to any other layer: in_orphan"
+        ):
+            TensorFlowGenerator().build_model(graph)
+
+    def test_no_output_nodes_cycle_raises_generator_error(self):
+        from app.generators.tensorflow_generator import TensorFlowGenerator, TensorFlowGeneratorError
+        from app.ir.schema import DenseParams, InputParams, IREdge, IRGraph, IRNode
+
+        graph = IRGraph(
+            nodes=[
+                IRNode(id="in1", node_params=InputParams(layer_type="input", shape=8)),
+                IRNode(id="d1", node_params=DenseParams(layer_type="dense", units=4)),
+                IRNode(id="d2", node_params=DenseParams(layer_type="dense", units=4)),
+            ],
+            edges=[
+                IREdge(id="e1", source_id="in1", target_id="d1"),
+                IREdge(id="e2", source_id="d1", target_id="d2"),
+                IREdge(id="e3", source_id="d2", target_id="d1"),
+            ],
+        )
+        with pytest.raises(TensorFlowGeneratorError, match="Model has no output layer"):
+            TensorFlowGenerator().build_model(graph)

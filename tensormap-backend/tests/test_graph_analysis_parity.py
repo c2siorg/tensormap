@@ -101,6 +101,68 @@ GRAPHS = {
         ],
         [("i1", "cat"), ("i2", "cat"), ("cat", "out")],
     ),
+    "resnet_skip_connection": lambda: make_graph(
+        [
+            inp(16),
+            ("dense_branch1", {"layer_type": "dense", "units": 32, "activation": "relu"}),
+            ("dense_branch2", {"layer_type": "dense", "units": 32, "activation": "relu"}),
+            ("add", {"layer_type": "add"}),
+            ("out", {"layer_type": "dense", "units": 10, "activation": "softmax"}),
+        ],
+        [
+            ("in", "dense_branch1"),
+            ("in", "dense_branch2"),
+            ("dense_branch1", "add"),
+            ("dense_branch2", "add"),
+            ("add", "out"),
+        ],
+    ),
+    "cnn_globalmaxpool": lambda: chain(
+        inp(49),
+        ("rs", {"layer_type": "reshape", "target_shape": "7,7,1"}),
+        ("c", {"layer_type": "conv2d", "filters": 6, "kernel_size": 3, "padding": "same"}),
+        ("gmp", {"layer_type": "globalmaxpool2d"}),
+        ("out", {"layer_type": "dense", "units": 4}),
+    ),
+    "add_3way": lambda: make_graph(
+        [
+            inp(12),
+            ("d1", {"layer_type": "dense", "units": 16}),
+            ("d2", {"layer_type": "dense", "units": 16}),
+            ("d3", {"layer_type": "dense", "units": 16}),
+            ("add", {"layer_type": "add"}),
+            ("out", {"layer_type": "dense", "units": 2}),
+        ],
+        [
+            ("in", "d1"),
+            ("in", "d2"),
+            ("in", "d3"),
+            ("d1", "add"),
+            ("d2", "add"),
+            ("d3", "add"),
+            ("add", "out"),
+        ],
+    ),
+    "resnet_conv2d_add": lambda: make_graph(
+        [
+            inp(64),
+            ("rs", {"layer_type": "reshape", "target_shape": "8,8,1"}),
+            ("c1", {"layer_type": "conv2d", "filters": 4, "kernel_size": 3, "padding": "same"}),
+            ("c2", {"layer_type": "conv2d", "filters": 4, "kernel_size": 3, "padding": "same"}),
+            ("add", {"layer_type": "add"}),
+            ("gmp", {"layer_type": "globalmaxpool2d"}),
+            ("out", {"layer_type": "dense", "units": 2}),
+        ],
+        [
+            ("in", "rs"),
+            ("rs", "c1"),
+            ("c1", "c2"),
+            ("c1", "add"),
+            ("c2", "add"),
+            ("add", "gmp"),
+            ("gmp", "out"),
+        ],
+    ),
 }
 
 # Graphs the analyzer must reject, and which Keras must fail to build too.
@@ -123,6 +185,20 @@ INVALID_GRAPHS = {
         [("in", "r1"), ("in", "r2"), ("r1", "cat"), ("r2", "cat")],
     ),
     "self_loop": lambda: make_graph([inp(10), ("d", {"layer_type": "dense", "units": 4})], [("in", "d"), ("d", "d")]),
+    "add_shape_mismatch": lambda: make_graph(
+        [
+            inp(10),
+            ("d1", {"layer_type": "dense", "units": 16}),
+            ("d2", {"layer_type": "dense", "units": 32}),
+            ("add", {"layer_type": "add"}),
+        ],
+        [("in", "d1"), ("in", "d2"), ("d1", "add"), ("d2", "add")],
+    ),
+    "disconnected_input": lambda: make_graph(
+        [inp(10), ("in2", {"layer_type": "input", "shape": 5}), ("d", {"layer_type": "dense", "units": 4})],
+        [("in", "d")],
+    ),
+    "no_output_node": lambda: make_graph([inp(10)], []),
 }
 
 

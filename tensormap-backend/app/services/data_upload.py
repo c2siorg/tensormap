@@ -44,8 +44,9 @@ def add_file_service(db: Session, file_wrapper: Any, project_id: uuid_pkg.UUID |
     if file_size > settings.max_content_length:
         return _resp(413, False, "File too large. Maximum allowed size is 200MB.")
 
-    # Generate unique filename to prevent collisions
-    original_name = file_wrapper.filename.rsplit(".", 1)[0].lower()
+    # Generate unique filename to prevent collisions. The client sends the filename, so keep
+    # only a safe base name: "../x.csv" must not be written outside the upload folder.
+    original_name = secure_filename(file_wrapper.filename.rsplit(".", 1)[0].lower()) or "file"
     original_ext = file_wrapper.filename.rsplit(".", 1)[1].lower()
     unique_id = uuid_pkg.uuid4().hex[:8]
     safe_filename = f"{original_name}_{unique_id}.{original_ext}"

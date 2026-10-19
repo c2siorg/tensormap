@@ -87,9 +87,7 @@ def test_on_train_end_does_not_override_cancelled(training_session_factory):
         assert job.status == TrainingStatus.CANCELLED
 
 
-def test_cancelled_training_emits_cancelled_terminal_envelope(
-    training_session_factory, monkeypatch, tmp_path
-):
+def test_cancelled_training_emits_cancelled_terminal_envelope(training_session_factory, monkeypatch, tmp_path):
     from app.services import model_export
 
     monkeypatch.setattr(model_export, "EXPORTS_BASE", tmp_path)

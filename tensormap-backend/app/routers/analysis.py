@@ -16,7 +16,10 @@ from fastapi.responses import JSONResponse
 from sqlmodel import Session
 
 from app.database import get_db
+from app.exceptions import AppException
 from app.models.training_job import TrainingJob, TrainingStatus
+from app.schemas.inference import InferenceRequest
+from app.services.inference_service import InferenceService
 from app.services.interpretability import InterpretabilityService
 from app.shared.enums import ProblemType
 from app.shared.logging_config import get_logger
@@ -25,8 +28,9 @@ logger = get_logger(__name__)
 
 router = APIRouter(prefix="/model/analysis", tags=["analysis"])
 
-# Singleton service instance — stateless, safe to share across requests.
+# Singleton service instances — stateless/thread-safe, safe to share across requests.
 _service = InterpretabilityService()
+_inference_service = InferenceService()
 
 
 def _verify_job_completed(job_id: str, session: Session) -> TrainingJob:
@@ -328,3 +332,83 @@ async def get_residuals(
         raise HTTPException(status_code=500, detail=f"Analysis computation failed: {exc}") from exc
 
     return JSONResponse(status_code=200, content={**result, "cached": False})
+
+
+@router.get("/{job_id}/feature-schema")
+def get_feature_schema(
+    job_id: str,
+    db: Session = Depends(get_db),
+):
+    """Returns input feature schema, ranges, defaults, and sample test rows for interactive inference.
+
+    Args:
+        job_id: Training job ID
+
+    Returns:
+        ModelFeatureSchemaResponse JSON
+
+    Status:
+        - 200: Schema and sample test records retrieved successfully
+        - 400: Job not completed or image classification model
+        - 404: Job not found
+    """
+    _verify_job_completed(job_id, db)
+    analysis_type = get_analysis_type(job_id, db)
+    if analysis_type == "image_classification":
+        raise HTTPException(
+            status_code=400,
+            detail="Interactive tabular inference is not available for image classification models.",
+        )
+
+    try:
+        schema = _inference_service.get_feature_schema(job_id, db)
+        return JSONResponse(status_code=200, content=schema.model_dump())
+    except (AppException, HTTPException):
+        raise
+    except (ValueError, FileNotFoundError) as exc:
+        logger.exception("Failed to extract feature schema for job %s: %s", job_id, exc)
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Unexpected error in get_feature_schema for job %s: %s", job_id, exc)
+        raise HTTPException(status_code=500, detail=f"Failed to extract feature schema: {exc}") from exc
+
+
+@router.post("/{job_id}/predict")
+def predict_sample(
+    job_id: str,
+    payload: InferenceRequest,
+    db: Session = Depends(get_db),
+):
+    """Runs live model inference on custom feature inputs with latency measurement.
+
+    Args:
+        job_id: Training job ID
+        payload: InferenceRequest containing feature-to-value map
+
+    Returns:
+        InferenceResponse JSON
+
+    Status:
+        - 200: Inference succeeded
+        - 400: Job not completed, missing model, or image classification
+        - 404: Job not found
+    """
+    _verify_job_completed(job_id, db)
+    analysis_type = get_analysis_type(job_id, db)
+    if analysis_type == "image_classification":
+        raise HTTPException(
+            status_code=400,
+            detail="Interactive tabular inference is not available for image classification models.",
+        )
+
+    try:
+        result = _inference_service.run_inference(job_id, payload.inputs, db)
+        return JSONResponse(status_code=200, content=result.model_dump())
+    except (AppException, HTTPException):
+        raise
+    except (ValueError, FileNotFoundError) as exc:
+        logger.exception("Inference failed for job %s: %s", job_id, exc)
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Unexpected error during inference for job %s: %s", job_id, exc)
+        raise HTTPException(status_code=500, detail=f"Inference execution failed: {exc}") from exc

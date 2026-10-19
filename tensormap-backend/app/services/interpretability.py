@@ -13,7 +13,6 @@ import asyncio
 from pathlib import Path
 
 import numpy as np
-import pandas as pd
 from sklearn.metrics import (
     classification_report,
     confusion_matrix,
@@ -157,138 +156,21 @@ class InterpretabilityService:
         Returns:
             Tuple of (X_test, y_test, class_names)
         """
-        from app.config import get_settings
-        from app.models.data import DataFile
-        from app.models.ml import ModelBasic
-        from app.models.training_job import TrainingJob
-
-        job = session.get(TrainingJob, job_id)
-        if not job:
-            raise ValueError(f"Training job not found: {job_id}")
-
-        model = session.get(ModelBasic, job.model_id)
-        if not model:
-            raise ValueError(f"Model not found for job: {job_id}")
-
-        if not model.file_id:
-            raise ValueError(f"No dataset linked to model {model.model_name}")
-
-        data_file = session.get(DataFile, model.file_id)
-        if not data_file:
-            raise ValueError(f"Data file not found for model {model.model_name}")
-
-        # Build file path (same logic as model_run._helper_generate_file_location)
-        upload_folder = get_settings().upload_folder
-        file_path = f"{upload_folder}/{data_file.disk_name}"
-
-        features = pd.read_csv(file_path)
-
-        target_field = model.target_field
-        if target_field not in features.columns:
-            raise ValueError(f"Target field '{target_field}' not found in dataset")
-
-        # Replicate exactly the same preprocessing as model_run._prepare_training_data
-        features = features.dropna()
-        features = features.sample(frac=1, random_state=42).reset_index(drop=True)
-
-        X = features.drop(target_field, axis=1)
-        y = features[target_field]
-
-        # Track original class names before encoding
-        if not pd.api.types.is_numeric_dtype(y):
-            class_names = list(pd.Categorical(y).categories)
-            y = pd.Categorical(y).codes
-        else:
-            class_names = [str(c) for c in sorted(y.unique())]
-
-        training_split = model.training_split if model.training_split else 80
-        split_index = int(len(X) * float(training_split) / 100)
-
-        X_test = X[split_index:].values.astype(np.float32)
-        y_test = y[split_index:].values if hasattr(y, "values") else y[split_index:]
-
+        X_test, y_test, class_names, _ = self._load_test_data_complete(job_id, session)
         return X_test, y_test, class_names
-
-    def _load_test_data_with_features(self, job_id: str, session: Session) -> tuple[np.ndarray, np.ndarray, list[str]]:
-        """Loads test split with feature names instead of class names.
-
-        Same data loading as _load_test_data but returns feature column names
-        for use with permutation feature importance.
-
-        Args:
-            job_id: Training job ID
-            session: Database session
-
-        Returns:
-            Tuple of (X_test, y_test, feature_names)
-        """
-        from app.config import get_settings
-        from app.models.data import DataFile
-        from app.models.ml import ModelBasic
-        from app.models.training_job import TrainingJob
-
-        job = session.get(TrainingJob, job_id)
-        if not job:
-            raise ValueError(f"Training job not found: {job_id}")
-
-        model = session.get(ModelBasic, job.model_id)
-        if not model:
-            raise ValueError(f"Model not found for job: {job_id}")
-
-        if not model.file_id:
-            raise ValueError(f"No dataset linked to model {model.model_name}")
-
-        data_file = session.get(DataFile, model.file_id)
-        if not data_file:
-            raise ValueError(f"Data file not found for model {model.model_name}")
-
-        upload_folder = get_settings().upload_folder
-        file_path = f"{upload_folder}/{data_file.disk_name}"
-
-        features = pd.read_csv(file_path)
-
-        target_field = model.target_field
-        if target_field not in features.columns:
-            raise ValueError(f"Target field '{target_field}' not found in dataset")
-
-        features = features.dropna()
-        features = features.sample(frac=1, random_state=42).reset_index(drop=True)
-
-        X = features.drop(target_field, axis=1)
-        y = features[target_field]
-
-        if not pd.api.types.is_numeric_dtype(y):
-            y = pd.Categorical(y).codes
-
-        feature_names = list(X.columns)
-
-        training_split = model.training_split if model.training_split else 80
-        split_index = int(len(X) * float(training_split) / 100)
-
-        X_test = X[split_index:].values.astype(np.float32)
-        y_test = y[split_index:].values if hasattr(y, "values") else y[split_index:]
-
-        return X_test, y_test, feature_names
 
     def _load_test_data_complete(
         self, job_id: str, session: Session
     ) -> tuple[np.ndarray, np.ndarray, list[str], list[str]]:
         """Loads test split with both class names and feature names in a single pass.
 
-        Avoids duplicate CSV loading and preprocessing by returning all metadata
-        at once. Use this when you need both class_names and feature_names.
-
-        Args:
-            job_id: Training job ID
-            session: Database session
-
-        Returns:
-            Tuple of (X_test, y_test, class_names, feature_names)
+        Avoids duplicate CSV loading and preprocessing by using prepare_tabular_dataset.
         """
         from app.config import get_settings
         from app.models.data import DataFile
         from app.models.ml import ModelBasic
         from app.models.training_job import TrainingJob
+        from app.services.dataset_utils import prepare_tabular_dataset
 
         job = session.get(TrainingJob, job_id)
         if not job:
@@ -308,34 +190,24 @@ class InterpretabilityService:
         upload_folder = get_settings().upload_folder
         file_path = f"{upload_folder}/{data_file.disk_name}"
 
-        features = pd.read_csv(file_path)
-
         target_field = model.target_field
-        if target_field not in features.columns:
-            raise ValueError(f"Target field '{target_field}' not found in dataset")
-
-        features = features.dropna()
-        features = features.sample(frac=1, random_state=42).reset_index(drop=True)
-
-        X = features.drop(target_field, axis=1)
-        y = features[target_field]
-
-        # Track original class names before encoding
-        if not pd.api.types.is_numeric_dtype(y):
-            class_names = list(pd.Categorical(y).categories)
-            y = pd.Categorical(y).codes
-        else:
-            class_names = [str(c) for c in sorted(y.unique())]
-
-        feature_names = list(X.columns)
-
         training_split = model.training_split if model.training_split else 80
-        split_index = int(len(X) * float(training_split) / 100)
 
-        X_test = X[split_index:].values.astype(np.float32)
-        y_test = y[split_index:].values if hasattr(y, "values") else y[split_index:]
+        ds = prepare_tabular_dataset(file_path, target_field=target_field, training_split=training_split)
+        X_test = ds["X_test"].values.astype(np.float32)
+        y_test = ds["y_test"].values if hasattr(ds["y_test"], "values") else ds["y_test"]
+        class_names = ds["class_names"] or []
+        feature_names = list(ds["X_df"].columns)
 
         return X_test, y_test, class_names, feature_names
+
+    def _load_test_data(self, job_id: str, session: Session) -> tuple[np.ndarray, np.ndarray, list[str]]:
+        X_test, y_test, class_names, _ = self._load_test_data_complete(job_id, session)
+        return X_test, y_test, class_names
+
+    def _load_test_data_with_features(self, job_id: str, session: Session) -> tuple[np.ndarray, np.ndarray, list[str]]:
+        X_test, y_test, _, feature_names = self._load_test_data_complete(job_id, session)
+        return X_test, y_test, feature_names
 
     # ------------------------------------------------------------------
     # Confusion matrix + classification report

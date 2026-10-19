@@ -5,7 +5,7 @@ import pandas as pd
 import pytest
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.models.data import DataFile
+from app.models.data import DataFile, ImageProperties
 from app.services.data_upload import (
     add_file_service,
     delete_one_file_by_id_service,
@@ -115,6 +115,82 @@ class TestDeleteOneFileById:
         assert mb1.file_id is None
         assert mb2.file_id is None
         assert mock_db.add.call_count >= 2
+
+    def test_deletes_image_properties_record_for_zip_file(self, mock_db, file_id):
+        zip_file = MagicMock(spec=DataFile)
+        zip_file.id = file_id
+        zip_file.disk_name = "dataset_12345678.zip"
+        zip_file.file_type = "zip"
+
+        img_props = MagicMock()
+        r1, r2, r3 = MagicMock(), MagicMock(), MagicMock()
+        r1.first.return_value = zip_file
+        r2.all.return_value = []
+        r3.first.return_value = img_props
+        mock_db.exec.side_effect = [r1, r2, r3]
+
+        with (
+            patch("app.services.data_upload.os.remove"),
+            patch("app.services.data_upload.shutil.rmtree"),
+            patch("app.services.data_upload.get_settings") as mock_settings,
+        ):
+            mock_settings.return_value.upload_folder = "/tmp"
+            body, status = delete_one_file_by_id_service(mock_db, file_id)
+
+        assert status == 200
+        assert body["success"] is True
+        mock_db.delete.assert_any_call(img_props)
+        mock_db.delete.assert_any_call(zip_file)
+        mock_db.commit.assert_called_once()
+
+    def test_zip_file_deletion_succeeds_with_foreign_keys(self, tmp_path):
+        from sqlalchemy import create_engine, event
+        from sqlmodel import Session, SQLModel, select
+
+        engine = create_engine("sqlite:///:memory:")
+
+        @event.listens_for(engine, "connect")
+        def set_sqlite_pragma(dbapi_connection, connection_record):
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA foreign_keys=ON")
+            cursor.close()
+
+        SQLModel.metadata.create_all(engine)
+
+        test_file_id = uuid.uuid4()
+        with Session(engine) as session:
+            df = DataFile(
+                id=test_file_id,
+                file_name="images",
+                file_type="zip",
+                disk_name="images_test.zip",
+            )
+            props = ImageProperties(
+                id=test_file_id,
+                image_size=224,
+                batch_size=32,
+                color_mode="rgb",
+                label_mode="int",
+            )
+            session.add(df)
+            session.add(props)
+            session.commit()
+
+        with (
+            Session(engine) as session,
+            patch("app.services.data_upload.get_settings") as mock_settings,
+            patch("app.services.data_upload.os.remove"),
+            patch("app.services.data_upload.shutil.rmtree"),
+        ):
+            mock_settings.return_value.upload_folder = str(tmp_path)
+            body, status = delete_one_file_by_id_service(session, test_file_id)
+
+        assert status == 200
+        assert body["success"] is True
+
+        with Session(engine) as session:
+            assert session.exec(select(DataFile).where(DataFile.id == test_file_id)).first() is None
+            assert session.exec(select(ImageProperties).where(ImageProperties.id == test_file_id)).first() is None
 
 
 class TestAddFileService:

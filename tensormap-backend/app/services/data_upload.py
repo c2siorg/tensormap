@@ -219,6 +219,13 @@ def delete_one_file_by_id_service(db: Session, file_id: uuid_pkg.UUID) -> tuple:
             mb.file_id = None
             db.add(mb)
 
+        # Delete associated ImageProperties record (for ZIP datasets) so FK constraints
+        # do not block the DB delete across all database engines.
+        if file.file_type == "zip":
+            image_props = db.exec(select(ImageProperties).where(ImageProperties.id == file_id)).first()
+            if image_props:
+                db.delete(image_props)
+
         db.delete(file)
         db.commit()
     except (SQLAlchemyError, OSError):

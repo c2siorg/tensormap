@@ -299,6 +299,14 @@ describe("Canvas connection guard", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("These layers are already connected");
   });
 
+  it("refuses an incoming connection to an input layer", () => {
+    renderCanvas();
+    expect(attempt(connection("n2", "n1"))).toBe(false);
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Input layers cannot have incoming connections",
+    );
+  });
+
   it("refuses a second input on a single-input layer", () => {
     renderCanvas();
     expect(attempt(connection("n3", "n2"))).toBe(false);

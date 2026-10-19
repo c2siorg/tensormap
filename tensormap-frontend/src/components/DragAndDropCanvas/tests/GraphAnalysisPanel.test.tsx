@@ -80,7 +80,9 @@ describe("GraphAnalysisPanel", () => {
         isStale={true}
       />,
     );
-    expect(screen.getByTestId("analysis-status")).toHaveTextContent("Could not analyse the model. (cached)");
+    expect(screen.getByTestId("analysis-status")).toHaveTextContent(
+      "Could not analyse the model. (cached)",
+    );
     expect(screen.getByText("2,883")).toBeInTheDocument();
   });
 
@@ -115,5 +117,75 @@ describe("GraphAnalysisPanel", () => {
     render(<GraphAnalysisPanel analysis={analysis()} />);
     fireEvent.click(screen.getByRole("button", { name: "Collapse model check" }));
     expect(screen.queryByText("2,883")).not.toBeInTheDocument();
+  });
+
+  it("displays summary metrics for parameterless graphs", () => {
+    render(
+      <GraphAnalysisPanel
+        analysis={analysis({
+          total_params: 0,
+          trainable_params: 0,
+          non_trainable_params: 0,
+          size_bytes: 0,
+          macs: 0,
+          flops: 0,
+          activation_bytes: 3136,
+          nodes: [
+            {
+              node_id: "in",
+              layer_type: "input",
+              input_shapes: [],
+              output_shape: [784],
+              params: 0,
+              trainable_params: 0,
+              non_trainable_params: 0,
+              macs: 0,
+            },
+          ],
+        })}
+      />,
+    );
+    expect(screen.getByText("Parameters:")).toBeInTheDocument();
+    expect(screen.getAllByText("0")).toHaveLength(2);
+    expect(screen.getByText("3.1 KB")).toBeInTheDocument();
+  });
+
+  it("renders FLOPs and activation memory when present", () => {
+    render(
+      <GraphAnalysisPanel
+        analysis={analysis({
+          macs: 5000,
+          flops: 10000,
+          activation_bytes: 4096,
+        })}
+      />,
+    );
+    expect(screen.getByText("FLOPs:")).toBeInTheDocument();
+    expect(screen.getByText("10.0K")).toBeInTheDocument();
+    expect(screen.getByText("Act. memory:")).toBeInTheDocument();
+    expect(screen.getByText("4.0 KB")).toBeInTheDocument();
+  });
+
+  it("deduplicates related node chips", () => {
+    render(
+      <GraphAnalysisPanel
+        onSelectNode={vi.fn()}
+        analysis={analysis({
+          ok: false,
+          diagnostics: [
+            {
+              code: "cycle",
+              severity: "error",
+              message: "Cycle detected.",
+              node_id: "n1",
+              suggestion: "Remove cyclic edge.",
+              related_node_ids: ["n2", "n2", "n3"],
+            },
+          ],
+        })}
+      />,
+    );
+    const relatedButtons = screen.getAllByRole("button", { name: /Related/ });
+    expect(relatedButtons).toHaveLength(2);
   });
 });

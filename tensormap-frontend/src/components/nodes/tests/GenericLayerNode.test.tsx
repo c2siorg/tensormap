@@ -24,6 +24,24 @@ const mockRegistryData: LayerRegistryResponse = {
   layers: {
     core: [
       {
+        type_key: "input",
+        display_name: "Input",
+        category: "core",
+        keras_class: "tf.keras.layers.InputLayer",
+        merge: false,
+        description: "Input layer",
+        params: {
+          shape: {
+            name: "shape",
+            type: "int" as const,
+            required: true,
+            default: null,
+            min: 1,
+            description: "Input dimension",
+          },
+        },
+      },
+      {
         type_key: "dense",
         display_name: "Dense",
         category: "core",
@@ -230,5 +248,22 @@ describe("GenericLayerNode", () => {
 
     // Check for blue color class (core category)
     expect(container.querySelector(".bg-blue-500")).toBeInTheDocument();
+  });
+
+  it("renders input layer without target input handles", () => {
+    const data = {
+      layerType: "input",
+      params: { shape: 784 },
+    };
+
+    const { container } = renderWithProvider(
+      <GenericLayerNode data={data} selected={false} id="node-input" />,
+    );
+
+    expect(screen.getByText("Input")).toBeInTheDocument();
+    const inputHandles = container.querySelectorAll(".react-flow__handle-top");
+    expect(inputHandles).toHaveLength(0);
+    const outputHandles = container.querySelectorAll(".react-flow__handle-bottom");
+    expect(outputHandles).toHaveLength(1);
   });
 });

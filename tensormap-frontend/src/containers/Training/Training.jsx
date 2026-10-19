@@ -27,6 +27,8 @@ import logger from "../../shared/logger";
 import FeedbackDialog from "../../components/shared/FeedbackDialog";
 import Result from "../../components/ResultPanel/Result/Result";
 import TrainingMetricsChart from "@/components/training/TrainingMetricsChart";
+import DatasetQualityReport from "@/components/training/DatasetQualityReport";
+import useDatasetQualityReport from "@/hooks/useDatasetQualityReport";
 import ExportPanel from "@/components/export/ExportPanel";
 import {
   download_code,
@@ -134,6 +136,13 @@ export default function Training() {
     batch_size: "",
     training_split: "",
   });
+  const datasetQuality = useDatasetQualityReport(
+    trainingConfig.file_id,
+    trainingConfig.target_field,
+    trainingConfig.problem_type_id,
+    trainingConfig.training_split ? Number(trainingConfig.training_split) * 100 : undefined,
+  );
+  const qualityReportLoading = datasetQuality.loading;
   // Until a problem type is chosen every loss is listed; afterwards only the ones that fit it.
   const problemLossGroup = problemTypeOptions.find(
     (o) => o.value === trainingConfig.problem_type_id,
@@ -438,6 +447,7 @@ export default function Training() {
         setFieldsList([]);
       }
       setTrainingConfig((prev) => ({ ...prev, file_id: value, target_field: "" }));
+      setConfigSaved(false);
       updateValidationErrors("file_id", value);
       updateValidationErrors("target_field", "");
     },
@@ -506,6 +516,7 @@ export default function Training() {
 
   const handleRun = useCallback(() => {
     if (!selectedModel) return;
+    if (qualityReportLoading || datasetQuality.report?.can_train === false) return;
 
     if (!validateAllFields()) {
       return;
@@ -549,7 +560,7 @@ export default function Training() {
         setIsLoading(false);
         setActiveJobId(null);
       });
-  }, [selectedModel, projectId, validateAllFields]);
+  }, [selectedModel, projectId, validateAllFields, qualityReportLoading, datasetQuality.report]);
 
   const handleClear = () => {
     setResultValues([]);
@@ -683,9 +694,16 @@ export default function Training() {
             </Button>
             <Button
               onClick={handleRun}
-              disabled={!selectedModel || !configSaved || isLoading || hasValidationErrors()}
+              disabled={
+                !selectedModel ||
+                !configSaved ||
+                isLoading ||
+                hasValidationErrors() ||
+                qualityReportLoading ||
+                datasetQuality.report?.can_train === false
+              }
             >
-              {isLoading ? "Starting..." : "Train"}
+              {qualityReportLoading ? "Checking dataset..." : isLoading ? "Starting..." : "Train"}
             </Button>
             <Button
               onClick={handleClear}
@@ -948,6 +966,19 @@ export default function Training() {
                 )}
               </div>
             </div>
+
+            {trainingConfig.file_id && (
+              <section className="mt-6 space-y-2" aria-labelledby="dataset-quality-heading">
+                <h3 id="dataset-quality-heading" className="text-sm font-semibold">
+                  Dataset Quality Before Training
+                </h3>
+                <DatasetQualityReport
+                  loading={qualityReportLoading}
+                  error={datasetQuality.error}
+                  report={datasetQuality.report}
+                />
+              </section>
+            )}
 
             <Button className="mt-4" onClick={handleSaveConfig} disabled={!isConfigValid}>
               {configSaved ? "Configuration Saved" : "Save Configuration"}

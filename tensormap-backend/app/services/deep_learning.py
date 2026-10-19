@@ -87,14 +87,12 @@ def _blocking_ir_errors(graph_ir) -> list[str]:
 
     Structural errors (cycles, edges to unknown nodes, invalid merge arity,
     missing input) are surfaced early with clear messages instead of being
-    deferred to opaque Keras failures. Multi-input models are a supported
-    feature (both generators handle them), so the "multiple input nodes"
-    check is intentionally excluded.
+    deferred to opaque Keras failures.
     """
     from app.ir.schema import validate_ir_graph
 
     errors = validate_ir_graph(graph_ir)
-    return [e.message for e in errors if e.code != "multiple_input_nodes"]
+    return [e.message for e in errors]
 
 
 def _validate_graph_size(graph: dict | None) -> str | None:

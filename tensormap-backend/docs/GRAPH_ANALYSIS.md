@@ -70,6 +70,11 @@ link that focuses the layer.
   from an Input layer are included in `output_node_ids`, matching Keras model generation semantics.
 - **Preserved analysis on network errors.** The canvas hook preserves the last successful analysis if a
   temporary network disconnection occurs while sketching.
+- **Multi-input and multi-output architectures.** Graphs can have multiple Input layers (e.g., multi-modal inputs
+  or separate feature branches) and multiple terminal output layers (e.g., multi-task heads). Outputs are
+  surfaced in `output_node_ids`. When a diagnostic involves multiple layers (such as all nodes in a `cycle` or
+  the incoming branches of a `shape_mismatch`), they are exposed in `related_node_ids`, highlighted on the canvas,
+  and presented as direct navigation buttons in the Model check panel.
 
 ## Diagnostic codes
 

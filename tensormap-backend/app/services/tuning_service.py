@@ -191,11 +191,6 @@ class TuningService:
             session.add(job)
             session.commit()
 
-        # Apply hyperparams to the model config temporarily for this run.
-        # We modify the DB row, run training, then restore. But since model_run
-        # reads the model config from the DB, we need to update it first.
-        self._apply_hyperparams_to_model(model_name, hyperparams)
-
         timer = threading.Timer(TRIAL_TIMEOUT_SECONDS, self._timeout_trial, args=[job_id])
         timer.start()
         try:
@@ -207,9 +202,6 @@ class TuningService:
                 update_job_status(job_id, TrainingStatus.FAILED, session, error_message=str(e))
         finally:
             timer.cancel()
-
-        # Restore model config after trial.
-        self._restore_model_config(model_name)
 
         return job_id
 

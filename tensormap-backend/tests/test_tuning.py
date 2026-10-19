@@ -752,3 +752,40 @@ class TestRunTuningLoopHardeness:
         db_session.refresh(ts)
         assert ts.status == TuningSessionStatus.FAILED
         assert ts.completed_at is not None
+
+    def test_run_single_trial_does_not_mutate_model_basic(self, db_session, monkeypatch):
+        """Trials execute with custom hyperparams without mutating ModelBasic in DB."""
+        from contextlib import contextmanager
+
+        @contextmanager
+        def _mock_session_cm():
+            yield db_session
+
+        monkeypatch.setattr("app.services.tuning_service.make_session", _mock_session_cm)
+        monkeypatch.setattr("app.services.model_run.model_run", lambda *a, **k: None)
+
+        model = _seed_model(db_session, "untouched_model")
+        original_optimizer = model.optimizer
+        original_epochs = model.epochs
+        original_batch_size = model.batch_size
+
+        ts = _seed_tuning_session(db_session, model.id)
+        svc = TuningService()
+        trial_hyperparams = {"optimizer": "sgd", "epochs": 50, "batch_size": 128}
+
+        job_id = svc._run_single_trial(
+            session_id=ts.id,
+            model_name="untouched_model",
+            hyperparams=trial_hyperparams,
+            trial_num=1,
+            loop=None,
+        )
+
+        db_session.refresh(model)
+        assert model.optimizer == original_optimizer
+        assert model.epochs == original_epochs
+        assert model.batch_size == original_batch_size
+
+        job = db_session.get(TrainingJob, job_id)
+        assert job is not None
+        assert job.hyperparams == trial_hyperparams

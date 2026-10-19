@@ -196,3 +196,39 @@ def test_list_jobs_for_model(client, db_session):
     assert len(data) == 3
     starts = [row["started_at"] for row in data]
     assert starts == sorted(starts, reverse=True)  # most recent first
+
+
+def test_start_training_missing_training_split_400(client, db_session):
+    model = _seed_model(db_session, "missing_split_model")
+    model.training_split = None
+    db_session.add(model)
+    db_session.commit()
+
+    resp = client.post(f"{BASE}/run", json={"model_name": "missing_split_model"})
+    assert resp.status_code == 400
+    assert "Training configuration not set" in resp.json()["message"]
+
+
+def test_start_training_with_hyperparameter_overrides_stored_in_job(client, db_session):
+    _seed_model(db_session, "override_model")
+    resp = client.post(
+        f"{BASE}/run",
+        json={
+            "model_name": "override_model",
+            "epochs": 25,
+            "batch_size": 64,
+            "optimizer": "sgd",
+            "lr": 0.005,
+        },
+    )
+    assert resp.status_code == 202
+    job_id = resp.json()["data"]["job_id"]
+
+    job = db_session.get(TrainingJob, job_id)
+    assert job is not None
+    assert job.hyperparams == {
+        "optimizer": "sgd",
+        "lr": 0.005,
+        "epochs": 25,
+        "batch_size": 64,
+    }

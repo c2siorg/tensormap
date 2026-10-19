@@ -58,7 +58,8 @@ async def start_training(request: TrainingStartRequest, db: Session = Depends(ge
     model = db.exec(select(ModelBasic).where(ModelBasic.model_name == request.model_name)).first()
     if model is None or (request.project_id is not None and model.project_id != request.project_id):
         raise AppException(404, "Model not found")
-    if model.file_id is None or model.epochs is None:
+    effective_epochs = request.epochs or model.epochs
+    if model.file_id is None or effective_epochs is None or model.training_split is None:
         raise AppException(
             400,
             "Training configuration not set. Please configure training parameters first.",

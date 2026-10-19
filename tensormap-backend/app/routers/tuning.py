@@ -43,7 +43,7 @@ async def start_tuning(
     model = db.exec(select(ModelBasic).where(ModelBasic.model_name == model_name)).first()
     if model is None:
         raise AppException(404, "Model not found")
-    if model.file_id is None or model.epochs is None:
+    if model.file_id is None or model.epochs is None or model.training_split is None:
         raise AppException(
             400,
             "Training configuration not set. Please configure training parameters first.",

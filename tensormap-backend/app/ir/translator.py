@@ -105,22 +105,34 @@ def translate_params_to_ir(layer_type: str, raw_params: dict) -> NodeParams:
 def resolve_layer_type(node: dict) -> str:
     """Return the registry layer type of a ReactFlow node.
 
-    Accepts the current ``"<type>Node"`` form, the legacy ``"custom<type>"`` form and a bare
-    ``layer_type`` inside the node params.
+    Accepts the current ``"<type>Node"`` form, the legacy ``"custom<type>"`` form,
+    the generic canvas ``"genericlayer"`` form, and a bare ``layer_type`` inside
+    node data or params.
 
     Raises:
         TranslationError: If the type cannot be determined.
     """
-    nparams = node.get("data", {}).get("params", {})
-    ntype = node.get("type", "").lower().replace("node", "")
+    if not isinstance(node, dict):
+        raise TranslationError("Node must be a dictionary")
+
+    ndata = node.get("data") if isinstance(node.get("data"), dict) else {}
+    nparams = ndata.get("params") if isinstance(ndata.get("params"), dict) else {}
+    raw_type = node.get("type")
+    ntype = raw_type.lower().replace("node", "") if isinstance(raw_type, str) else ""
 
     # Handle legacy "custom" prefix (e.g., "custominput" → "input")
     if ntype.startswith("custom"):
         ntype = ntype[6:]  # Remove "custom" prefix
 
-    # old format might map ntype directly if we align it
+    # Handle generic canvas nodes carrying layerType on data
+    if ntype in ("genericlayer", "generic"):
+        ntype = ndata.get("layerType") or nparams.get("layer_type", "")
+
+    # Fallback to layer_type / layerType in params or data
     if not ntype and "layer_type" in nparams:
         ntype = nparams["layer_type"]
+    elif not ntype and "layerType" in ndata:
+        ntype = ndata["layerType"]
     elif not ntype:
         raise TranslationError(f"Node {node.get('id')}: Unable to determine layer type from node type or params")
     return ntype
@@ -187,9 +199,9 @@ def ir_to_keras_build_args(node: IRNode) -> dict:
 
     # Special handling for Reshape layer: convert target_shape string to tuple
     if node.node_params.layer_type == "reshape" and "target_shape" in params:
-        # Convert "7,7,64" → (7, 7, 64)
-        shape_str = params["target_shape"]
-        params["target_shape"] = tuple(int(x.strip()) for x in shape_str.split(","))
+        # Convert "7,7,64" or "(7, 7, 64)" → (7, 7, 64)
+        shape_str = str(params["target_shape"]).strip().strip("()[] ")
+        params["target_shape"] = tuple(int(x.strip()) for x in shape_str.split(",") if x.strip())
 
     if node.node_params.layer_type == "dropout" and "rate" in params:
         # test_ir_build_args_dropout expects {"rate": 0.5}

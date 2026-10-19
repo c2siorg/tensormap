@@ -1,8 +1,12 @@
 """Tests for model export service (SavedModel, TFLite, ONNX)."""
 
+import contextlib
 import importlib.util
+import shutil
+import threading
 import zipfile
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from unittest.mock import Mock, patch
 from uuid import uuid4
 
@@ -40,6 +44,12 @@ def mock_keras_model():
     mock_model = Mock()
     mock_model.input_shape = (None, 28, 28, 1)
     mock_model.save = Mock()
+
+    def fake_export(path):
+        Path(path).mkdir(parents=True)
+        (Path(path) / "saved_model.pb").write_text("dummy pb")
+
+    mock_model.export.side_effect = fake_export
     return mock_model
 
 
@@ -77,21 +87,20 @@ def test_savedmodel_export_uses_model_export(tmp_path, mock_keras_model):
         patch("tensorflow.keras.models.load_model", return_value=mock_keras_model),
         patch("tensorflow.keras.models.save_model") as mock_save_model,
     ):
-        # Create savedmodel directory for zipping
-        savedmodel_dir = export_dir / "savedmodel"
-        savedmodel_dir.mkdir()
-        (savedmodel_dir / "saved_model.pb").write_text("dummy pb")
-
         zip_path = export_savedmodel(job_id, model_name)
 
         # The Keras-2 call with save_format="tf" must not come back.
         mock_save_model.assert_not_called()
         assert mock_keras_model.export.call_count == 1
-        assert mock_keras_model.export.call_args[0][0] == str(savedmodel_dir)
+        savedmodel_dir = Path(mock_keras_model.export.call_args[0][0])
+        assert savedmodel_dir.name == "savedmodel"
+        assert savedmodel_dir.is_relative_to(export_dir)
 
         assert zip_path.exists()
         assert zip_path.suffix == ".zip"
         assert model_name in zip_path.name
+        with zipfile.ZipFile(zip_path) as archive:
+            assert "savedmodel/saved_model.pb" in {n.replace("\\", "/") for n in archive.namelist()}
 
 
 @pytest.mark.slow
@@ -155,9 +164,12 @@ def test_tflite_export_uses_savedmodel_path(tmp_path, mock_keras_model):
 
         # The Keras-3-incompatible entry point must not come back.
         mock_from_keras.assert_not_called()
-        # The model is exported to the job's savedmodel directory first.
-        mock_keras_model.export.assert_called_once_with(str(export_dir / "savedmodel"))
-        mock_from_saved.assert_called_once_with(str(export_dir / "savedmodel"))
+        # The model is exported to a SavedModel inside the job's directory first,
+        # and the converter reads that same SavedModel.
+        mock_keras_model.export.assert_called_once()
+        savedmodel_dir = mock_keras_model.export.call_args[0][0]
+        assert Path(savedmodel_dir).is_relative_to(export_dir)
+        mock_from_saved.assert_called_once_with(savedmodel_dir)
 
         assert tflite_path.exists()
         assert tflite_path.suffix == ".tflite"
@@ -593,11 +605,6 @@ def test_path_traversal_prevention(tmp_path, mock_keras_model):
         patch("tensorflow.keras.models.load_model", return_value=mock_keras_model),
         patch("tensorflow.keras.models.save_model"),
     ):
-        # Create savedmodel directory for zipping
-        savedmodel_dir = export_dir / "savedmodel"
-        savedmodel_dir.mkdir()
-        (savedmodel_dir / "saved_model.pb").write_text("dummy pb")
-
         zip_path = export_savedmodel(job_id, malicious_name)
 
         # Verify the file is created inside the export_dir, not outside
@@ -645,31 +652,32 @@ def test_concurrent_export_requests(tmp_path, mock_keras_model):
 
     def export_worker():
         try:
-            # Mock TFLite converter
-            mock_converter = Mock()
-            mock_converter.convert.return_value = b"tflite model bytes"
-
-            import tensorflow as tf
-
-            with (
-                patch("app.services.model_export.EXPORTS_BASE", tmp_path / "exports"),
-                patch.object(tf.keras.models, "load_model", return_value=mock_keras_model),
-                patch.object(tf.lite.TFLiteConverter, "from_saved_model", return_value=mock_converter),
-            ):
-                result = export_tflite(job_id, model_name)
-                results.append(result)
+            results.append(export_tflite(job_id, model_name))
         except Exception as e:
             errors.append(e)
 
-    # Start two threads simultaneously
-    thread1 = threading.Thread(target=export_worker)
-    thread2 = threading.Thread(target=export_worker)
+    # Mock TFLite converter
+    mock_converter = Mock()
+    mock_converter.convert.return_value = b"tflite model bytes"
 
-    thread1.start()
-    thread2.start()
+    import tensorflow as tf
 
-    thread1.join()
-    thread2.join()
+    # Patch once on the main thread: patching inside each worker can unwind out of
+    # order and leave the mocks installed for the rest of the test session.
+    with (
+        patch("app.services.model_export.EXPORTS_BASE", tmp_path / "exports"),
+        patch.object(tf.keras.models, "load_model", return_value=mock_keras_model),
+        patch.object(tf.lite.TFLiteConverter, "from_saved_model", return_value=mock_converter),
+    ):
+        # Start two threads simultaneously
+        thread1 = threading.Thread(target=export_worker)
+        thread2 = threading.Thread(target=export_worker)
+
+        thread1.start()
+        thread2.start()
+
+        thread1.join()
+        thread2.join()
 
     # Both should succeed (no errors)
     assert len(errors) == 0
@@ -678,6 +686,122 @@ def test_concurrent_export_requests(tmp_path, mock_keras_model):
     # Both should return the same path
     assert results[0] == results[1]
     assert results[0].exists()
+    # The second request reused the first one's file instead of converting again.
+    assert mock_converter.convert.call_count == 1
+
+
+def _racing_export(barrier):
+    """Stand-in for ``Model.export`` that writes the way TensorFlow does.
+
+    TensorFlow writes checkpoint shards into ``variables/variables_temp/``, then
+    MergeV2Checkpoints merges them into ``variables/`` and deletes the temp
+    directory. The barrier holds every caller between those two steps, so callers
+    sharing one directory deterministically reproduce the race reported in #425:
+    whoever merges second finds the temp directory already gone. Exports that do
+    not overlap (because they were serialized) give up waiting and carry on.
+    """
+
+    def export(path):
+        temp_dir = Path(path) / "variables" / "variables_temp"
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        (temp_dir / "part-00000-of-00001").write_bytes(b"checkpoint shard")
+        with contextlib.suppress(threading.BrokenBarrierError):
+            barrier.wait(timeout=2)
+        merged = b"".join(shard.read_bytes() for shard in sorted(temp_dir.iterdir()))
+        (temp_dir.parent / "variables.data-00000-of-00001").write_bytes(merged)
+        shutil.rmtree(temp_dir)
+        (Path(path) / "saved_model.pb").write_bytes(b"graph")
+
+    return export
+
+
+def _run_concurrently(*calls):
+    """Run each zero-argument callable in its own thread; return (results, errors)."""
+    results, errors = [], []
+
+    def worker(call):
+        try:
+            results.append(call())
+        except Exception as e:  # noqa: BLE001 - the test inspects whatever was raised
+            errors.append(e)
+
+    threads = [threading.Thread(target=worker, args=(call,)) for call in calls]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    return results, errors
+
+
+@pytest.mark.parametrize(
+    "formats",
+    [("savedmodel", "tflite"), ("savedmodel", "savedmodel"), ("tflite", "tflite")],
+    ids=["savedmodel+tflite", "savedmodel+savedmodel", "tflite+tflite"],
+)
+def test_concurrent_exports_for_one_job_do_not_collide(tmp_path, formats):
+    """Concurrent exports of one job don't share a SavedModel directory (#425).
+
+    Different formats export in parallel, each in its own directory; a second
+    request for the same format reuses the first one's file.
+    """
+    import tensorflow as tf
+
+    job_id = str(uuid4())
+    model_name = "test_model"
+    export_dir = tmp_path / "exports" / job_id
+    export_dir.mkdir(parents=True)
+    (export_dir / "model.keras").write_text("dummy")
+
+    model = Mock()
+    model.export.side_effect = _racing_export(threading.Barrier(len(set(formats))))
+    converter = Mock()
+    converter.convert.return_value = b"tflite model bytes"
+    exporters = {"savedmodel": export_savedmodel, "tflite": export_tflite}
+
+    with (
+        patch("app.services.model_export.EXPORTS_BASE", tmp_path / "exports"),
+        patch.object(tf.keras.models, "load_model", return_value=model),
+        patch.object(tf.lite.TFLiteConverter, "from_saved_model", return_value=converter),
+    ):
+        results, errors = _run_concurrently(*(lambda f=f: exporters[f](job_id, model_name) for f in formats))
+
+    assert errors == []
+    assert len(results) == len(formats)
+    assert model.export.call_count == len(set(formats))
+    for path in results:
+        if path.suffix == ".zip":
+            with zipfile.ZipFile(path) as archive:
+                assert archive.testzip() is None
+                assert "savedmodel/saved_model.pb" in {n.replace("\\", "/") for n in archive.namelist()}
+        else:
+            assert path.read_bytes() == b"tflite model bytes"
+    # Scratch directories are removed once each export is published.
+    assert {p.name for p in export_dir.iterdir()} == {"model.keras"} | {p.name for p in results}
+
+
+@pytest.mark.slow
+def test_concurrent_real_savedmodel_and_tflite_exports(tmp_path):
+    """The reproduction from #425 with a real model: SavedModel and TFLite at once."""
+    import tensorflow as tf
+
+    job_id = str(uuid4())
+    model_name = "real_model"
+    export_dir = tmp_path / "exports" / job_id
+    export_dir.mkdir(parents=True)
+    model = tf.keras.Sequential([tf.keras.layers.Input((4,)), tf.keras.layers.Dense(2)])
+    model.save(export_dir / "model.keras")
+
+    with patch("app.services.model_export.EXPORTS_BASE", tmp_path / "exports"):
+        results, errors = _run_concurrently(
+            lambda: export_savedmodel(job_id, model_name),
+            lambda: export_tflite(job_id, model_name),
+        )
+
+    assert errors == []
+    zip_path, tflite_path = sorted(results, key=lambda p: p.suffix != ".zip")
+    with zipfile.ZipFile(zip_path) as archive:
+        assert any(name.endswith("saved_model.pb") for name in archive.namelist())
+    tf.lite.Interpreter(model_content=tflite_path.read_bytes()).allocate_tensors()
 
 
 def test_storage_limit_triggers_cleanup(tmp_path, db_session: Session):

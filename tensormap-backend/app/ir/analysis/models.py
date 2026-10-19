@@ -6,7 +6,7 @@ These are plain Pydantic models so the same objects serve the Python callers and
 
 from enum import StrEnum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 
 # A tensor shape without the batch axis. Every dimension is known: the IR has no dynamic axes.
 Shape = tuple[int, ...]
@@ -35,6 +35,9 @@ class DiagnosticCode(StrEnum):
     INVALID_RESHAPE = "invalid_reshape"
     INPUT_HAS_INCOMING_EDGE = "input_has_incoming_edge"
     UNFLATTENED_DENSE = "unflattened_dense"
+    DUPLICATE_NODE_ID = "duplicate_node_id"
+    DUPLICATE_EDGE = "duplicate_edge"
+    SELF_LOOP = "self_loop"
 
 
 class Diagnostic(BaseModel):
@@ -65,6 +68,12 @@ class NodeAnalysis(BaseModel):
     non_trainable_params: int = 0
     macs: int = 0
 
+    @computed_field
+    @property
+    def flops(self) -> int:
+        """Total floating-point operations (approx. 2 * MACs)."""
+        return self.macs * 2
+
 
 class GraphAnalysis(BaseModel):
     """The result of analysing a whole graph."""
@@ -79,6 +88,12 @@ class GraphAnalysis(BaseModel):
     non_trainable_params: int = 0
     macs: int = 0
     size_bytes: int = Field(default=0, description="Weight storage as float32.")
+
+    @computed_field
+    @property
+    def flops(self) -> int:
+        """Total floating-point operations (approx. 2 * MACs)."""
+        return self.macs * 2
 
     def errors(self) -> list[Diagnostic]:
         return [d for d in self.diagnostics if d.severity == Severity.ERROR]

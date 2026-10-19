@@ -13,7 +13,7 @@ from app.callbacks.cancellation_callback import CancellationCheckCallback
 from app.callbacks.metrics_callback import MetricsCallback
 from app.models.training_job import TrainingJob, TrainingStatus
 from app.models.training_metric import TrainingMetric
-from app.services.training_service import _train_in_thread
+from app.services.training_service import _train_in_thread, get_job_metrics_grouped
 
 
 def _seed_job(factory, status=TrainingStatus.PENDING) -> str:
@@ -87,6 +87,27 @@ def test_on_train_end_does_not_override_cancelled(training_session_factory):
         assert job.status == TrainingStatus.CANCELLED
 
 
+def test_cancelled_training_emits_cancelled_terminal_envelope(training_session_factory, monkeypatch, tmp_path):
+    from app.services import model_export
+
+    monkeypatch.setattr(model_export, "EXPORTS_BASE", tmp_path)
+    job_id = _seed_job(training_session_factory, status=TrainingStatus.CANCELLED)
+    sio = MagicMock()
+    loop = MagicMock()
+    loop.is_running.return_value = True
+    cb = MetricsCallback(job_id, training_session_factory, sio, loop=loop)
+    cb.set_model(MagicMock())
+
+    with patch("app.callbacks.metrics_callback.asyncio.run_coroutine_threadsafe"):
+        cb.on_train_end()
+
+    event = sio.emit.call_args.args[1]
+    assert event["type"] == "status"
+    assert event["status"] == "cancelled"
+    assert event["job_id"] == job_id
+    assert event["version"] == 1
+
+
 def test_metrics_emitted_to_job_room(training_session_factory):
     job_id = _seed_job(training_session_factory)
     sio = MagicMock()
@@ -99,10 +120,104 @@ def test_metrics_emitted_to_job_room(training_session_factory):
 
     # The emit is scheduled on the loop; assert it targets this job's room only.
     assert sio.emit.called
-    _, kwargs = sio.emit.call_args
+    args, kwargs = sio.emit.call_args
+
     assert kwargs["room"] == job_id
     assert kwargs["namespace"] == "/dl-result"
+
+    payload = args[1]
+    assert payload["version"] == 1
+    assert payload["type"] == "metrics"
+    assert payload["job_id"] == job_id
+    assert payload["phase"] == "train"
+    assert "timestamp" in payload
+    assert payload["batch"] == 0
+    assert payload["steps"] == 0
+
     assert rcts.called
+
+
+def test_validation_metrics_share_epoch_event_and_preserve_training_counters(training_session_factory):
+    job_id = _seed_job(training_session_factory)
+    sio = MagicMock()
+    loop = MagicMock()
+    loop.is_running.return_value = True
+    cb = MetricsCallback(job_id, training_session_factory, sio, loop=loop)
+
+    with patch("app.callbacks.metrics_callback.asyncio.run_coroutine_threadsafe"):
+        cb.on_epoch_begin(0)
+        cb.on_train_batch_end(0)
+        cb.on_train_batch_end(1)
+        cb.on_test_batch_end(0)
+        cb.on_test_batch_end(1)
+        cb.on_epoch_end(0, {"loss": 0.25, "accuracy": 0.9, "val_loss": 0.3, "val_accuracy": 0.85})
+
+    assert sio.emit.call_count == 1
+    payload = sio.emit.call_args.args[1]
+    assert payload["phase"] == "train"
+    assert payload["loss"] == 0.25
+    assert payload["accuracy"] == 0.9
+    assert payload["val_loss"] == 0.3
+    assert payload["val_accuracy"] == 0.85
+    assert payload["batch"] == 2
+    assert payload["steps"] == 2
+    assert payload["validation_batch"] == 2
+    assert payload["validation_steps"] == 2
+
+    with training_session_factory() as session:
+        persisted = get_job_metrics_grouped(job_id, session)[0]
+    assert {key: payload[key] for key in persisted} == persisted
+
+
+def test_batch_counters_reset_each_epoch_and_validation_does_not_change_training(training_session_factory):
+    sio = MagicMock()
+    loop = MagicMock()
+    loop.is_running.return_value = True
+    cb = MetricsCallback(_seed_job(training_session_factory), training_session_factory, sio, loop=loop)
+    cb.on_epoch_begin(0)
+    cb.on_train_batch_end(0)
+    cb.on_train_batch_end(1)
+    cb.on_test_batch_end(0)
+    cb.on_test_batch_end(1)
+    cb.on_epoch_begin(1)
+    assert (cb.current_batch, cb.current_steps) == (0, 0)
+    assert (cb.validation_batch, cb.validation_steps) == (0, 0)
+    cb.on_train_batch_end(0)
+    cb.on_test_batch_end(0)
+    with patch("app.callbacks.metrics_callback.asyncio.run_coroutine_threadsafe"):
+        cb.on_epoch_end(1, {"loss": 0.2})
+    event = sio.emit.call_args.args[1]
+    assert event["epoch"] == 2
+    assert event["batch"] == event["steps"] == 1
+    assert event["validation_batch"] == event["validation_steps"] == 1
+
+
+def test_terminal_status_event_has_structured_success_envelope(training_session_factory, monkeypatch, tmp_path):
+    from app.services import model_export
+
+    monkeypatch.setattr(model_export, "EXPORTS_BASE", tmp_path)
+    job_id = _seed_job(training_session_factory)
+    sio = MagicMock()
+    loop = MagicMock()
+    loop.is_running.return_value = True
+    cb = MetricsCallback(job_id, training_session_factory, sio, loop=loop)
+    cb.set_model(MagicMock())
+
+    with patch("app.callbacks.metrics_callback.asyncio.run_coroutine_threadsafe"):
+        cb.on_train_begin()
+        cb.on_train_end()
+
+    event = sio.emit.call_args.args[1]
+    assert event["type"] == "status"
+    assert event["version"] == 1
+    assert event["job_id"] == job_id
+    assert event["status"] == "completed"
+    assert event["timestamp"]
+    assert event["phase"] is None
+    assert event["epoch"] is None
+    assert event["batch"] == 0
+    assert event["steps"] == 0
+    assert sio.emit.call_args.kwargs["room"] == job_id
 
 
 def test_cancellation_stops_training(training_session_factory):

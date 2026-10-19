@@ -28,6 +28,33 @@ def _make_db(model_config: MagicMock) -> MagicMock:
 
 
 class TestModelRunEmitsErrorOnFailure:
+    def test_job_failure_emits_structured_status_envelope_to_job_room(self):
+        session_context = MagicMock()
+        session_context.__enter__.return_value = MagicMock()
+        with (
+            patch("app.services.model_run._run", side_effect=RuntimeError("training failed")),
+            patch("app.services.training_service.make_session", return_value=session_context),
+            patch("app.services.training_service.update_job_status") as update_status,
+            patch("app.callbacks.metrics_callback.schedule_room_emit") as emit,
+            pytest.raises(RuntimeError, match="training failed"),
+        ):
+            model_run("my_model", MagicMock(), loop=None, job_id="job-123")
+
+        update_status.assert_called_once()
+        args = emit.call_args.args
+        event = args[3]
+        assert args[2] == "job-123"
+        assert event["version"] == 1
+        assert event["type"] == "status"
+        assert event["job_id"] == "job-123"
+        assert event["status"] == "failed"
+        assert event["error"] == "training failed"
+        assert event["phase"] is None
+        assert event["epoch"] is None
+        assert event["batch"] is None
+        assert event["steps"] is None
+        assert event["timestamp"]
+
     def test_emits_socketio_error_when_csv_read_fails(self):
         cfg = _make_model_config(ProblemType.CLASSIFICATION)
         db = _make_db(cfg)

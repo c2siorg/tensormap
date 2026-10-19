@@ -19,6 +19,7 @@ from app.shared.constants import (
 )
 from app.shared.enums import LossFunction, ProblemType
 from app.shared.logging_config import get_logger
+from app.shared.training_events import training_event
 from app.socketio_instance import sio
 
 logger = get_logger(__name__)
@@ -235,7 +236,21 @@ def model_run(
             try:
                 with make_session() as session:
                     update_job_status(job_id, TrainingStatus.FAILED, session, error_message=str(e))
-                schedule_room_emit(sio, loop, job_id, {"type": "status", "status": "failed", "error": str(e)})
+                schedule_room_emit(
+                    sio,
+                    loop,
+                    job_id,
+                    training_event(
+                        job_id,
+                        "status",
+                        status="failed",
+                        phase=None,
+                        epoch=None,
+                        batch=None,
+                        steps=None,
+                        error=str(e),
+                    ),
+                )
             except Exception:  # noqa: BLE001 - never mask the original training error
                 logger.exception("Failed to mark job %s as failed", job_id)
         else:

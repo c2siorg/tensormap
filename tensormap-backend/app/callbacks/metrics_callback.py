@@ -14,6 +14,7 @@ from app.models.training_job import TrainingJob, TrainingStatus
 from app.models.training_metric import TrainingMetric
 from app.shared.constants import SOCKETIO_DL_NAMESPACE, SOCKETIO_LISTENER
 from app.shared.logging_config import get_logger
+from app.shared.training_events import training_event
 
 logger = get_logger(__name__)
 
@@ -59,6 +60,17 @@ class MetricsCallback(tf.keras.callbacks.Callback):
         self.sio = sio_instance
         self.loop = loop
         self.start_time = None
+        self.current_batch = 0
+        self.current_steps = 0
+        self.validation_batch = 0
+        self.validation_steps = 0
+
+    def on_epoch_begin(self, epoch: int, logs: dict = None) -> None:
+        """Reset per-epoch counters before training batches begin."""
+        self.current_batch = 0
+        self.current_steps = 0
+        self.validation_batch = 0
+        self.validation_steps = 0
 
     def on_train_begin(self, logs: dict = None) -> None:
         """Mark the job RUNNING and record the start time."""
@@ -70,6 +82,16 @@ class MetricsCallback(tf.keras.callbacks.Callback):
                 job.started_at = self.start_time
                 session.add(job)
                 session.commit()
+
+    def on_train_batch_end(self, batch: int, logs: dict = None) -> None:
+        """Track the current training batch and step."""
+        self.current_batch += 1
+        self.current_steps += 1
+
+    def on_test_batch_end(self, batch: int, logs: dict = None) -> None:
+        """Track validation batches independently of training progress."""
+        self.validation_batch += 1
+        self.validation_steps += 1
 
     def on_epoch_end(self, epoch: int, logs: dict = None) -> None:
         """Persist this epoch's metrics and emit them to the job's room."""
@@ -100,24 +122,32 @@ class MetricsCallback(tf.keras.callbacks.Callback):
                     )
             session.commit()
 
-        # 2. Emit to this job's room only (no global broadcast).
-        self._emit({"type": "metrics", **payload})
+        # 2. Emit training metrics to this job's room only.
+        self._emit(
+            training_event(
+                self.job_id,
+                "metrics",
+                phase="train",
+                batch=self.current_batch,
+                steps=self.current_steps,
+                validation_batch=self.validation_batch,
+                validation_steps=self.validation_steps,
+                **payload,
+            )
+        )
 
     def on_train_end(self, logs: dict = None) -> None:
-        """Mark the job COMPLETED — unless it was cancelled/failed meanwhile.
+        """Mark the job COMPLETED unless it was cancelled/failed meanwhile.
 
-        A cancelled job sets ``model.stop_training`` which ends ``fit`` cleanly
-        and still fires ``on_train_end``; guarding on the current status keeps us
-        from overwriting CANCELLED/FAILED with COMPLETED. Emits a terminal status
-        event so subscribers know the run is over.
-
-        Also saves the trained model to exports/{job_id}/model.keras for later export.
+        Cancellation sets ``model.stop_training`` and still calls ``on_train_end``;
+        the status guard prevents overwriting CANCELLED/FAILED. The trained model
+        is also saved to ``exports/{job_id}/model.keras`` for later export.
         """
         from app.services.model_export import EXPORTS_BASE
 
-        # Save model to exports/{job_id}/model.keras
         export_dir = EXPORTS_BASE / self.job_id
         export_dir.mkdir(parents=True, exist_ok=True)
+
         try:
             self.model.save(export_dir / "model.keras")
             logger.info(f"Saved model.keras for job {self.job_id}")
@@ -134,8 +164,19 @@ class MetricsCallback(tf.keras.callbacks.Callback):
                     session.add(job)
                     session.commit()
                 final_status = job.status.value
+
         if final_status is not None:
-            self._emit({"type": "status", "status": final_status})
+            self._emit(
+                training_event(
+                    self.job_id,
+                    "status",
+                    status=final_status,
+                    phase=None,
+                    epoch=None,
+                    batch=self.current_batch,
+                    steps=self.current_steps,
+                )
+            )
 
     def _emit(self, data: dict) -> None:
         """Schedule a thread-safe emit to the job room on the main loop."""

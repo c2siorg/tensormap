@@ -12,6 +12,7 @@ import socketio
 from app.config import get_settings
 from app.shared.constants import SOCKETIO_DL_NAMESPACE, SOCKETIO_LISTENER
 from app.shared.logging_config import get_logger
+from app.shared.training_events import training_event
 
 logger = get_logger(__name__)
 
@@ -41,11 +42,13 @@ def _load_catchup(job_id: str) -> dict | None:
         job = session.get(TrainingJob, job_id)
         if job is None:
             return None
-        return {
-            "type": "catchup",
-            "status": job.status.value,
-            "metrics": get_job_metrics_grouped(job_id, session),
-        }
+        return training_event(
+            job_id,
+            "catchup",
+            status=job.status.value,
+            started_at=job.started_at.isoformat() if job.started_at else None,
+            metrics=get_job_metrics_grouped(job_id, session),
+        )
 
 
 @sio.on("subscribe_job", namespace=SOCKETIO_DL_NAMESPACE)

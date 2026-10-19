@@ -52,6 +52,17 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 [tool.ruff.format]
 quote-style = "double"
 
+[tool.pyright]
+exclude = [
+    "templates",
+    "**/templates",
+    ".venv",
+]
+ignore = [
+    "templates",
+    "**/templates",
+]
+
 [tool.hatch.build.targets.wheel]
 packages = ["app"]
 

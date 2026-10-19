@@ -6,6 +6,7 @@ import re
 import sys
 import uuid as uuid_pkg
 from collections import defaultdict, deque
+from collections.abc import Sequence
 from datetime import UTC
 from importlib import import_module
 from typing import Any
@@ -13,7 +14,7 @@ from typing import Any
 from flatten_json import flatten
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 import app.shared.errors as errors
 from app.models import ModelBasic, ModelConfigs
@@ -35,7 +36,12 @@ from app.shared.constants import (
     MODEL_TRAINING_SPLIT,
     PROBLEM_TYPE,
 )
-from app.shared.enums import CLASSIFICATION_LOSSES, LossFunction, ProblemType, losses_for_problem_type
+from app.shared.enums import (
+    CLASSIFICATION_LOSSES,
+    LossFunction,
+    default_loss_for_problem_type,
+    losses_for_problem_type,
+)
 from app.shared.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -47,11 +53,7 @@ def _resp(status_code: int, success: bool, message: str, data: Any = None) -> tu
     return {"success": success, "message": message, "data": data}, status_code
 
 
-def _default_loss(problem_type_id: int) -> str:
-    """Loss used when a training config does not name one (and for models saved before the field existed)."""
-    if problem_type_id in (ProblemType.CLASSIFICATION, ProblemType.IMAGE_CLASSIFICATION):
-        return LossFunction.SPARSE_CATEGORICAL_CROSSENTROPY.value
-    return LossFunction.MEAN_SQUARED_ERROR.value
+_default_loss = default_loss_for_problem_type
 
 
 def _sanitize_model_name(name: str) -> str:
@@ -597,7 +599,7 @@ def _apply_auto_layout(graph: dict) -> None:
                 node["position"] = {"x": float(250 * x_layer + 100), "y": float(140 * y_row + 100)}
 
 
-def _unflatten_model_configs(configs: list[ModelConfigs]) -> dict:
+def _unflatten_model_configs(configs: Sequence[ModelConfigs]) -> dict:
     """Reconstruct a nested dict (with lists) from flattened ModelConfigs rows.
 
     Handles the dot-separated keys produced by flatten_json.flatten(), converting
@@ -620,6 +622,8 @@ def _unflatten_model_configs(configs: list[ModelConfigs]) -> dict:
 
     # Convert all-numeric-keyed dicts to sorted lists (recursively)
     result = _numeric_dicts_to_lists(root)
+    if not isinstance(result, dict):
+        result = {}
 
     # Extract graph portion — configs from model_validate_service nest under "model"
     if "nodes" not in result and "model" in result and isinstance(result["model"], dict):
@@ -637,7 +641,7 @@ def _unflatten_model_configs(configs: list[ModelConfigs]) -> dict:
     return result
 
 
-def _numeric_dicts_to_lists(obj):
+def _numeric_dicts_to_lists(obj: Any) -> Any:
     """Recursively convert dicts whose keys are all non-negative integers into lists."""
     if not isinstance(obj, dict):
         return obj
@@ -646,7 +650,7 @@ def _numeric_dicts_to_lists(obj):
 
     if converted and all(k.isdigit() for k in converted):
         max_idx = max(int(k) for k in converted)
-        result = [None] * (max_idx + 1)
+        result: list[Any] = [None] * (max_idx + 1)
         for k, v in converted.items():
             result[int(k)] = v
         return result
@@ -658,7 +662,7 @@ def get_available_model_list(
     db: Session, project_id: uuid_pkg.UUID | None = None, offset: int = 0, limit: int = 50
 ) -> tuple:
     """Return a paginated list of saved models with basic info (backward compatible)."""
-    base_filter = select(ModelBasic).order_by(ModelBasic.created_on.desc())
+    base_filter = select(ModelBasic).order_by(col(ModelBasic.created_on).desc())
     if project_id is not None:
         base_filter = base_filter.where(ModelBasic.project_id == project_id)
 
@@ -667,7 +671,7 @@ def get_available_model_list(
 
     data = [{"id": m.id, "model_name": m.model_name} for m in models]
 
-    body = {"success": True, "message": "Model list generated successfully.", "data": data}
+    body: dict[str, Any] = {"success": True, "message": "Model list generated successfully.", "data": data}
     body["pagination"] = {"total": total, "offset": offset, "limit": limit}
     return body, 200
 
@@ -692,7 +696,7 @@ def check_model_name_service(db: Session, model_name: str, project_id: uuid_pkg.
 
 def get_model_count_service(db: Session, project_id: uuid_pkg.UUID | None = None) -> tuple:
     """Get count of saved models."""
-    stmt = select(func.count(ModelBasic.id))
+    stmt = select(func.count(col(ModelBasic.id)))
     if project_id is not None:
         stmt = stmt.where(ModelBasic.project_id == project_id)
     total = db.exec(stmt).one()
@@ -714,7 +718,7 @@ def get_model_architecture_service(db: Session, model_id: int, include_stats: bo
     if not model:
         return _resp(404, False, "Model not found")
 
-    response_data = {
+    response_data: dict[str, Any] = {
         "model_id": model.id,
         "model_name": model.model_name,
         "graph_ir": model.graph_ir,
@@ -755,7 +759,7 @@ def get_training_history_service(
     db: Session, project_id: uuid_pkg.UUID | None = None, offset: int = 0, limit: int = 50
 ) -> tuple:
     """Return a paginated list of models with enriched metadata for training history view."""
-    base_filter = select(ModelBasic).order_by(ModelBasic.created_on.desc())
+    base_filter = select(ModelBasic).order_by(col(ModelBasic.created_on).desc())
     if project_id is not None:
         base_filter = base_filter.where(ModelBasic.project_id == project_id)
 
@@ -776,7 +780,7 @@ def get_training_history_service(
         for m in models
     ]
 
-    body = {"success": True, "message": "Training history generated successfully.", "data": data}
+    body: dict[str, Any] = {"success": True, "message": "Training history generated successfully.", "data": data}
     body["pagination"] = {"total": total, "offset": offset, "limit": limit}
     return body, 200
 

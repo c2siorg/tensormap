@@ -124,6 +124,6 @@ disagrees with Keras.
 - Input is a single integer (`shape: int`) in the IR, so image inputs are drawn as a flat vector plus a
   Reshape. Multi-axis inputs need a schema change and a migration of stored graphs.
 - Dynamic axes (variable sequence length) are not modelled; every dimension is known.
-- Memory estimates cover weights only, not activations or optimizer state.
+- Memory estimates cover weights and single-sample forward activations (float32), but not optimizer states.
 - The legacy `model_generation()` path is still the fallback when the registry-driven generator fails; the
   analyzer is the first step towards retiring it, since it already covers every registry layer.

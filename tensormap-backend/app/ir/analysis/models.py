@@ -4,9 +4,12 @@ These are plain Pydantic models so the same objects serve the Python callers and
 ``POST /layers/analyze-graph`` response.
 """
 
+import math
 from enum import StrEnum
 
 from pydantic import BaseModel, Field, computed_field
+
+FLOAT32_BYTES = 4
 
 # A tensor shape without the batch axis. Every dimension is known: the IR has no dynamic axes.
 Shape = tuple[int, ...]
@@ -74,6 +77,14 @@ class NodeAnalysis(BaseModel):
         """Total floating-point operations (approx. 2 * MACs)."""
         return self.macs * 2
 
+    @computed_field
+    @property
+    def activation_bytes(self) -> int:
+        """Memory required to store this node's output activations for one sample in float32."""
+        if self.output_shape is None:
+            return 0
+        return math.prod(self.output_shape) * FLOAT32_BYTES
+
 
 class GraphAnalysis(BaseModel):
     """The result of analysing a whole graph."""
@@ -94,6 +105,12 @@ class GraphAnalysis(BaseModel):
     def flops(self) -> int:
         """Total floating-point operations (approx. 2 * MACs)."""
         return self.macs * 2
+
+    @computed_field
+    @property
+    def activation_bytes(self) -> int:
+        """Total memory required to store all layer activations for one sample forward pass in float32."""
+        return sum(node.activation_bytes for node in self.nodes)
 
     def errors(self) -> list[Diagnostic]:
         return [d for d in self.diagnostics if d.severity == Severity.ERROR]

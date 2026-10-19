@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { canSaveModel, generateModelJSON } from "../Helpers";
+import { canSaveModel, generateModelJSON, getConnectionError } from "../Helpers";
 import * as registryHook from "../../../hooks/useLayerRegistry";
 import type { LayerRegistryResponse, LayerSpec } from "../../../types/registry";
 
@@ -371,6 +371,72 @@ describe("Helpers", () => {
       });
 
       expect(result.nodes[1].type).toBe("dense");
+    });
+  });
+
+  describe("getConnectionError", () => {
+    const inputNode = {
+      id: "in-1",
+      type: "genericlayer",
+      data: { layerType: "input", params: { shape: 784 } },
+    };
+    const denseNode = {
+      id: "dense-1",
+      type: "genericlayer",
+      data: { layerType: "dense", params: { units: 64 } },
+    };
+    const concatNode = {
+      id: "concat-1",
+      type: "genericlayer",
+      data: { layerType: "concatenate", params: { axis: -1 } },
+    };
+
+    it("rejects connection to an input layer", () => {
+      const err = getConnectionError(
+        { source: "dense-1", target: "in-1", sourceHandle: null, targetHandle: null },
+        [inputNode, denseNode],
+        [],
+      );
+      expect(err).toBe("Input layers cannot have incoming connections");
+    });
+
+    it("rejects self-loops", () => {
+      const err = getConnectionError(
+        { source: "dense-1", target: "dense-1", sourceHandle: null, targetHandle: null },
+        [denseNode],
+        [],
+      );
+      expect(err).toBe("A layer cannot connect to itself");
+    });
+
+    it("rejects duplicate edges", () => {
+      const edge = { id: "e1", source: "in-1", target: "dense-1" };
+      const err = getConnectionError(
+        { source: "in-1", target: "dense-1", sourceHandle: null, targetHandle: null },
+        [inputNode, denseNode],
+        [edge],
+      );
+      expect(err).toBe("These layers are already connected");
+    });
+
+    it("rejects second input for non-merge layer", () => {
+      const edge = { id: "e1", source: "in-1", target: "dense-1" };
+      const err = getConnectionError(
+        { source: "other-node", target: "dense-1", sourceHandle: null, targetHandle: null },
+        [inputNode, denseNode],
+        [edge],
+      );
+      expect(err).toBe("Dense accepts only one input");
+    });
+
+    it("allows multiple inputs for merge layer", () => {
+      const edge = { id: "e1", source: "in-1", target: "concat-1", targetHandle: "input-0" };
+      const err = getConnectionError(
+        { source: "dense-1", target: "concat-1", sourceHandle: null, targetHandle: "input-1" },
+        [inputNode, denseNode, concatNode],
+        [edge],
+      );
+      expect(err).toBeNull();
     });
   });
 });

@@ -70,7 +70,7 @@ export default function GraphAnalysisPanel({
 
       {!collapsed && analysis && (
         <CardContent className="space-y-2 pt-0 text-xs">
-          {analysis.total_params > 0 && (
+          {(analysis.nodes.length > 0 || analysis.total_params > 0) && (
             <div className="flex flex-wrap gap-x-4 gap-y-1 text-muted-foreground">
               <span>
                 Parameters:{" "}
@@ -88,10 +88,23 @@ export default function GraphAnalysisPanel({
                 Size:{" "}
                 <strong className="text-foreground">{formatBytes(analysis.size_bytes)}</strong>
               </span>
+              {analysis.activation_bytes !== undefined && analysis.activation_bytes > 0 && (
+                <span>
+                  Act. memory:{" "}
+                  <strong className="text-foreground">
+                    {formatBytes(analysis.activation_bytes)}
+                  </strong>
+                </span>
+              )}
               <span>
                 MACs per sample:{" "}
                 <strong className="text-foreground">{formatCount(analysis.macs)}</strong>
               </span>
+              {analysis.flops !== undefined && analysis.flops > 0 && (
+                <span>
+                  FLOPs: <strong className="text-foreground">{formatCount(analysis.flops)}</strong>
+                </span>
+              )}
             </div>
           )}
 
@@ -122,18 +135,20 @@ export default function GraphAnalysisPanel({
                       {d.related_node_ids &&
                         d.related_node_ids.length > 0 &&
                         onSelectNode &&
-                        d.related_node_ids.map((relId) => (
-                          <Button
-                            key={relId}
-                            variant="link"
-                            size="sm"
-                            className="h-auto shrink-0 p-0 text-xs text-muted-foreground hover:text-foreground"
-                            onClick={() => onSelectNode(relId)}
-                            title={`Focus related layer ${relId}`}
-                          >
-                            Related ({relId})
-                          </Button>
-                        ))}
+                        Array.from(new Set(d.related_node_ids))
+                          .filter((id) => id !== d.node_id)
+                          .map((relId) => (
+                            <Button
+                              key={relId}
+                              variant="link"
+                              size="sm"
+                              className="h-auto shrink-0 p-0 text-xs text-muted-foreground hover:text-foreground"
+                              onClick={() => onSelectNode(relId)}
+                              title={`Focus related layer ${relId}`}
+                            >
+                              Related ({relId})
+                            </Button>
+                          ))}
                     </div>
                   </div>
                   {d.suggestion && (

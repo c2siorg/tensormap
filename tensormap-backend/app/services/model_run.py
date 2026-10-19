@@ -1,6 +1,8 @@
 import asyncio
+import contextlib
 import contextvars
 import os
+from typing import Any
 
 import pandas as pd
 import tensorflow as tf
@@ -10,7 +12,7 @@ from app.callbacks import CancellationCheckCallback, MetricsCallback
 from app.config import get_settings
 from app.models.data import DataFile, ImageProperties
 from app.models.ml import ModelBasic
-from app.models.training_job import TrainingStatus
+from app.models.training_job import TrainingJob, TrainingStatus
 from app.shared.constants import (
     MODEL_GENERATION_LOCATION,
     MODEL_GENERATION_TYPE,
@@ -40,9 +42,11 @@ def _validate_training_params(batch_size, epochs, training_split):
     errors = []
     if batch_size is not None and (not isinstance(batch_size, int) or batch_size <= 0):
         errors.append(f"batch_size must be a positive integer, got {batch_size!r}")
-    if epochs is not None and (not isinstance(epochs, int) or epochs <= 0):
+    if epochs is None or not isinstance(epochs, int) or epochs <= 0:
         errors.append(f"epochs must be a positive integer, got {epochs!r}")
-    if training_split is not None:
+    if training_split is None:
+        errors.append("training_split must be specified")
+    else:
         try:
             ts = float(training_split)
         except (TypeError, ValueError):
@@ -95,6 +99,26 @@ def resolve_loss(name: str | None, from_logits: bool) -> tf.keras.losses.Loss:
     if name in _LOGIT_LOSSES:
         return loss_cls(from_logits=from_logits)
     return loss_cls()
+
+
+def _build_optimizer(optimizer_name: Any, lr: float | None = None) -> Any:
+    """Build a Keras optimizer, configuring learning rate if specified.
+
+    Returns the optimizer name string or configured Keras optimizer instance.
+    """
+    if not isinstance(optimizer_name, str):
+        return optimizer_name or "adam"
+    opt_name = optimizer_name.lower()
+    if lr is not None:
+        try:
+            return tf.keras.optimizers.get({"class_name": opt_name, "config": {"learning_rate": float(lr)}})
+        except Exception:
+            opt = tf.keras.optimizers.get(opt_name)
+            if hasattr(opt, "learning_rate"):
+                with contextlib.suppress(Exception):
+                    opt.learning_rate.assign(float(lr))
+            return opt
+    return opt_name
 
 
 # Context variable holding the event loop for each concurrent training task,
@@ -301,11 +325,21 @@ def _run(model_name: str, db: Session, job_id: str | None = None) -> None:
     if model_configs is None:
         raise ModelRunError(f"Model configuration not found: {model_name}")
 
+    # Resolve effective hyperparameters: job overrides take precedence over saved model configs
+    job = db.get(TrainingJob, job_id) if job_id else None
+    hyperparams = job.hyperparams if job and job.hyperparams else {}
+
+    batch_size = hyperparams.get("batch_size") or model_configs.batch_size
+    epochs = hyperparams.get("epochs") or model_configs.epochs
+    optimizer_name = hyperparams.get("optimizer") or model_configs.optimizer
+    lr = hyperparams.get("lr")
+    training_split = model_configs.training_split
+
     # Issue #4: validate training params early for clear error messages
     _validate_training_params(
-        batch_size=model_configs.batch_size,
-        epochs=model_configs.epochs,
-        training_split=model_configs.training_split,
+        batch_size=batch_size,
+        epochs=epochs,
+        training_split=training_split,
     )
 
     if model_configs.model_type == ProblemType.IMAGE_CLASSIFICATION:
@@ -313,7 +347,7 @@ def _run(model_name: str, db: Session, job_id: str | None = None) -> None:
         if image_properties is None:
             raise ModelRunError(f"Image properties not found for file_id={model_configs.file_id}")
         image_size = (image_properties.image_size, image_properties.image_size)
-        batch_size = image_properties.batch_size
+        effective_batch_size = batch_size or image_properties.batch_size or 32
         color_mode = image_properties.color_mode
         label_mode = image_properties.label_mode
 
@@ -323,18 +357,18 @@ def _run(model_name: str, db: Session, job_id: str | None = None) -> None:
             "batch_size: %s, color_mode: %s, label_mode: %s",
             directory,
             image_size,
-            batch_size,
+            effective_batch_size,
             color_mode,
             label_mode,
         )
-        validation_split = 1 - (model_configs.training_split / 100)
+        validation_split = 1 - (float(training_split) / 100)
         train_data = tf.keras.utils.image_dataset_from_directory(
             directory,
             validation_split=validation_split,
             subset="training",
             seed=123,
             image_size=image_size,
-            batch_size=batch_size,
+            batch_size=effective_batch_size,
             color_mode=color_mode,
             label_mode=label_mode,
         )
@@ -344,7 +378,7 @@ def _run(model_name: str, db: Session, job_id: str | None = None) -> None:
             subset="validation",
             seed=123,
             image_size=image_size,
-            batch_size=batch_size,
+            batch_size=effective_batch_size,
             color_mode=color_mode,
             label_mode=label_mode,
         )
@@ -354,17 +388,18 @@ def _run(model_name: str, db: Session, job_id: str | None = None) -> None:
 
         # Issue #5: use _prepare_training_data for transparent missing-value handling
         x_training, y_training, x_testing, y_testing = _prepare_training_data(
-            features, model_configs.target_field, model_configs.training_split
+            features, model_configs.target_field, training_split
         )
 
-        batch_size = model_configs.batch_size if model_configs.batch_size is not None else 32
+        effective_batch_size = batch_size if batch_size is not None else 32
 
     with open(_helper_generate_json_model_file_location(model_name=model_name)) as f:
         json_string = f.read()
     model = tf.keras.models.model_from_json(json_string, custom_objects=None)
     model.summary()
+    optimizer = _build_optimizer(optimizer_name, lr)
     model.compile(
-        optimizer=model_configs.optimizer,
+        optimizer=optimizer,
         loss=resolve_loss(model_configs.loss, from_logits=_emits_logits(model)),
         metrics=[model_configs.metric],
     )
@@ -373,7 +408,7 @@ def _run(model_name: str, db: Session, job_id: str | None = None) -> None:
         model.fit(
             train_data,
             validation_data=test_data,
-            epochs=model_configs.epochs,
+            epochs=epochs,
             callbacks=callbacks,
             verbose=0,
         )
@@ -382,8 +417,8 @@ def _run(model_name: str, db: Session, job_id: str | None = None) -> None:
         model.fit(
             x_training,
             y_training,
-            epochs=model_configs.epochs,
-            batch_size=batch_size,
+            epochs=epochs,
+            batch_size=effective_batch_size,
             callbacks=callbacks,
             verbose=0,
         )

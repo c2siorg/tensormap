@@ -2,8 +2,16 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from app.models.training_job import TrainingJob
 from app.services.deep_learning import get_code_service, run_code_service
-from app.services.model_run import ModelRunError, _helper_generate_file_location, model_run
+from app.services.model_run import (
+    ModelRunError,
+    _build_optimizer,
+    _helper_generate_file_location,
+    _run,
+    _validate_training_params,
+    model_run,
+)
 from app.shared.enums import ProblemType
 
 
@@ -178,3 +186,107 @@ class TestHelperGenerateFileLocation:
 
         with pytest.raises(ModelRunError, match="Dataset file not found"):
             _helper_generate_file_location(db, file_id="missing-uuid")
+
+
+class TestValidateTrainingParams:
+    def test_valid_parameters_pass(self):
+        # Should not raise
+        _validate_training_params(batch_size=32, epochs=10, training_split=80)
+        _validate_training_params(batch_size=None, epochs=5, training_split=75.5)
+
+    def test_missing_training_split_raises(self):
+        with pytest.raises(ValueError, match="training_split must be specified"):
+            _validate_training_params(batch_size=32, epochs=10, training_split=None)
+
+    def test_missing_epochs_raises(self):
+        with pytest.raises(ValueError, match="epochs must be a positive integer, got None"):
+            _validate_training_params(batch_size=32, epochs=None, training_split=80)
+
+    def test_invalid_epochs_raises(self):
+        with pytest.raises(ValueError, match="epochs must be a positive integer, got 0"):
+            _validate_training_params(batch_size=32, epochs=0, training_split=80)
+        with pytest.raises(ValueError, match="epochs must be a positive integer, got -2"):
+            _validate_training_params(batch_size=32, epochs=-2, training_split=80)
+
+    def test_invalid_batch_size_raises(self):
+        with pytest.raises(ValueError, match="batch_size must be a positive integer, got 0"):
+            _validate_training_params(batch_size=0, epochs=5, training_split=80)
+        with pytest.raises(ValueError, match="batch_size must be a positive integer, got 'large'"):
+            _validate_training_params(batch_size="large", epochs=5, training_split=80)
+
+    def test_invalid_training_split_range_raises(self):
+        with pytest.raises(ValueError, match="training_split must be between 0 and 100"):
+            _validate_training_params(batch_size=32, epochs=5, training_split=0)
+        with pytest.raises(ValueError, match="training_split must be between 0 and 100"):
+            _validate_training_params(batch_size=32, epochs=5, training_split=100)
+        with pytest.raises(ValueError, match="training_split must be a number"):
+            _validate_training_params(batch_size=32, epochs=5, training_split="invalid")
+
+
+class TestBuildOptimizer:
+    def test_default_returns_string_when_no_lr(self):
+        assert _build_optimizer("adam", lr=None) == "adam"
+        assert _build_optimizer("SGD", lr=None) == "sgd"
+        assert _build_optimizer(None, lr=None) == "adam"
+
+    def test_non_string_optimizer_fallback(self):
+        mock_opt = MagicMock()
+        assert _build_optimizer(mock_opt, lr=None) is mock_opt
+
+    def test_build_with_custom_lr(self):
+        import tensorflow as tf
+
+        opt = _build_optimizer("adam", lr=0.005)
+        assert isinstance(opt, tf.keras.optimizers.Optimizer)
+        assert abs(float(opt.learning_rate.numpy()) - 0.005) < 1e-6
+
+
+class TestRunHyperparameterOverrides:
+    def test_run_uses_job_hyperparams_overrides(self):
+        cfg = _make_model_config(ProblemType.CLASSIFICATION)
+        cfg.epochs = 1
+        cfg.batch_size = 32
+        cfg.optimizer = "adam"
+
+        job = TrainingJob(
+            id="job-override-1",
+            model_id=1,
+            hyperparams={
+                "epochs": 12,
+                "batch_size": 64,
+                "optimizer": "sgd",
+                "lr": 0.02,
+            },
+        )
+
+        db = MagicMock()
+        db.exec.return_value.first.return_value = cfg
+        db.get.return_value = job
+
+        mock_model = MagicMock()
+        with (
+            patch("app.services.model_run._build_training_callbacks", return_value=[]),
+            patch("app.services.model_run._helper_generate_file_location", return_value="/fake/data.csv"),
+            patch("app.services.model_run.pd.read_csv", return_value=MagicMock()),
+            patch(
+                "app.services.model_run._prepare_training_data",
+                return_value=(MagicMock(), MagicMock(), MagicMock(), MagicMock()),
+            ),
+            patch("builtins.open", MagicMock()),
+            patch("app.services.model_run.tf.keras.models.model_from_json", return_value=mock_model),
+            patch("app.services.model_run._emits_logits", return_value=False),
+        ):
+            _run("my_model", db, job_id="job-override-1")
+
+        # Verify model.compile used sgd with lr
+        mock_model.compile.assert_called_once()
+        compile_kwargs = mock_model.compile.call_args.kwargs
+        compiled_optimizer = compile_kwargs["optimizer"]
+        assert hasattr(compiled_optimizer, "learning_rate")
+        assert abs(float(compiled_optimizer.learning_rate.numpy()) - 0.02) < 1e-6
+
+        # Verify model.fit received overridden epochs and batch_size
+        mock_model.fit.assert_called_once()
+        fit_kwargs = mock_model.fit.call_args.kwargs
+        assert fit_kwargs["epochs"] == 12
+        assert fit_kwargs["batch_size"] == 64

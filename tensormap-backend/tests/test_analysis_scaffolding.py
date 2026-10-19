@@ -24,15 +24,16 @@ client = TestClient(app)
 def completed_job(db_session: Session):
     """Create a completed training job for testing."""
     # Create model
-    model = ModelBasic(id=1, model_name="test_model", graph_ir={})
+    model = ModelBasic(model_name=f"test_model_{uuid4().hex[:8]}", graph_ir={})
     db_session.add(model)
     db_session.commit()
+    db_session.refresh(model)
 
     # Create completed job
     job_id = str(uuid4())
     job = TrainingJob(
         id=job_id,
-        model_id=1,
+        model_id=model.id,
         status=TrainingStatus.COMPLETED,
         hyperparams={},
         started_at=datetime.now(UTC),
@@ -68,15 +69,16 @@ def test_analysis_routes_exist(completed_job):
 def test_analysis_requires_completed_job(db_session: Session):
     """Analysis routes should return 400 for non-completed jobs."""
     # Create model
-    model = ModelBasic(id=1, model_name="test_model", graph_ir={})
+    model = ModelBasic(model_name=f"test_model_{uuid4().hex[:8]}", graph_ir={})
     db_session.add(model)
     db_session.commit()
+    db_session.refresh(model)
 
     # Create running job
     job_id = str(uuid4())
     job = TrainingJob(
         id=job_id,
-        model_id=1,
+        model_id=model.id,
         status=TrainingStatus.RUNNING,
         hyperparams={},
         started_at=datetime.now(UTC),
@@ -146,14 +148,15 @@ def test_analysis_cache_operations(db_session: Session):
     from app.services.interpretability import AnalysisCache
 
     # Create a completed job
-    model = ModelBasic(id=1, model_name="test_model", graph_ir={})
+    model = ModelBasic(model_name=f"test_model_{uuid4().hex[:8]}", graph_ir={})
     db_session.add(model)
     db_session.commit()
+    db_session.refresh(model)
 
     job_id = str(uuid4())
     job = TrainingJob(
         id=job_id,
-        model_id=1,
+        model_id=model.id,
         status=TrainingStatus.COMPLETED,
         hyperparams={},
         completed_at=datetime.now(UTC),

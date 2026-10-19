@@ -20,7 +20,14 @@ import {
   cancelJob,
   getTrainingSocket,
 } from "../services/socketService";
-import { EpochMetric, TrainingState } from "../types/training";
+import {
+  EpochMetric,
+  EpochMetricUpdate,
+  LegacyTrainingMetricsEvent,
+  TrainingMetricsEvent,
+  TrainingSocketEvent,
+  TrainingState,
+} from "../types/training";
 import logger from "../shared/logger";
 
 interface UseTrainingMetricsReturn {
@@ -35,18 +42,82 @@ interface UseTrainingMetricsReturn {
   isCompleted: boolean;
 }
 
-export function mergeEpochMetric(metrics: EpochMetric[], incoming: EpochMetric): EpochMetric[] {
-  const existing = metrics.find((metric) => metric.epoch === incoming.epoch);
-  if (!existing) return [...metrics, incoming];
-  return metrics.map((metric) => {
-    if (metric.epoch !== incoming.epoch) return metric;
-    const merged = { ...metric, ...incoming };
-    for (const key of ["loss", "accuracy"] as const) {
-      if (incoming[key] == null && metric[key] != null) merged[key] = metric[key];
-    }
-    if (incoming.phase === "validation") merged.phase = metric.phase || "train";
-    return merged;
-  });
+export function mergeEpochMetric(
+  metrics: EpochMetric[],
+  incoming: EpochMetricUpdate,
+): EpochMetric[] {
+  const existingIndex = metrics.findIndex((metric) => metric.epoch === incoming.epoch);
+  if (existingIndex === -1) {
+    return [...metrics, normalizeEpochMetric(incoming)];
+  }
+
+  const merged = { ...metrics[existingIndex] };
+  mergeDefinedValues(merged, incoming);
+  return metrics.map((metric, index) => (index === existingIndex ? merged : metric));
+}
+
+function normalizeEpochMetric(incoming: EpochMetricUpdate): EpochMetric {
+  const normalized: EpochMetric = { epoch: incoming.epoch };
+  mergeDefinedValues(normalized, incoming);
+  return normalized;
+}
+
+export function mergeEpochMetrics(current: EpochMetric[], incoming: EpochMetric[]): EpochMetric[] {
+  const merged = incoming.reduce(
+    (result, metric) => mergeEpochMetric(result, metric),
+    [] as EpochMetric[],
+  );
+  // Existing state may include live events received while catch-up or polling
+  // was in flight, so it takes precedence for fields already present.
+  return current.reduce((result, metric) => mergeEpochMetric(result, metric), merged);
+}
+
+export function shouldPollTrainingMetrics(
+  jobId: string | null,
+  isSocketConnected: boolean,
+  status: TrainingState["status"],
+): boolean {
+  return Boolean(jobId) && !isSocketConnected && status === "running";
+}
+
+export function toEpochMetricUpdate(
+  event: TrainingMetricsEvent | LegacyTrainingMetricsEvent,
+): EpochMetricUpdate {
+  const isLegacyValidation = event.phase === "validation";
+  return {
+    epoch: event.epoch,
+    loss: isLegacyValidation ? null : event.loss,
+    accuracy: isLegacyValidation ? null : event.accuracy,
+    val_loss: isLegacyValidation ? (event.val_loss ?? event.loss) : event.val_loss,
+    val_accuracy: isLegacyValidation ? (event.val_accuracy ?? event.accuracy) : event.val_accuracy,
+    phase: event.phase === "train" ? "train" : undefined,
+    batch: isLegacyValidation ? undefined : event.batch,
+    steps: isLegacyValidation ? undefined : event.steps,
+    validation_batch: isLegacyValidation
+      ? (event.validation_batch ?? event.batch)
+      : event.validation_batch,
+    validation_steps: isLegacyValidation
+      ? (event.validation_steps ?? event.steps)
+      : event.validation_steps,
+    timestamp: event.timestamp,
+    job_id: event.job_id,
+    version: event.version,
+  };
+}
+
+function mergeDefinedValues(target: EpochMetric, incoming: EpochMetricUpdate): void {
+  if (incoming.loss != null) target.loss = incoming.loss;
+  if (incoming.accuracy != null) target.accuracy = incoming.accuracy;
+  if (incoming.val_loss != null) target.val_loss = incoming.val_loss;
+  if (incoming.val_accuracy != null) target.val_accuracy = incoming.val_accuracy;
+  if (incoming.phase !== undefined) target.phase = incoming.phase;
+  if (incoming.batch != null) target.batch = incoming.batch;
+  if (incoming.steps != null) target.steps = incoming.steps;
+  if (incoming.validation_batch != null) target.validation_batch = incoming.validation_batch;
+  if (incoming.validation_steps != null) target.validation_steps = incoming.validation_steps;
+  if (incoming.timestamp !== undefined) target.timestamp = incoming.timestamp;
+  if (incoming.job_id !== undefined) target.job_id = incoming.job_id;
+  if (incoming.version != null) target.version = incoming.version;
 }
 
 export function useTrainingMetrics(
@@ -72,8 +143,8 @@ export function useTrainingMetrics(
       const response = await axios.get(`${urls.BACKEND_TRAINING_JOB}/${jobId}/metrics`);
       // Backend returns {success, message, data: [...metrics...]}
       if (response.data && response.data.data && Array.isArray(response.data.data)) {
-        setMetrics(response.data.data);
-        setCurrentEpoch(response.data.data.length);
+        setMetrics((previous) => mergeEpochMetrics(previous, response.data.data));
+        setCurrentEpoch((previous) => Math.max(previous, response.data.data.length));
       }
     } catch (err) {
       logger.error("Failed to fetch metrics:", err);
@@ -81,34 +152,22 @@ export function useTrainingMetrics(
   }, [jobId]);
 
   // Handle Socket.IO events
-  const handleJobEvent = useCallback((data: any) => {
-    if (data.type === "catchup") {
-      // Populate from catchup event
-      setMetrics(data.metrics || []);
-      setCurrentEpoch((data.metrics || []).length);
+  const handleJobEvent = useCallback((data: TrainingSocketEvent) => {
+    if ("type" in data && data.type === "catchup") {
+      // Merge catch-up with live events that may have arrived after room join.
+      setMetrics((previous) => mergeEpochMetrics(previous, data.metrics));
+      setCurrentEpoch((previous) => Math.max(previous, data.metrics.length));
       setStatus(data.status || "running");
       if (data.started_at) {
         setStartedAt(data.started_at);
       }
-    } else if (data.type === "metrics") {
+    } else if ("type" in data && data.type === "metrics") {
       // Live metrics use the same one-record-per-epoch shape as catch-up.
-      const newMetric: EpochMetric = {
-      epoch: data.epoch,
-      loss: data.loss,
-      accuracy: data.accuracy,
-      val_loss: data.val_loss,
-      val_accuracy: data.val_accuracy,
-      phase: data.phase,
-      batch: data.batch,
-      steps: data.steps,
-      timestamp: data.timestamp,
-      job_id: data.job_id,
-      version: data.version,
-    };
+      const newMetric = toEpochMetricUpdate(data);
       setMetrics((prev) => mergeEpochMetric(prev, newMetric));
       setCurrentEpoch(data.epoch);
       setStatus("running");
-    } else if (data.type === "status") {
+    } else if ("type" in data && data.type === "status") {
       // Terminal status
       setStatus(data.status);
       if (data.error) {
@@ -160,7 +219,7 @@ export function useTrainingMetrics(
 
   // Fallback polling when Socket.IO disconnects
   useEffect(() => {
-    if (!jobId || !isSocketConnected || status !== "running") {
+    if (!shouldPollTrainingMetrics(jobId, isSocketConnected, status)) {
       if (pollingIntervalRef.current) {
         clearInterval(pollingIntervalRef.current);
         pollingIntervalRef.current = null;

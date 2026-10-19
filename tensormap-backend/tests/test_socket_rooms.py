@@ -4,6 +4,7 @@ We don't re-test socket.io's own room routing; we assert that our handlers pass
 the right room/recipient and that catch-up returns the persisted history.
 """
 
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -11,13 +12,14 @@ import pytest
 import app.socketio_instance as si
 from app.models.training_job import TrainingJob, TrainingStatus
 from app.models.training_metric import TrainingMetric
+from app.shared.training_events import TRAINING_EVENT_VERSION
 
 NS = "/dl-result"
 
 
 def _seed_job_with_metrics(factory, epochs: int) -> str:
     with factory() as session:
-        job = TrainingJob(model_id=1, status=TrainingStatus.RUNNING)
+        job = TrainingJob(model_id=1, status=TrainingStatus.RUNNING, started_at=datetime.now(UTC))
         session.add(job)
         session.commit()
         session.refresh(job)
@@ -45,7 +47,15 @@ async def test_subscribe_job_missing_id_is_noop():
 
 
 async def test_subscribe_job_emits_catchup_to_sender_only():
-    catchup = {"type": "catchup", "status": "running", "metrics": [{"epoch": 1, "loss": 0.5}]}
+    catchup = {
+        "version": TRAINING_EVENT_VERSION,
+        "type": "catchup",
+        "job_id": "job-123",
+        "timestamp": "2026-10-19T00:00:00+00:00",
+        "status": "running",
+        "started_at": None,
+        "metrics": [{"epoch": 1, "loss": 0.5}],
+    }
     with (
         patch.object(si, "sio", new=AsyncMock()) as mock_sio,
         patch.object(si, "_load_catchup", return_value=catchup),
@@ -75,6 +85,10 @@ def test_catchup_returns_full_history(training_session_factory):
     assert catchup is not None
     assert catchup["type"] == "catchup"
     assert catchup["status"] == "running"
+    assert catchup["version"] == TRAINING_EVENT_VERSION
+    assert catchup["job_id"] == job_id
+    assert catchup["timestamp"]
+    assert catchup["started_at"] is not None
     assert len(catchup["metrics"]) == 5
     assert [m["epoch"] for m in catchup["metrics"]] == [1, 2, 3, 4, 5]
 

@@ -13,6 +13,7 @@ import * as urls from "../constants/Urls";
 import * as strings from "../constants/Strings";
 
 const SUPPORTED_TRAINING_EVENT_VERSION = 1;
+const TRAINING_STATUSES = new Set(["pending", "running", "completed", "failed", "cancelled"]);
 
 let socket = null;
 
@@ -34,10 +35,8 @@ export function getTrainingSocket() {
 /**
  * Subscribe to a job's room and stream its events to `onEvent`.
  *
- * `onEvent` receives structured payloads of the form:
- *   - `{ type: "catchup", status, metrics: [...] }` — replay of persisted history
- *   - `{ type: "metrics", epoch, loss, accuracy, val_loss, val_accuracy }`
- *   - `{ type: "status", status, error? }` — terminal state (completed/failed/cancelled)
+ * `onEvent` receives validated versioned training envelopes, explicitly shaped
+ * legacy training events, or the legacy `{ message, test }` model progress event.
  *
  * @returns {() => void} cleanup that detaches the listener.
  */
@@ -45,16 +44,32 @@ export function subscribeToJob(jobId, onEvent) {
   const s = getTrainingSocket();
 
   const handler = (data) => {
-    if (!data) return;
+    if (data === null || typeof data !== "object" || Array.isArray(data)) return;
 
-    const isTrainingEvent = ["metrics", "catchup", "status"].includes(data.type);
-    if (isTrainingEvent && data.version !== SUPPORTED_TRAINING_EVENT_VERSION) {
-      // Ignore unsupported versions of our structured protocol safely.
+    const hasEnvelope = data.version !== undefined;
+    if (hasEnvelope) {
+      if (
+        data.version !== SUPPORTED_TRAINING_EVENT_VERSION ||
+        data.job_id !== jobId ||
+        typeof data.timestamp !== "string"
+      )
+        return;
+
+      if (isValidTrainingEvent(data, true)) onEvent(data);
       return;
     }
 
-    if (isTrainingEvent || typeof data === "object") {
-      // This listener also carries legacy model progress payloads (message/test).
+    // Accept the old, explicitly shaped job events while older emitters remain
+    // in use. If they carry a job id, it must still match this subscription.
+    if (data.job_id !== undefined && data.job_id !== jobId) return;
+    if (isValidTrainingEvent(data, false)) {
+      onEvent(data);
+      return;
+    }
+
+    // Legacy CustomProgressBar and _model_result emit exactly {message, test}.
+    // Keep that documented producer shape for non-job-scoped model progress.
+    if (typeof data.message === "string" && Number.isFinite(data.test)) {
       onEvent(data);
     }
   };
@@ -75,6 +90,69 @@ export function subscribeToJob(jobId, onEvent) {
     s.off(strings.DL_RESULT_LISTENER, handler);
     s.off("connect", emitSubscribe);
   };
+}
+
+function isFiniteMetric(value) {
+  return (
+    value === undefined || value === null || (typeof value === "number" && Number.isFinite(value))
+  );
+}
+
+function isCounter(value, nullable = false) {
+  return (nullable && value === null) || (Number.isInteger(value) && value >= 0);
+}
+
+function isValidMetricRecord(metric) {
+  return (
+    metric !== null &&
+    typeof metric === "object" &&
+    !Array.isArray(metric) &&
+    Number.isInteger(metric.epoch) &&
+    ["loss", "accuracy", "val_loss", "val_accuracy"].every((key) => isFiniteMetric(metric[key]))
+  );
+}
+
+function isValidTrainingEvent(data, structured) {
+  if (data.type === "metrics") {
+    return (
+      isValidMetricRecord(data) &&
+      (data.phase === undefined ||
+        data.phase === "train" ||
+        (!structured && data.phase === "validation")) &&
+      ["batch", "steps", "validation_batch", "validation_steps"].every(
+        (key) => data[key] === undefined || (Number.isInteger(data[key]) && data[key] >= 0),
+      ) &&
+      (!structured ||
+        (data.phase === "train" &&
+          ["loss", "accuracy", "val_loss", "val_accuracy"].every((key) => key in data) &&
+          ["batch", "steps", "validation_batch", "validation_steps"].every((key) =>
+            isCounter(data[key]),
+          )))
+    );
+  }
+  if (data.type === "catchup") {
+    return (
+      TRAINING_STATUSES.has(data.status) &&
+      Array.isArray(data.metrics) &&
+      data.metrics.every(isValidMetricRecord) &&
+      (data.started_at === undefined ||
+        data.started_at === null ||
+        typeof data.started_at === "string") &&
+      (!structured || "started_at" in data)
+    );
+  }
+  if (data.type === "status") {
+    return (
+      TRAINING_STATUSES.has(data.status) &&
+      (data.error === undefined || typeof data.error === "string") &&
+      (!structured ||
+        (data.phase === null &&
+          data.epoch === null &&
+          isCounter(data.batch, true) &&
+          isCounter(data.steps, true)))
+    );
+  }
+  return false;
 }
 
 /** Leave a job's room so this client stops receiving its events. */

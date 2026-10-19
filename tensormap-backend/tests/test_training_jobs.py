@@ -5,6 +5,8 @@ the request/persistence behaviour without spinning up a real Keras run.
 """
 
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
 from sqlmodel import Session, select
@@ -61,9 +63,16 @@ def _seed_job(
 
 
 @pytest.fixture(autouse=True)
-def _no_background_training(mocker):
+def _no_background_training(monkeypatch, tmp_path):
     """Stop the run endpoint from launching real training in every HTTP test."""
-    return mocker.patch("app.routers.training.launch_training_job")
+    (tmp_path / "d.csv").write_text("feature,label\n0,0\n1,1\n2,0\n")
+    monkeypatch.setattr(
+        "app.services.dataset_quality.get_settings",
+        lambda: SimpleNamespace(upload_folder=str(tmp_path), max_content_length=200 * 1024 * 1024),
+    )
+    launch = MagicMock()
+    monkeypatch.setattr("app.routers.training.launch_training_job", launch)
+    return launch
 
 
 def test_start_training_returns_202(client, db_session):
@@ -96,6 +105,50 @@ def test_start_training_launches_background(client, db_session, _no_background_t
     args = _no_background_training.call_args.args
     assert args[0] == "m1"
     assert args[1] == job_id
+
+
+def test_blocking_dataset_quality_error_is_rejected_before_job_creation(
+    client, db_session, _no_background_training, tmp_path
+):
+    _seed_model(db_session, "blocked")
+    (tmp_path / "d.csv").write_text("feature,other\n0,1\n1,2\n")
+
+    response = client.post(f"{BASE}/run", json={"model_name": "blocked"})
+
+    assert response.status_code == 400
+    body = response.json()
+    assert body["success"] is False
+    assert "Target column 'label' was not found" in body["message"]
+    assert db_session.exec(select(TrainingJob)).all() == []
+    _no_background_training.assert_not_called()
+
+
+def test_warning_only_dataset_quality_report_allows_training(client, db_session, _no_background_training, tmp_path):
+    _seed_model(db_session, "warnings")
+    (tmp_path / "d.csv").write_text("feature,label\n0,0\n1,\n2,1\n")
+
+    response = client.post(f"{BASE}/run", json={"model_name": "warnings"})
+
+    assert response.status_code == 202
+    assert response.json()["success"] is True
+    assert db_session.exec(select(TrainingJob)).all()
+    _no_background_training.assert_called_once()
+
+
+def test_image_dataset_quality_not_applicable_allows_existing_workflow(client, db_session, _no_background_training):
+    model = _seed_model(db_session, "image")
+    image_file = db_session.get(DataFile, model.file_id)
+    image_file.file_type = "zip"
+    model.model_type = 3
+    db_session.add(image_file)
+    db_session.add(model)
+    db_session.commit()
+
+    response = client.post(f"{BASE}/run", json={"model_name": "image"})
+
+    assert response.status_code == 202
+    assert db_session.exec(select(TrainingJob)).all()
+    _no_background_training.assert_called_once()
 
 
 def test_start_training_unknown_model_404(client, db_session):

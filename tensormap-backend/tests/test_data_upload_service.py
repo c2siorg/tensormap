@@ -1,3 +1,4 @@
+import os
 import uuid
 from unittest.mock import MagicMock, patch
 
@@ -173,6 +174,28 @@ class TestAddFileService:
         assert body["success"] is True
         db.add.assert_called_once()
         db.commit.assert_called_once()
+
+    def test_filename_with_path_is_saved_inside_upload_folder(self, tmp_path):
+        db = MagicMock()
+        fw = MagicMock()
+        fw.filename = "../../escaped.csv"
+        fw.file.seek = MagicMock()
+        fw.file.tell = MagicMock(return_value=100)
+        saved = []
+        fw.save = MagicMock(side_effect=saved.append)
+
+        with (
+            patch("app.services.data_upload.get_settings") as ms,
+            patch("app.services.data_upload.read_csv_columns", return_value=None),
+        ):
+            ms.return_value.max_content_length = 200 * 1024 * 1024
+            ms.return_value.upload_folder = str(tmp_path)
+            body, status = add_file_service(db, fw)
+
+        assert status == 201
+        assert os.path.dirname(saved[0]) == str(tmp_path)
+        record = db.add.call_args.args[0]
+        assert record.disk_name.startswith("escaped_")
 
     def test_zip_happy_path_creates_db_record_and_image_properties(self, tmp_path):
         db = MagicMock()

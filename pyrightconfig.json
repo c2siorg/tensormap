@@ -1,0 +1,13 @@
+{
+  "include": [
+    "tensormap-backend"
+  ],
+  "exclude": [
+    "**/templates",
+    "**/node_modules",
+    "**/.venv"
+  ],
+  "ignore": [
+    "**/templates"
+  ]
+}

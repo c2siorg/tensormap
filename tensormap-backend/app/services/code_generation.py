@@ -15,12 +15,14 @@ from app.shared.constants import (
     MODEL_EPOCHS,
     MODEL_GENERATION_TYPE,
     MODEL_JSON_FILE,
+    MODEL_LOSS,
+    MODEL_LOSS_EXPRESSION,
     MODEL_METRIC,
     MODEL_OPTIMIZER,
     MODEL_TRAINING_SPLIT,
     TEMPLATE_ROOT,
 )
-from app.shared.enums import ProblemType
+from app.shared.enums import LossFunction, ProblemType, default_loss_for_problem_type
 from app.shared.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -32,6 +34,17 @@ class CodeGenerationError(Exception):
     pass
 
 
+def _loss_expression(loss: str) -> str:
+    """Return the Python expression string for compiling with the specified loss."""
+    if loss == LossFunction.CATEGORICAL_CROSSENTROPY:
+        return "tf.keras.losses.CategoricalCrossentropy(from_logits=True)"
+    if loss == LossFunction.BINARY_CROSSENTROPY:
+        return "tf.keras.losses.BinaryCrossentropy(from_logits=True)"
+    if loss == LossFunction.SPARSE_CATEGORICAL_CROSSENTROPY:
+        return "tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)"
+    return f'"{loss}"'
+
+
 def generate_code(model_name: str, db: Session) -> str:
     """Generate TensorFlow Python code from a saved model configuration."""
     model_configs = db.exec(select(ModelBasic).where(ModelBasic.model_name == model_name)).first()
@@ -40,6 +53,8 @@ def generate_code(model_name: str, db: Session) -> str:
     file = db.exec(select(DataFile).where(DataFile.id == model_configs.file_id)).first()
     if file is None:
         raise CodeGenerationError(f"Dataset file not found (id={model_configs.file_id})")
+
+    loss = model_configs.loss or default_loss_for_problem_type(model_configs.model_type)
 
     data = {
         DATASET: {
@@ -52,6 +67,8 @@ def generate_code(model_name: str, db: Session) -> str:
             MODEL_OPTIMIZER: model_configs.optimizer,
             MODEL_METRIC: model_configs.metric,
             MODEL_EPOCHS: model_configs.epochs,
+            MODEL_LOSS: loss,
+            MODEL_LOSS_EXPRESSION: _loss_expression(loss),
         },
     }
 
@@ -82,11 +99,10 @@ def _map_template(problem_type_id: int | None) -> str:
         ProblemType.REGRESSION: CODE_TEMPLATE_FOLDER + "linear-regression-all-float.py",
         ProblemType.IMAGE_CLASSIFICATION: CODE_TEMPLATE_FOLDER + "simple-image-classification.py",
     }
-    try:
+    if problem_type_id is not None and problem_type_id in options:
         return options[problem_type_id]
-    except KeyError:
-        valid = ", ".join(str(int(p)) for p in ProblemType)
-        raise ValueError(f"Unknown model type: {problem_type_id!r}. Valid: {valid}") from None
+    valid = ", ".join(str(int(p)) for p in ProblemType)
+    raise ValueError(f"Unknown model type: {problem_type_id!r}. Valid: {valid}")
 
 
 def _file_location(file: DataFile) -> str:

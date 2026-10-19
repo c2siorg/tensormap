@@ -1,3 +1,4 @@
+# pyright: reportUndefinedVariable=false
 import pandas as pd
 import tensorflow as tf
 
@@ -23,7 +24,7 @@ def deep_learning_model():
 
     model.compile(
         optimizer="{{data.dl_model.optimizer}}",
-        loss="mean_squared_error",
+        loss="{{data.dl_model.loss}}",
         metrics=["{{data.dl_model.metric}}"],
     )
 

@@ -1,3 +1,4 @@
+# pyright: reportUndefinedVariable=false
 import numpy as np
 import pandas as pd
 import tensorflow as tf
@@ -28,7 +29,7 @@ def deep_learning_model():
 
     model.compile(
         optimizer="{{data.dl_model.optimizer}}",
-        loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
+        loss={{data.dl_model.loss_expression}},
         metrics=["{{data.dl_model.metric}}"],
     )
 

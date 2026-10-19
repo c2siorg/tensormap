@@ -16,7 +16,10 @@ _tf_stub = MagicMock()
 sys.modules.setdefault("tensorflow", _tf_stub)
 sys.modules.setdefault("flatten_json", MagicMock())
 
+from jinja2 import Environment, FileSystemLoader  # noqa: E402
+
 from app.services.code_generation import (  # noqa: E402
+    _loss_expression,
     _map_template,
     generate_code,
 )
@@ -29,9 +32,17 @@ from app.shared.constants import (  # noqa: E402
     FILE_TARGET,
     IMG_SIZE,
     LABEL_MODE,
+    LEARNING_MODEL,
+    MODEL_EPOCHS,
+    MODEL_JSON_FILE,
+    MODEL_LOSS,
+    MODEL_LOSS_EXPRESSION,
+    MODEL_METRIC,
+    MODEL_OPTIMIZER,
     MODEL_TRAINING_SPLIT,
+    TEMPLATE_ROOT,
 )
-from app.shared.enums import ProblemType  # noqa: E402
+from app.shared.enums import LossFunction, ProblemType  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -46,7 +57,7 @@ def mock_db():
     return db
 
 
-def _make_model(model_type, file_id=1, target_field="label", training_split=0.8):
+def _make_model(model_type, file_id=1, target_field="label", training_split=0.8, loss=None):
     model = MagicMock()
     model.file_id = file_id
     model.model_type = model_type
@@ -55,6 +66,7 @@ def _make_model(model_type, file_id=1, target_field="label", training_split=0.8)
     model.optimizer = "adam"
     model.metric = "accuracy"
     model.epochs = 10
+    model.loss = loss
     return model
 
 
@@ -197,3 +209,211 @@ class TestGenerateCodeHappyPaths:
         assert BATCH_SIZE not in rendered_data[DATASET]
         assert COLOR_MODE not in rendered_data[DATASET]
         assert LABEL_MODE not in rendered_data[DATASET]
+
+
+# ---------------------------------------------------------------------------
+# _loss_expression
+# ---------------------------------------------------------------------------
+
+
+class TestLossExpression:
+    def test_categorical_crossentropy_expression(self):
+        expr = _loss_expression(LossFunction.CATEGORICAL_CROSSENTROPY)
+        assert expr == "tf.keras.losses.CategoricalCrossentropy(from_logits=True)"
+
+    def test_binary_crossentropy_expression(self):
+        expr = _loss_expression(LossFunction.BINARY_CROSSENTROPY)
+        assert expr == "tf.keras.losses.BinaryCrossentropy(from_logits=True)"
+
+    def test_sparse_categorical_crossentropy_expression(self):
+        expr = _loss_expression(LossFunction.SPARSE_CATEGORICAL_CROSSENTROPY)
+        assert expr == "tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)"
+
+    @pytest.mark.parametrize(
+        "loss_name",
+        [
+            LossFunction.MEAN_SQUARED_ERROR,
+            LossFunction.MEAN_ABSOLUTE_ERROR,
+            LossFunction.HUBER,
+            "cosine_similarity",
+        ],
+    )
+    def test_string_losses_quoted(self, loss_name):
+        expr = _loss_expression(loss_name)
+        assert expr == f'"{loss_name}"'
+
+
+# ---------------------------------------------------------------------------
+# generate_code — loss function context
+# ---------------------------------------------------------------------------
+
+
+class TestGenerateCodeLossContext:
+    @patch("app.services.code_generation.Environment")
+    @patch("app.services.code_generation.FileSystemLoader")
+    def test_classification_passes_configured_loss(self, mock_loader, mock_env, mock_db):
+        model = _make_model(ProblemType.CLASSIFICATION, loss=LossFunction.CATEGORICAL_CROSSENTROPY)
+        file = _make_file(file_type="csv", file_name="data.csv")
+        mock_db.exec.return_value.first.side_effect = [model, file]
+
+        mock_template = MagicMock()
+        mock_env.return_value.get_template.return_value = mock_template
+
+        generate_code("cat_model", mock_db)
+
+        rendered_data = mock_template.render.call_args.kwargs["data"]
+        assert rendered_data[LEARNING_MODEL][MODEL_LOSS] == "categorical_crossentropy"
+        assert (
+            rendered_data[LEARNING_MODEL][MODEL_LOSS_EXPRESSION]
+            == "tf.keras.losses.CategoricalCrossentropy(from_logits=True)"
+        )
+
+    @patch("app.services.code_generation.Environment")
+    @patch("app.services.code_generation.FileSystemLoader")
+    def test_classification_defaults_to_sparse_categorical_when_none(self, mock_loader, mock_env, mock_db):
+        model = _make_model(ProblemType.CLASSIFICATION, loss=None)
+        file = _make_file(file_type="csv", file_name="data.csv")
+        mock_db.exec.return_value.first.side_effect = [model, file]
+
+        mock_template = MagicMock()
+        mock_env.return_value.get_template.return_value = mock_template
+
+        generate_code("default_cls_model", mock_db)
+
+        rendered_data = mock_template.render.call_args.kwargs["data"]
+        assert rendered_data[LEARNING_MODEL][MODEL_LOSS] == "sparse_categorical_crossentropy"
+        assert (
+            rendered_data[LEARNING_MODEL][MODEL_LOSS_EXPRESSION]
+            == "tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)"
+        )
+
+    @patch("app.services.code_generation.Environment")
+    @patch("app.services.code_generation.FileSystemLoader")
+    def test_regression_passes_configured_loss(self, mock_loader, mock_env, mock_db):
+        model = _make_model(ProblemType.REGRESSION, loss=LossFunction.HUBER)
+        file = _make_file(file_type="csv", file_name="prices.csv")
+        mock_db.exec.return_value.first.side_effect = [model, file]
+
+        mock_template = MagicMock()
+        mock_env.return_value.get_template.return_value = mock_template
+
+        generate_code("huber_model", mock_db)
+
+        rendered_data = mock_template.render.call_args.kwargs["data"]
+        assert rendered_data[LEARNING_MODEL][MODEL_LOSS] == "huber"
+
+    @patch("app.services.code_generation.Environment")
+    @patch("app.services.code_generation.FileSystemLoader")
+    def test_regression_defaults_to_mse_when_none(self, mock_loader, mock_env, mock_db):
+        model = _make_model(ProblemType.REGRESSION, loss=None)
+        file = _make_file(file_type="csv", file_name="prices.csv")
+        mock_db.exec.return_value.first.side_effect = [model, file]
+
+        mock_template = MagicMock()
+        mock_env.return_value.get_template.return_value = mock_template
+
+        generate_code("default_reg_model", mock_db)
+
+        rendered_data = mock_template.render.call_args.kwargs["data"]
+        assert rendered_data[LEARNING_MODEL][MODEL_LOSS] == "mean_squared_error"
+
+    @patch("app.services.code_generation.Environment")
+    @patch("app.services.code_generation.FileSystemLoader")
+    def test_image_classification_passes_configured_loss(self, mock_loader, mock_env, mock_db):
+        model = _make_model(ProblemType.IMAGE_CLASSIFICATION, loss=LossFunction.BINARY_CROSSENTROPY)
+        file = _make_file(file_type="zip", file_name="images.zip")
+        mock_db.exec.return_value.first.side_effect = [model, file, None]
+
+        mock_template = MagicMock()
+        mock_env.return_value.get_template.return_value = mock_template
+
+        generate_code("binary_img_model", mock_db)
+
+        rendered_data = mock_template.render.call_args.kwargs["data"]
+        assert rendered_data[LEARNING_MODEL][MODEL_LOSS] == "binary_crossentropy"
+        assert (
+            rendered_data[LEARNING_MODEL][MODEL_LOSS_EXPRESSION]
+            == "tf.keras.losses.BinaryCrossentropy(from_logits=True)"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Template Rendering Parity Tests
+# ---------------------------------------------------------------------------
+
+
+class TestTemplateRenderLoss:
+    @pytest.fixture()
+    def template_env(self):
+        return Environment(loader=FileSystemLoader(searchpath=TEMPLATE_ROOT))
+
+    @pytest.mark.parametrize(
+        ("loss_name", "expected_snippet"),
+        [
+            ("categorical_crossentropy", "loss=tf.keras.losses.CategoricalCrossentropy(from_logits=True)"),
+            ("binary_crossentropy", "loss=tf.keras.losses.BinaryCrossentropy(from_logits=True)"),
+            ("sparse_categorical_crossentropy", "loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)"),
+        ],
+    )
+    def test_classification_template_renders_correct_loss(self, template_env, loss_name, expected_snippet):
+        template = template_env.get_template(CODE_TEMPLATE_FOLDER + "multi-class-all-float-classification-csv.py")
+        data = {
+            DATASET: {FILE_NAME: "data.csv", FILE_TARGET: "label", MODEL_TRAINING_SPLIT: 80},
+            LEARNING_MODEL: {
+                MODEL_JSON_FILE: "model.json",
+                MODEL_OPTIMIZER: "adam",
+                MODEL_METRIC: "accuracy",
+                MODEL_EPOCHS: 5,
+                MODEL_LOSS: loss_name,
+                MODEL_LOSS_EXPRESSION: _loss_expression(loss_name),
+            },
+        }
+        rendered = template.render(data=data)
+        assert expected_snippet in rendered
+
+    @pytest.mark.parametrize(
+        ("loss_name", "expected_snippet"),
+        [
+            ("mean_squared_error", 'loss="mean_squared_error"'),
+            ("mean_absolute_error", 'loss="mean_absolute_error"'),
+            ("huber", 'loss="huber"'),
+        ],
+    )
+    def test_regression_template_renders_correct_loss(self, template_env, loss_name, expected_snippet):
+        template = template_env.get_template(CODE_TEMPLATE_FOLDER + "linear-regression-all-float.py")
+        data = {
+            DATASET: {FILE_NAME: "data.csv", FILE_TARGET: "target", MODEL_TRAINING_SPLIT: 80},
+            LEARNING_MODEL: {
+                MODEL_JSON_FILE: "model.json",
+                MODEL_OPTIMIZER: "adam",
+                MODEL_METRIC: "mae",
+                MODEL_EPOCHS: 5,
+                MODEL_LOSS: loss_name,
+                MODEL_LOSS_EXPRESSION: _loss_expression(loss_name),
+            },
+        }
+        rendered = template.render(data=data)
+        assert expected_snippet in rendered
+
+    def test_image_classification_template_renders_correct_loss(self, template_env):
+        template = template_env.get_template(CODE_TEMPLATE_FOLDER + "simple-image-classification.py")
+        data = {
+            DATASET: {
+                FILE_NAME: "images",
+                MODEL_TRAINING_SPLIT: 80,
+                IMG_SIZE: 128,
+                BATCH_SIZE: 32,
+                COLOR_MODE: "rgb",
+                LABEL_MODE: "categorical",
+            },
+            LEARNING_MODEL: {
+                MODEL_JSON_FILE: "model.json",
+                MODEL_OPTIMIZER: "adam",
+                MODEL_METRIC: "accuracy",
+                MODEL_EPOCHS: 10,
+                MODEL_LOSS: "categorical_crossentropy",
+                MODEL_LOSS_EXPRESSION: _loss_expression("categorical_crossentropy"),
+            },
+        }
+        rendered = template.render(data=data)
+        assert "loss=tf.keras.losses.CategoricalCrossentropy(from_logits=True)" in rendered

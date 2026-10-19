@@ -14,19 +14,10 @@ from app.models.training_job import TrainingJob, TrainingStatus
 from app.models.training_metric import TrainingMetric
 from app.shared.constants import SOCKETIO_DL_NAMESPACE, SOCKETIO_LISTENER
 from app.shared.logging_config import get_logger
+from app.shared.training_events import training_event
 
 logger = get_logger(__name__)
-TRAINING_EVENT_VERSION = 1
 
-def _event_envelope(job_id: str, event_type: str, **fields) -> dict:
-    """Build the common envelope for every training Socket.IO event."""
-    return {
-        "version": TRAINING_EVENT_VERSION,
-        "type": event_type,
-        "job_id": job_id,
-        "timestamp": _utcnow().isoformat(),
-        **fields,
-    }
 
 def _utcnow() -> datetime:
     return datetime.now(UTC)
@@ -94,12 +85,12 @@ class MetricsCallback(tf.keras.callbacks.Callback):
 
     def on_train_batch_end(self, batch: int, logs: dict = None) -> None:
         """Track the current training batch and step."""
-        self.current_batch = batch + 1
+        self.current_batch += 1
         self.current_steps += 1
 
     def on_test_batch_end(self, batch: int, logs: dict = None) -> None:
         """Track validation batches independently of training progress."""
-        self.validation_batch = batch + 1
+        self.validation_batch += 1
         self.validation_steps += 1
 
     def on_epoch_end(self, epoch: int, logs: dict = None) -> None:
@@ -131,11 +122,9 @@ class MetricsCallback(tf.keras.callbacks.Callback):
                     )
             session.commit()
 
-
-
         # 2. Emit training metrics to this job's room only.
         self._emit(
-            _event_envelope(
+            training_event(
                 self.job_id,
                 "metrics",
                 phase="train",
@@ -148,7 +137,12 @@ class MetricsCallback(tf.keras.callbacks.Callback):
         )
 
     def on_train_end(self, logs: dict = None) -> None:
-        """Mark the job COMPLETED — unless it was cancelled/failed meanwhile."""
+        """Mark the job COMPLETED unless it was cancelled/failed meanwhile.
+
+        Cancellation sets ``model.stop_training`` and still calls ``on_train_end``;
+        the status guard prevents overwriting CANCELLED/FAILED. The trained model
+        is also saved to ``exports/{job_id}/model.keras`` for later export.
+        """
         from app.services.model_export import EXPORTS_BASE
 
         export_dir = EXPORTS_BASE / self.job_id
@@ -173,7 +167,7 @@ class MetricsCallback(tf.keras.callbacks.Callback):
 
         if final_status is not None:
             self._emit(
-                _event_envelope(
+                training_event(
                     self.job_id,
                     "status",
                     status=final_status,

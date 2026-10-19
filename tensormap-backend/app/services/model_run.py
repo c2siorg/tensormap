@@ -7,7 +7,6 @@ import tensorflow as tf
 from sqlmodel import Session, select
 
 from app.callbacks import CancellationCheckCallback, MetricsCallback
-from app.callbacks.metrics_callback import _event_envelope
 from app.config import get_settings
 from app.models.data import DataFile, ImageProperties
 from app.models.ml import ModelBasic
@@ -20,6 +19,7 @@ from app.shared.constants import (
 )
 from app.shared.enums import LossFunction, ProblemType
 from app.shared.logging_config import get_logger
+from app.shared.training_events import training_event
 from app.socketio_instance import sio
 
 logger = get_logger(__name__)
@@ -240,7 +240,7 @@ def model_run(
                     sio,
                     loop,
                     job_id,
-                    _event_envelope(
+                    training_event(
                         job_id,
                         "status",
                         status="failed",

@@ -39,6 +39,10 @@ class DataFile(SQLModel, table=True):
         back_populates="file",
         sa_relationship_kwargs={"uselist": False, "cascade": "all,delete"},
     )
+    image_properties: Optional["ImageProperties"] = Relationship(
+        back_populates="file",
+        sa_relationship_kwargs={"uselist": False, "cascade": "all,delete"},
+    )
 
 
 class DataProcess(SQLModel, table=True):
@@ -71,6 +75,8 @@ class ImageProperties(SQLModel, table=True):
     batch_size: int = Field(nullable=False)
     color_mode: str = Field(max_length=10, nullable=False)
     label_mode: str = Field(max_length=15, nullable=False)
+
+    file: DataFile | None = Relationship(back_populates="image_properties")
 
     __table_args__ = (
         CheckConstraint("color_mode IN ('grayscale', 'rgb', 'rgba')", name="color_mode_check"),

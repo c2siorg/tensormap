@@ -13,6 +13,7 @@ from app.config import get_settings
 from app.models.data import DataFile, ImageProperties
 from app.models.ml import ModelBasic
 from app.models.training_job import TrainingJob, TrainingStatus
+from app.services.dataset_utils import prepare_tabular_dataset
 from app.shared.constants import (
     MODEL_GENERATION_LOCATION,
     MODEL_GENERATION_TYPE,
@@ -300,23 +301,9 @@ def _prepare_training_data(features, target_field, training_split):
         logger.warning(msg)
         _model_result(msg, -1)
 
-    features = features.dropna()
-    logger.info("Data preparation: %d -> %d rows retained", original_rows, len(features))
-
-    if target_field not in features.columns:
-        raise ValueError(f"Target field '{target_field}' not found in dataset after cleaning")
-
-    # Shuffle to prevent issues with ordered datasets
-    features = features.sample(frac=1, random_state=42).reset_index(drop=True)
-
-    X = features.drop(target_field, axis=1)
-    y = features[target_field]
-    # Encode string labels to integers for categorical targets
-    if not pd.api.types.is_numeric_dtype(y):
-        y = pd.Categorical(y).codes
-
-    split_index = int(len(X) * float(training_split) / 100)
-    return X[:split_index], y[:split_index], X[split_index:], y[split_index:]
+    ds = prepare_tabular_dataset(features, target_field=target_field, training_split=training_split)
+    logger.info("Data preparation: %d -> %d rows retained", original_rows, len(ds["raw_df"]))
+    return ds["X_train"], ds["y_train"], ds["X_test"], ds["y_test"]
 
 
 def _should_skip_evaluation(callbacks: list[tf.keras.callbacks.Callback], model: tf.keras.Model) -> bool:

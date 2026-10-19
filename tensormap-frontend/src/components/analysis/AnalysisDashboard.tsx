@@ -16,6 +16,7 @@ import ClassificationReportTable from "./ClassificationReportTable";
 import FeatureImportanceChart from "./FeatureImportanceChart";
 import PredictionExplorer from "./PredictionExplorer";
 import ResidualPlotPanel from "./ResidualPlotPanel";
+import InferencePlayground from "./InferencePlayground";
 import { useFeatureImportancePoller } from "@/hooks/useFeatureImportancePoller";
 import logger from "@/shared/logger";
 
@@ -147,6 +148,9 @@ export default function AnalysisDashboard({ jobId }: AnalysisDashboardProps) {
 
           {/* Prediction Explorer */}
           <PredictionExplorer jobId={jobId} />
+
+          {/* Interactive Inference Playground */}
+          <InferencePlayground jobId={jobId} defaultExpanded={false} />
         </>
       )}
 
@@ -206,6 +210,9 @@ export default function AnalysisDashboard({ jobId }: AnalysisDashboardProps) {
               importancesStd={featureImportanceData.importances_std}
             />
           )}
+
+          {/* Interactive Inference Playground */}
+          <InferencePlayground jobId={jobId} defaultExpanded={false} />
         </>
       )}
     </div>

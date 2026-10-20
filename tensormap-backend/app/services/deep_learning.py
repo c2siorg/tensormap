@@ -3,7 +3,6 @@ import copy
 import json
 import os
 import re
-import sys
 import uuid as uuid_pkg
 from collections import defaultdict, deque
 from datetime import UTC
@@ -102,7 +101,7 @@ def _validate_graph_size(graph: dict | None) -> str | None:
     if graph is None:
         return None
     raw = json.dumps(graph)
-    size = sys.getsizeof(raw)
+    size = len(raw.encode("utf-8"))
     if size > _MAX_GRAPH_JSON_BYTES:
         return f"Graph payload too large ({size} bytes > {_MAX_GRAPH_JSON_BYTES})"
     return None

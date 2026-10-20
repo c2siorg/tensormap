@@ -3,6 +3,7 @@ from collections import defaultdict
 from pydantic import ValidationError
 
 from app.ir.schema import (
+    AddParams,
     AvgPool2DParams,
     BatchNormParams,
     ConcatenateParams,
@@ -12,6 +13,7 @@ from app.ir.schema import (
     EmbeddingParams,
     FlattenParams,
     GlobalAvgPool2DParams,
+    GlobalMaxPool2DParams,
     GRUParams,
     InputParams,
     IREdge,
@@ -39,6 +41,7 @@ _PARAM_MODELS = {
     "maxpool2d": MaxPool2DParams,
     "avgpool2d": AvgPool2DParams,
     "globalavgpool2d": GlobalAvgPool2DParams,
+    "globalmaxpool2d": GlobalMaxPool2DParams,
     "lstm": LSTMParams,
     "gru": GRUParams,
     "simplernn": SimpleRNNParams,
@@ -47,6 +50,7 @@ _PARAM_MODELS = {
     "batchnorm": BatchNormParams,
     "reshape": ReshapeParams,
     "concatenate": ConcatenateParams,
+    "add": AddParams,
 }
 
 

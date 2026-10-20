@@ -271,7 +271,9 @@ def _analyze(
     results: dict[str, NodeAnalysis] = {}
     for node_id in order:
         entry = by_id[node_id]
-        results[node_id] = _analyze_node(entry, by_id, incoming.get(node_id, []), results, diagnostics)
+        results[node_id] = _analyze_node(
+            entry, by_id, incoming.get(node_id, []), outgoing.get(node_id, []), results, diagnostics
+        )
 
     # Nodes caught in a cycle or disconnected never became ready, so they have no shape.
     for entry in unique_entries:
@@ -298,6 +300,18 @@ def _analyze(
         and results.get(e.id) is not None
         and results[e.id].output_shape is not None
     ]
+
+    # A graph with no non-input layers cannot produce a model output.
+    if unique_entries and not any(e.layer_type != "input" for e in unique_entries):
+        diagnostics.append(
+            Diagnostic(
+                code=DiagnosticCode.NO_OUTPUT_NODE,
+                severity=Severity.ERROR,
+                message="The graph has no output layer.",
+                suggestion="Connect at least one layer downstream of an Input layer to produce a model output.",
+            )
+        )
+
     return _finish([results[e.id] for e in _in_order(unique_entries, order)], diagnostics, outputs)
 
 
@@ -344,6 +358,7 @@ def _analyze_node(
     entry: _Entry,
     by_id: dict[str, _Entry],
     sources: list[str],
+    outgoing_targets: list[str],
     results: dict[str, NodeAnalysis],
     diagnostics: list[Diagnostic],
 ) -> NodeAnalysis:
@@ -364,6 +379,17 @@ def _analyze_node(
                     node_id=entry.id,
                     related_node_ids=list(sources),
                     suggestion="Delete the connections that lead into the Input layer.",
+                )
+            )
+        has_non_input = any(e.layer_type != "input" for e in by_id.values())
+        if not sources and not outgoing_targets and has_non_input:
+            diagnostics.append(
+                Diagnostic(
+                    code=DiagnosticCode.DISCONNECTED_INPUT,
+                    severity=Severity.ERROR,
+                    message=f"{label} has no connection to the rest of the model.",
+                    node_id=entry.id,
+                    suggestion="Connect the Input layer to downstream layers or remove it.",
                 )
             )
         input_shapes: list[Shape] = []
@@ -389,18 +415,19 @@ def _analyze_node(
         return NodeAnalysis(node_id=entry.id, layer_type=entry.layer_type, input_shapes=input_shapes)
 
     try:
-        if entry.layer_type == "concatenate":
+        if entry.layer_type in ("concatenate", "add"):
             if len(input_shapes) < 2:
+                layer_title = "Concatenate" if entry.layer_type == "concatenate" else "Add"
                 raise ShapeError(
                     DiagnosticCode.MERGE_ARITY,
                     f"needs at least 2 incoming connections but has {len(input_shapes)}.",
-                    "Connect another layer to the Concatenate layer, or remove it.",
+                    f"Connect another layer to the {layer_title} layer, or remove it.",
                 )
             rule_inputs = input_shapes
         elif is_input:
             rule_inputs = []
         elif len(input_shapes) > 1:
-            # Layers other than Concatenate merge several inputs along the last axis, as Keras does.
+            # Layers other than Concatenate and Add merge several inputs along the last axis, as Keras does.
             rule_inputs = [concat_shapes(input_shapes, -1)]
         else:
             rule_inputs = input_shapes

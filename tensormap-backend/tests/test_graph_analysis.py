@@ -169,6 +169,38 @@ class TestShapeInference:
         )
         assert [n.node_id for n in analyze_graph(graph).nodes] == ["in", "out"]
 
+    def test_add_layer_shapes_and_macs(self):
+        graph = make_graph(
+            [
+                inp(8),
+                ("a", {"layer_type": "dense", "units": 16}),
+                ("b", {"layer_type": "dense", "units": 16}),
+                ("res", {"layer_type": "add"}),
+                ("out", {"layer_type": "dense", "units": 2}),
+            ],
+            [("in", "a"), ("in", "b"), ("a", "res"), ("b", "res"), ("res", "out")],
+        )
+        a = analyze_graph(graph)
+        assert a.ok and a.complete
+        assert a.node("res").output_shape == (16,)
+        assert a.node("res").params == 0
+        assert a.node("res").macs == 16
+        assert a.node("out").output_shape == (2,)
+
+    def test_globalmaxpool2d_shape_and_macs(self):
+        graph = chain(
+            inp(49),
+            ("rs", {"layer_type": "reshape", "target_shape": "7,7,1"}),
+            ("c", {"layer_type": "conv2d", "filters": 12, "kernel_size": 3, "padding": "same"}),
+            ("gmp", {"layer_type": "globalmaxpool2d"}),
+            ("out", {"layer_type": "dense", "units": 5}),
+        )
+        a = analyze_graph(graph)
+        assert a.ok and a.complete
+        assert a.node("gmp").output_shape == (12,)
+        assert a.node("gmp").params == 0
+        assert a.node("out").output_shape == (5,)
+
 
 class TestConcatShapes:
     def test_axis_counts_the_batch_axis_like_keras(self):
@@ -390,6 +422,95 @@ class TestDiagnostics:
         (d,) = a.diagnostics
         assert d.code == DiagnosticCode.INPUT_HAS_INCOMING_EDGE and d.severity == Severity.WARNING
         assert a.ok
+
+    def test_add_layer_shape_mismatch(self):
+        graph = make_graph(
+            [
+                inp(8),
+                ("a", {"layer_type": "dense", "units": 16}),
+                ("b", {"layer_type": "dense", "units": 32}),
+                ("res", {"layer_type": "add"}),
+            ],
+            [("in", "a"), ("in", "b"), ("a", "res"), ("b", "res")],
+        )
+        a = analyze_graph(graph)
+        assert not a.ok
+        (d,) = a.diagnostics
+        assert d.code == DiagnosticCode.SHAPE_MISMATCH
+        assert d.node_id == "res"
+        assert "(16,)" in d.message and "(32,)" in d.message
+        assert "matching dimensions" in d.suggestion
+
+    def test_add_layer_rank_mismatch(self):
+        graph = make_graph(
+            [
+                inp(16),
+                ("rs", {"layer_type": "reshape", "target_shape": "4,4,1"}),
+                ("d", {"layer_type": "dense", "units": 16}),
+                ("res", {"layer_type": "add"}),
+            ],
+            [("in", "rs"), ("in", "d"), ("rs", "res"), ("d", "res")],
+        )
+        a = analyze_graph(graph)
+        assert not a.ok
+        (d,) = a.diagnostics
+        assert d.code == DiagnosticCode.RANK_MISMATCH
+        assert d.node_id == "res"
+        assert "different ranks" in d.message
+
+    def test_add_layer_requires_at_least_two_inputs(self):
+        graph = make_graph(
+            [inp(10), ("res", {"layer_type": "add"})],
+            [("in", "res")],
+        )
+        a = analyze_graph(graph)
+        assert not a.ok
+        (d,) = a.diagnostics
+        assert d.code == DiagnosticCode.MERGE_ARITY
+        assert "needs at least 2 incoming connections" in d.message
+
+    def test_globalmaxpool2d_requires_3d_input(self):
+        graph = chain(inp(64), ("gmp", {"layer_type": "globalmaxpool2d"}))
+        a = analyze_graph(graph)
+        assert not a.ok
+        (d,) = a.diagnostics
+        assert d.code == DiagnosticCode.RANK_MISMATCH
+        assert d.node_id == "gmp"
+        assert "3-D input" in d.message
+
+    def test_no_output_node_when_canvas_has_only_inputs(self):
+        graph = make_graph([inp(10)], [])
+        a = analyze_graph(graph)
+        assert not a.ok
+        diag_codes = [d.code for d in a.diagnostics]
+        assert DiagnosticCode.NO_OUTPUT_NODE in diag_codes
+        assert DiagnosticCode.DISCONNECTED_INPUT not in diag_codes
+
+    def test_errored_leaf_node_excluded_from_outputs(self):
+        # A leaf node that failed shape inference must not be listed in outputs
+        graph = make_graph(
+            [
+                inp(10),
+                ("c", {"layer_type": "conv2d", "filters": 8}),
+            ],
+            [("in", "c")],
+        )
+        a = analyze_graph(graph)
+        assert not a.ok
+        assert a.output_node_ids == []
+
+    def test_disconnected_input_when_isolated_input_exists(self):
+        graph = make_graph(
+            [
+                inp(10),
+                ("in_orphan", {"layer_type": "input", "shape": 5}),
+                ("d", {"layer_type": "dense", "units": 4}),
+            ],
+            [("in", "d")],
+        )
+        a = analyze_graph(graph)
+        assert not a.ok
+        assert any(d.code == DiagnosticCode.DISCONNECTED_INPUT and d.node_id == "in_orphan" for d in a.diagnostics)
 
 
 class TestCanvasAnalysis:

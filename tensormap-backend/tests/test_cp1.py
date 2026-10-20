@@ -68,7 +68,7 @@ class TestLayerRegistry:
             "concatenate",
         }
 
-        assert set(LAYER_REGISTRY.keys()) == expected_types, "Registry should contain exactly 15 layer types"
+        assert expected_types.issubset(set(LAYER_REGISTRY.keys())), "Registry should contain all 15 CP1 layer types"
 
         # Verify each layer has required metadata
         for type_key, spec in LAYER_REGISTRY.items():

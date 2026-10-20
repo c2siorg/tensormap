@@ -556,11 +556,13 @@ def _apply_auto_layout(graph: dict) -> None:
     if not nodes:
         return
 
-    by_id = {str(node.get("id")): node for node in nodes if node.get("id") is not None}
+    by_id = {str(node["id"]): node for node in nodes if isinstance(node, dict) and node.get("id") is not None}
     adjacency: dict[str, set[str]] = defaultdict(set)
     indegree: dict[str, int] = {node_id: 0 for node_id in by_id}
 
     for edge in graph.get("edges", []):
+        if not isinstance(edge, dict):
+            continue
         source = str(edge.get("source")) if edge.get("source") is not None else None
         target = str(edge.get("target")) if edge.get("target") is not None else None
         if source in by_id and target in by_id and target not in adjacency[source]:
@@ -593,7 +595,8 @@ def _apply_auto_layout(graph: dict) -> None:
     for x_layer, node_ids in rows_by_layer.items():
         for y_row, node_id in enumerate(node_ids):
             node = by_id[node_id]
-            if "position" not in node:
+            pos = node.get("position")
+            if not isinstance(pos, dict) or "x" not in pos or "y" not in pos:
                 node["position"] = {"x": float(250 * x_layer + 100), "y": float(140 * y_row + 100)}
 
 
@@ -627,7 +630,7 @@ def _unflatten_model_configs(configs: list[ModelConfigs]) -> dict:
 
     # Coerce position x/y to numbers for ReactFlow
     for node in result.get("nodes", []):
-        if "position" in node and isinstance(node["position"], dict):
+        if isinstance(node, dict) and isinstance(node.get("position"), dict):
             for axis in ("x", "y"):
                 val = node["position"].get(axis)
                 if isinstance(val, str):

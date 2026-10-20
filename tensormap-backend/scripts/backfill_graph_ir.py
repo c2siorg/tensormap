@@ -50,7 +50,7 @@ def backfill_graph_ir(dry_run: bool = False, limit: int | None = None) -> dict:
 
     with Session(engine) as session:
         # Find all models with null graph_ir
-        stmt = select(ModelBasic).where(ModelBasic.graph_ir == None)  # noqa: E711
+        stmt = select(ModelBasic).where(ModelBasic.graph_ir.is_(None))
         if limit:
             stmt = stmt.limit(limit)
 

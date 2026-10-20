@@ -13,6 +13,7 @@ TensorFlow / flatten_json are stubbed out via sys.modules.
 """
 
 import copy
+import json
 import sys
 from unittest.mock import MagicMock
 
@@ -25,6 +26,7 @@ sys.modules.setdefault("flatten_json", MagicMock())
 
 from app.models.ml import ModelBasic, ModelConfigs  # noqa: E402
 from app.services.deep_learning import (  # noqa: E402
+    _MAX_GRAPH_JSON_BYTES,
     _apply_auto_layout,
     _extract_graph,
     _unflatten_model_configs,
@@ -130,6 +132,16 @@ class TestValidateGraphSize:
         result = _validate_graph_size(huge)
         assert result is not None
         assert "too large" in result.lower()
+
+    def test_size_calculated_from_utf8_bytes(self):
+        # Multi-byte UTF-8 string: each emoji is 4 bytes in UTF-8
+        graph = {"nodes": [{"id": "1", "data": "🎉" * 150_000}]}
+        raw = json.dumps(graph)
+        expected_bytes = len(raw.encode("utf-8"))
+        assert expected_bytes > _MAX_GRAPH_JSON_BYTES
+
+        result = _validate_graph_size(graph)
+        assert result == f"Graph payload too large ({expected_bytes} bytes > {_MAX_GRAPH_JSON_BYTES})"
 
 
 # ---------------------------------------------------------------------------

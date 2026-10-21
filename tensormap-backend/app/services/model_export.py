@@ -242,53 +242,63 @@ def export_onnx(job_id: str, model_name: str, graph_ir: dict | None = None) -> P
     export_dir = EXPORTS_BASE / job_id
     onnx_path = export_dir / f"{safe_name}.onnx"
 
-    if onnx_path.exists():
-        logger.info(f"ONNX export already exists for job {job_id}")
-        return onnx_path
+    with _export_lock(onnx_path):
+        if onnx_path.exists():
+            logger.info(f"ONNX export already exists for job {job_id}")
+            return onnx_path
 
-    model_path = export_dir / "model.keras"
-    if not model_path.exists():
-        raise FileNotFoundError(f"model.keras not found for job {job_id}")
+        model_path = export_dir / "model.keras"
+        if not model_path.exists():
+            raise FileNotFoundError(f"model.keras not found for job {job_id}")
 
-    # Lazy import
-    import tensorflow as tf
+        # Lazy import
+        import tensorflow as tf
 
-    logger.info(f"Loading model from {model_path}")
-    model = tf.keras.models.load_model(model_path)
+        logger.info(f"Loading model from {model_path}")
+        model = tf.keras.models.load_model(model_path)
 
-    # Pre-flight check
-    issues = validate_onnx_compatible(model, graph_ir)
-    if issues:
-        logger.warning(f"ONNX export unsupported for job {job_id}: {issues}")
-        raise ONNXUnsupportedError(issues)
+        # Pre-flight check
+        issues = validate_onnx_compatible(model, graph_ir)
+        if issues:
+            logger.warning(f"ONNX export unsupported for job {job_id}: {issues}")
+            raise ONNXUnsupportedError(issues)
 
-    # Import tf2onnx. On the pinned stack the onnx/tf2onnx toolchain can fail at import
-    # time with an exception that is *not* an ImportError - e.g. onnx 1.19 needs
-    # ml_dtypes.float4_e2m1fn, which the ml_dtypes 0.3.2 that TensorFlow 2.16 pins does not
-    # have, so `import tf2onnx` raises AttributeError. Any such failure must degrade to the
-    # documented 400 "onnx_unsupported" response instead of bubbling up as a raw 500.
-    try:
-        import tf2onnx  # noqa: F401
-    except Exception as e:  # noqa: BLE001 - any import-time failure means ONNX is unavailable
-        logger.error(f"tf2onnx/onnx toolchain unavailable: {e}")
-        raise ONNXUnsupportedError([f"tf2onnx/onnx toolchain unavailable: {e}"]) from e
+        # Import tf2onnx. On the pinned stack the onnx/tf2onnx toolchain can fail at import
+        # time with an exception that is *not* an ImportError - e.g. onnx 1.19 needs
+        # ml_dtypes.float4_e2m1fn, which the ml_dtypes 0.3.2 that TensorFlow 2.16 pins does not
+        # have, so `import tf2onnx` raises AttributeError. Any such failure must degrade to the
+        # documented 400 "onnx_unsupported" response instead of bubbling up as a raw 500.
+        try:
+            import tf2onnx  # noqa: F401
+        except Exception as e:  # noqa: BLE001 - any import-time failure means ONNX is unavailable
+            logger.error(f"tf2onnx/onnx toolchain unavailable: {e}")
+            raise ONNXUnsupportedError([f"tf2onnx/onnx toolchain unavailable: {e}"]) from e
 
-    logger.info("Converting to ONNX")
-    # Build input signature
-    input_shape = model.input_shape
-    if isinstance(input_shape, list):
-        # Multiple inputs
-        spec = tuple(tf.TensorSpec(shape, tf.float32, name=f"input_{i}") for i, shape in enumerate(input_shape))
-    else:
-        # Single input
-        spec = (tf.TensorSpec(input_shape, tf.float32, name="input"),)
+        logger.info("Converting to ONNX")
+        # Build input signature
+        input_shape = model.input_shape
+        if isinstance(input_shape, list):
+            # Multiple inputs
+            spec = tuple(tf.TensorSpec(shape, tf.float32, name=f"input_{i}") for i, shape in enumerate(input_shape))
+        else:
+            # Single input
+            spec = (tf.TensorSpec(input_shape, tf.float32, name="input"),)
 
-    onnx_model, _ = tf2onnx.convert.from_keras(model, input_signature=spec)
+        onnx_model, _ = tf2onnx.convert.from_keras(model, input_signature=spec)
 
-    with open(onnx_path, "wb") as f:
-        f.write(onnx_model.SerializeToString())
+        # Writing straight to onnx_path let a second request truncate the file while the
+        # first was still sending it, and a failed write left a partial file that later
+        # requests served as a finished export. Stage it in a private directory and
+        # publish it with an atomic rename, like the other formats.
+        scratch_dir = _new_scratch_dir(export_dir)
+        try:
+            staged_path = scratch_dir / "model.onnx"
+            staged_path.write_bytes(onnx_model.SerializeToString())
+            os.replace(staged_path, onnx_path)
+        finally:
+            shutil.rmtree(scratch_dir, ignore_errors=True)
+        logger.info(f"ONNX model saved to {onnx_path}")
 
-    logger.info(f"ONNX model saved to {onnx_path}")
     return onnx_path
 
 

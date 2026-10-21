@@ -27,6 +27,7 @@ from app.models.ml import ModelBasic, ModelConfigs  # noqa: E402
 from app.services.deep_learning import (  # noqa: E402
     _apply_auto_layout,
     _extract_graph,
+    _unflatten_model_configs,
     _validate_graph_size,
     get_available_model_list,
     get_model_graph_service,
@@ -159,6 +160,30 @@ class TestApplyAutoLayout:
     def test_handles_missing_nodes_key(self):
         graph = {"edges": []}
         _apply_auto_layout(graph)  # should not raise
+
+    def test_handles_non_dict_graph(self):
+        _apply_auto_layout(None)  # should not raise
+        _apply_auto_layout("invalid")  # should not raise
+
+    def test_handles_non_dict_nodes_and_edges(self):
+        graph = {
+            "nodes": [None, {"id": "n0"}, "not-a-node", 42],
+            "edges": [None, {"source": "n0", "target": "n1"}, "not-an-edge", 100],
+        }
+        _apply_auto_layout(graph)
+        assert "position" in graph["nodes"][1]
+        assert isinstance(graph["nodes"][1]["position"]["x"], float)
+
+    def test_unflatten_model_configs_with_sparse_none_nodes(self):
+        configs = [
+            ModelConfigs(parameter="nodes.0.id", value="n0"),
+            ModelConfigs(parameter="nodes.2.id", value="n2"),
+        ]
+        result = _unflatten_model_configs(configs)
+        assert len(result["nodes"]) == 3
+        assert result["nodes"][1] is None
+        assert result["nodes"][0]["id"] == "n0"
+        assert result["nodes"][2]["id"] == "n2"
 
 
 # ---------------------------------------------------------------------------

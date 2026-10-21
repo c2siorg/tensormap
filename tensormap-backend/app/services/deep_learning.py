@@ -552,20 +552,27 @@ def _apply_auto_layout(graph: dict) -> None:
     lightweight layered layout derived from edge directions so ReactFlow can
     render meaningful structure even for legacy graphs without saved positions.
     """
-    nodes = graph.get("nodes", [])
-    if not nodes:
+    if not isinstance(graph, dict):
         return
 
-    by_id = {str(node.get("id")): node for node in nodes if node.get("id") is not None}
+    nodes = graph.get("nodes", [])
+    if not nodes or not isinstance(nodes, list):
+        return
+
+    by_id = {str(node["id"]): node for node in nodes if isinstance(node, dict) and node.get("id") is not None}
     adjacency: dict[str, set[str]] = defaultdict(set)
     indegree: dict[str, int] = {node_id: 0 for node_id in by_id}
 
-    for edge in graph.get("edges", []):
-        source = str(edge.get("source")) if edge.get("source") is not None else None
-        target = str(edge.get("target")) if edge.get("target") is not None else None
-        if source in by_id and target in by_id and target not in adjacency[source]:
-            adjacency[source].add(target)
-            indegree[target] += 1
+    edges = graph.get("edges", [])
+    if isinstance(edges, list):
+        for edge in edges:
+            if not isinstance(edge, dict):
+                continue
+            source = str(edge.get("source")) if edge.get("source") is not None else None
+            target = str(edge.get("target")) if edge.get("target") is not None else None
+            if source in by_id and target in by_id and target not in adjacency[source]:
+                adjacency[source].add(target)
+                indegree[target] += 1
 
     queue = deque(sorted(node_id for node_id, degree in indegree.items() if degree == 0))
     layer: dict[str, int] = {node_id: 0 for node_id in queue}
@@ -622,17 +629,18 @@ def _unflatten_model_configs(configs: list[ModelConfigs]) -> dict:
     result = _numeric_dicts_to_lists(root)
 
     # Extract graph portion — configs from model_validate_service nest under "model"
-    if "nodes" not in result and "model" in result and isinstance(result["model"], dict):
+    if isinstance(result, dict) and "nodes" not in result and isinstance(result.get("model"), dict):
         result = result["model"]
 
     # Coerce position x/y to numbers for ReactFlow
-    for node in result.get("nodes", []):
-        if "position" in node and isinstance(node["position"], dict):
-            for axis in ("x", "y"):
-                val = node["position"].get(axis)
-                if isinstance(val, str):
-                    with contextlib.suppress(ValueError, AttributeError):
-                        node["position"][axis] = int(val) if val.lstrip("-").isdigit() else float(val)
+    if isinstance(result, dict) and isinstance(result.get("nodes"), list):
+        for node in result["nodes"]:
+            if isinstance(node, dict) and isinstance(node.get("position"), dict):
+                for axis in ("x", "y"):
+                    val = node["position"].get(axis)
+                    if isinstance(val, str):
+                        with contextlib.suppress(ValueError, AttributeError):
+                            node["position"][axis] = int(val) if val.lstrip("-").isdigit() else float(val)
 
     return result
 

@@ -189,6 +189,11 @@ def delete_project_service(db: Session, project_id: uuid_pkg.UUID) -> tuple:
             # Only files that were actually present and removed are counted.
             n_files += 1
 
+        bak_path = file_path + ".bak"
+        if os.path.isfile(bak_path):
+            with contextlib.suppress(FileNotFoundError):
+                os.remove(bak_path)
+
         if file.file_type == "zip" and "." in file.disk_name:
             # The extraction directory is derived from the ZIP's disk_name by
             # stripping the extension (e.g. data_abc123.zip -> data_abc123/).

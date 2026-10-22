@@ -143,6 +143,71 @@ async def get_confusion_matrix(
     return JSONResponse(status_code=200, content={**result, "cached": False})
 
 
+@router.get("/{job_id}/roc-curve")
+async def get_roc_curve(
+    job_id: str,
+    db: Session = Depends(get_db),
+):
+    """Returns ROC and Precision-Recall curve evaluation metrics.
+
+    Args:
+        job_id: Training job ID
+
+    Returns:
+        {
+            "classes": [
+                {
+                    "class_index": int,
+                    "class_name": str,
+                    "roc": {
+                        "fpr": [float, ...],
+                        "tpr": [float, ...],
+                        "thresholds": [float, ...],
+                        "auc": float | None,
+                    },
+                    "pr": {
+                        "precision": [float, ...],
+                        "recall": [float, ...],
+                        "thresholds": [float, ...],
+                        "auc": float | None,
+                    },
+                },
+            ],
+            "macro_roc_auc": float | None,
+            "macro_pr_auc": float | None,
+            "is_binary": bool,
+            "class_names": [str, ...],
+            "n_samples": int,
+            "analysis_type": "classification",
+            "cached": bool
+        }
+
+    Status:
+        - 200: Analysis available (from cache or computed)
+        - 400: Job not completed or regression model
+        - 404: Job not found
+    """
+    _verify_job_completed(job_id, db)
+
+    analysis_type = get_analysis_type(job_id, db)
+    if analysis_type == "regression":
+        raise HTTPException(
+            status_code=400,
+            detail="ROC and Precision-Recall curves are only available for classification models.",
+        )
+
+    cached = _service.cache.get_cached(job_id, "roc_curve", db)
+    if cached:
+        return JSONResponse(status_code=200, content={**cached, "cached": True})
+
+    try:
+        result = await _service.compute_roc_curve_async(job_id, db)
+    except (ValueError, FileNotFoundError, OSError) as exc:
+        logger.exception("ROC curve computation failed for job %s", job_id)
+        raise HTTPException(status_code=500, detail=f"Analysis computation failed: {exc}") from exc
+    return JSONResponse(status_code=200, content={**result, "cached": False})
+
+
 @router.get("/{job_id}/feature-importance")
 async def get_feature_importance(
     job_id: str,

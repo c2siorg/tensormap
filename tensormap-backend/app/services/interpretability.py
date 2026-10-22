@@ -15,10 +15,14 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from sklearn.metrics import (
+    auc,
+    average_precision_score,
     classification_report,
     confusion_matrix,
     mean_absolute_error,
     mean_squared_error,
+    precision_recall_curve,
+    roc_curve,
 )
 from sqlmodel import Session
 
@@ -64,6 +68,63 @@ def _resolve_ground_truth_classes(y_true: np.ndarray) -> np.ndarray:
     if y_true.ndim == 1 or (y_true.ndim == 2 and y_true.shape[1] == 1):
         return y_true.flatten().astype(int)
     return np.argmax(y_true, axis=1).astype(int)
+
+
+def _clean_coord(v: float) -> float:
+    """Sanitize float coordinate for JSON compliance (handles inf and nan)."""
+    if np.isinf(v):
+        return 1.0 if v > 0 else 0.0
+    if np.isnan(v):
+        return 0.0
+    return round(float(v), 5)
+
+
+def _clean_metric(val: float | None) -> float | None:
+    """Sanitize metric score for JSON compliance (handles inf and nan)."""
+    if val is None or np.isnan(val) or np.isinf(val):
+        return None
+    return round(float(val), 5)
+
+
+def _downsample_curve(
+    x: np.ndarray, y: np.ndarray, thresholds: np.ndarray, max_points: int = 100
+) -> tuple[list[float], list[float], list[float]]:
+    """Downsample ROC curve coordinates to at most max_points, preserving endpoints."""
+    n = len(x)
+    if n <= max_points:
+        return (
+            [_clean_coord(v) for v in x],
+            [_clean_coord(v) for v in y],
+            [_clean_coord(v) for v in thresholds],
+        )
+    indices = np.unique(np.linspace(0, n - 1, max_points, dtype=int))
+    return (
+        [_clean_coord(x[i]) for i in indices],
+        [_clean_coord(y[i]) for i in indices],
+        [_clean_coord(thresholds[i]) for i in indices],
+    )
+
+
+def _downsample_pr_curve(
+    precision: np.ndarray, recall: np.ndarray, thresholds: np.ndarray, max_points: int = 100
+) -> tuple[list[float], list[float], list[float]]:
+    """Downsample Precision-Recall curve coordinates to at most max_points, preserving endpoints."""
+    n = len(precision)
+    if n <= max_points:
+        return (
+            [_clean_coord(v) for v in precision],
+            [_clean_coord(v) for v in recall],
+            [_clean_coord(v) for v in thresholds],
+        )
+    indices = np.unique(np.linspace(0, n - 1, max_points, dtype=int))
+    thresh_coords = (
+        [_clean_coord(thresholds[min(i, len(thresholds) - 1)]) for i in indices] if len(thresholds) > 0 else []
+    )
+    return (
+        [_clean_coord(precision[i]) for i in indices],
+        [_clean_coord(recall[i]) for i in indices],
+        thresh_coords,
+    )
 
 
 class AnalysisCache:
@@ -401,6 +462,139 @@ class InterpretabilityService:
             "class_names": class_names,
             "overall_accuracy": float(report["accuracy"]),
             "n_samples": len(y_true_classes),
+            "analysis_type": "classification",
+        }
+
+    # ------------------------------------------------------------------
+    # ROC and Precision-Recall curve analysis
+    # ------------------------------------------------------------------
+
+    async def compute_roc_curve_async(self, job_id: str, session: Session) -> dict:
+        """Async wrapper — runs blocking sklearn ROC computation in thread pool.
+
+        Returns cached result if available.
+
+        Args:
+            job_id: Training job ID
+            session: Database session
+
+        Returns:
+            Dictionary with per-class ROC and PR curves, AUC scores, and macro averages.
+        """
+        cache = self.cache.get_cached(job_id, "roc_curve", session)
+        if cache:
+            return cache
+
+        result = await asyncio.to_thread(self._compute_roc_curve_sync, job_id, session)
+        self.cache.set_cached(job_id, "roc_curve", result, session)
+        return result
+
+    def _compute_roc_curve_sync(self, job_id: str, session: Session) -> dict:
+        """Compute ROC and Precision-Recall curves and AUC metrics (blocking).
+
+        Loads the trained model from exports, runs inference on the test split,
+        and computes sklearn ROC, PR, and AUC scores with One-vs-Rest support.
+
+        Args:
+            job_id: Training job ID
+            session: Database session
+
+        Returns:
+            Dictionary containing per-class curves and AUC metrics.
+        """
+        import tensorflow as tf
+
+        model_path = EXPORTS_BASE / job_id / "model.keras"
+        model = tf.keras.models.load_model(model_path)
+
+        X_test, y_test, class_names = self._load_test_data(job_id, session)
+
+        y_pred = model.predict(X_test, verbose=0)
+        _, y_pred_probs = _resolve_classification_predictions(y_pred)
+        y_true = _resolve_ground_truth_classes(y_test)
+
+        n_classes = len(class_names)
+        is_binary = n_classes == 2 or (y_pred_probs.ndim == 2 and y_pred_probs.shape[1] == 2)
+
+        classes_data = []
+        class_roc_aucs: list[float] = []
+        class_pr_aucs: list[float] = []
+
+        for c in range(n_classes):
+            y_binary = (y_true == c).astype(int)
+            prob_c = (
+                y_pred_probs[:, c]
+                if (y_pred_probs.ndim == 2 and c < y_pred_probs.shape[1])
+                else np.zeros_like(y_true, dtype=float)
+            )
+
+            # Defensive guard against single-class in test set split
+            if len(np.unique(y_binary)) < 2:
+                classes_data.append(
+                    {
+                        "class_index": c,
+                        "class_name": class_names[c],
+                        "insufficient_data": True,
+                        "roc": {
+                            "fpr": [],
+                            "tpr": [],
+                            "thresholds": [],
+                            "auc": None,
+                        },
+                        "pr": {
+                            "precision": [],
+                            "recall": [],
+                            "thresholds": [],
+                            "auc": None,
+                        },
+                    }
+                )
+                continue
+
+            # Compute ROC curve and AUC
+            fpr, tpr, roc_thresh = roc_curve(y_binary, prob_c)
+            roc_auc_val = _clean_metric(auc(fpr, tpr)) if len(fpr) > 1 else None
+            if roc_auc_val is not None:
+                class_roc_aucs.append(roc_auc_val)
+            down_fpr, down_tpr, down_roc_thresh = _downsample_curve(fpr, tpr, roc_thresh, max_points=100)
+
+            # Compute Precision-Recall curve and Average Precision (PR-AUC)
+            prec, rec, pr_thresh = precision_recall_curve(y_binary, prob_c)
+            pr_auc_val = _clean_metric(average_precision_score(y_binary, prob_c))
+            if pr_auc_val is not None:
+                class_pr_aucs.append(pr_auc_val)
+            down_prec, down_rec, down_pr_thresh = _downsample_pr_curve(prec, rec, pr_thresh, max_points=100)
+
+            classes_data.append(
+                {
+                    "class_index": c,
+                    "class_name": class_names[c],
+                    "insufficient_data": False,
+                    "roc": {
+                        "fpr": down_fpr,
+                        "tpr": down_tpr,
+                        "thresholds": down_roc_thresh,
+                        "auc": roc_auc_val,
+                    },
+                    "pr": {
+                        "precision": down_prec,
+                        "recall": down_rec,
+                        "thresholds": down_pr_thresh,
+                        "auc": pr_auc_val,
+                    },
+                }
+            )
+
+        macro_roc_auc = _clean_metric(np.mean(class_roc_aucs)) if class_roc_aucs else None
+        macro_pr_auc = _clean_metric(np.mean(class_pr_aucs)) if class_pr_aucs else None
+
+        return {
+            "classes": classes_data,
+            "macro_roc_auc": macro_roc_auc,
+            "macro_pr_auc": macro_pr_auc,
+            "is_binary": is_binary,
+            "class_names": class_names,
+            "n_samples": len(y_true),
             "analysis_type": "classification",
         }
 

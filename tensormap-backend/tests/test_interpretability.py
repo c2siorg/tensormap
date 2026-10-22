@@ -22,7 +22,12 @@ from sqlmodel import Session
 from app.main import app
 from app.models.ml import ModelBasic
 from app.models.training_job import TrainingJob, TrainingStatus
-from app.services.interpretability import AnalysisCache, InterpretabilityService
+from app.services.interpretability import (
+    AnalysisCache,
+    InterpretabilityService,
+    _downsample_curve,
+    _downsample_pr_curve,
+)
 from app.shared.enums import ProblemType
 from tests.fixtures.create_test_model import (
     create_test_training_job,
@@ -1037,3 +1042,318 @@ def test_feature_importance_regression_uses_mse_scoring(regression_job, db_sessi
     # Check that importances are computed and finite
     for val in result["importances_mean"]:
         assert isinstance(val, float)
+
+
+# ------------------------------------------------------------------
+# Tests for ROC and Precision-Recall Curves with AUC Analysis
+# ------------------------------------------------------------------
+
+
+def test_downsample_curve_preserves_endpoints():
+    """Downsampling preserves endpoints and caps output length at max_points."""
+    # Under limit
+    x_small = np.linspace(0, 1, 30)
+    y_small = np.linspace(0, 1, 30)
+    t_small = np.linspace(1, 0, 30)
+    x_out, y_out, t_out = _downsample_curve(x_small, y_small, t_small, max_points=100)
+    assert len(x_out) == 30
+    assert x_out[0] == 0.0
+    assert x_out[-1] == 1.0
+
+    # Over limit
+    x_large = np.linspace(0, 1, 350)
+    y_large = np.sqrt(x_large)
+    t_large = np.linspace(1, 0, 350)
+    x_out, y_out, t_out = _downsample_curve(x_large, y_large, t_large, max_points=100)
+    assert len(x_out) <= 100
+    assert len(y_out) <= 100
+    assert len(t_out) <= 100
+    assert x_out[0] == 0.0
+    assert x_out[-1] == 1.0
+
+
+def test_downsample_pr_curve_handles_differing_threshold_length():
+    """Precision-Recall curve downsampling gracefully handles threshold length N-1 and preserves threshold alignment."""
+    prec = np.linspace(1.0, 0.4, 250)
+    rec = np.linspace(0.0, 1.0, 250)
+    thresh = np.linspace(0.99, 0.01, 249)
+
+    p_out, r_out, t_out = _downsample_pr_curve(prec, rec, thresh, max_points=100)
+    assert len(p_out) <= 100
+    assert len(r_out) <= 100
+    assert len(t_out) <= 100
+    assert p_out[0] == 1.0
+    assert r_out[0] == 0.0
+
+    # Verify that each returned threshold matches the original value at the same index
+    indices = np.unique(np.linspace(0, len(prec) - 1, 100, dtype=int))
+    for k, i in enumerate(indices):
+        expected_thresh = round(float(thresh[min(i, len(thresh) - 1)]), 5)
+        assert t_out[k] == expected_thresh
+        assert p_out[k] == round(float(prec[i]), 5)
+        assert r_out[k] == round(float(rec[i]), 5)
+
+
+@pytest.mark.slow
+def test_roc_curve_multiclass_computation(trained_job, db_session):
+    """Multi-class model produces per-class ROC and PR curves with macro-average AUCs."""
+    job_id = trained_job["job_id"]
+    X_test = trained_job["X_test"]
+    y_test = trained_job["y_test"]
+    class_names = [f"class_{i}" for i in range(3)]
+
+    service = InterpretabilityService()
+
+    with (
+        patch.object(
+            service,
+            "_load_test_data",
+            return_value=(X_test, y_test, class_names),
+        ),
+        patch(
+            "app.services.interpretability.EXPORTS_BASE",
+            trained_job["export_dir"],
+        ),
+    ):
+        result = service._compute_roc_curve_sync(job_id, db_session)
+
+    assert result["analysis_type"] == "classification"
+    assert result["is_binary"] is False
+    assert result["class_names"] == class_names
+    assert result["n_samples"] == len(y_test)
+    assert len(result["classes"]) == 3
+
+    for item in result["classes"]:
+        assert "class_index" in item
+        assert "class_name" in item
+        roc = item["roc"]
+        pr = item["pr"]
+        assert len(roc["fpr"]) == len(roc["tpr"])
+        assert len(roc["fpr"]) <= 100
+        assert 0.0 <= roc["auc"] <= 1.0
+        assert len(pr["precision"]) == len(pr["recall"])
+        assert len(pr["precision"]) <= 100
+        assert 0.0 <= pr["auc"] <= 1.0
+
+    assert 0.0 <= result["macro_roc_auc"] <= 1.0
+    assert 0.0 <= result["macro_pr_auc"] <= 1.0
+
+
+@pytest.mark.slow
+def test_roc_curve_binary_model_computation(db_session, export_dir):
+    """Binary classification model produces valid ROC/PR curves and identifies as binary."""
+    from app.models.data import DataFile
+    from app.models.ml import ModelBasic
+    from app.models.project import Project
+
+    project = Project(name="bin_proj")
+    db_session.add(project)
+    db_session.commit()
+    db_session.refresh(project)
+
+    data_file = DataFile(file_name="bin.csv", file_type="csv", disk_name="bin.csv", project_id=project.id)
+    db_session.add(data_file)
+    db_session.commit()
+    db_session.refresh(data_file)
+
+    model = ModelBasic(
+        model_name="binary_model",
+        file_id=data_file.id,
+        project_id=project.id,
+        model_type=ProblemType.CLASSIFICATION,
+        target_field="label",
+        training_split=80,
+    )
+    db_session.add(model)
+    db_session.commit()
+    db_session.refresh(model)
+
+    job_id = str(uuid4())
+    job = TrainingJob(
+        id=job_id,
+        model_id=model.id,
+        status=TrainingStatus.COMPLETED,
+        hyperparams={},
+        started_at=datetime.now(UTC),
+        completed_at=datetime.now(UTC),
+    )
+    db_session.add(job)
+    db_session.commit()
+
+    X_test = np.random.randn(40, 2).astype(np.float32)
+    y_test = np.array([0] * 20 + [1] * 20, dtype=int)
+    class_names = ["neg", "pos"]
+
+    # Mock Keras model outputting probabilities for 2 classes
+    mock_model = MagicMock()
+    mock_probs = np.array([[0.8, 0.2]] * 20 + [[0.1, 0.9]] * 20, dtype=np.float32)
+    mock_model.predict = MagicMock(return_value=mock_probs)
+
+    service = InterpretabilityService()
+
+    with (
+        patch.object(
+            service,
+            "_load_test_data",
+            return_value=(X_test, y_test, class_names),
+        ),
+        patch(
+            "tensorflow.keras.models.load_model",
+            return_value=mock_model,
+        ),
+    ):
+        result = service._compute_roc_curve_sync(job_id, db_session)
+
+    assert result["is_binary"] is True
+    assert len(result["classes"]) == 2
+    assert result["classes"][1]["roc"]["auc"] == 1.0
+    assert result["classes"][1]["pr"]["auc"] == 1.0
+    assert result["macro_roc_auc"] == 1.0
+    assert result["macro_pr_auc"] == 1.0
+
+    # Test the sigmoid single-output path (shape (N, 1))
+    mock_sigmoid_model = MagicMock()
+    mock_sigmoid_probs = np.array([[0.2]] * 20 + [[0.9]] * 20, dtype=np.float32)
+    mock_sigmoid_model.predict = MagicMock(return_value=mock_sigmoid_probs)
+
+    with (
+        patch.object(
+            service,
+            "_load_test_data",
+            return_value=(X_test, y_test, class_names),
+        ),
+        patch(
+            "tensorflow.keras.models.load_model",
+            return_value=mock_sigmoid_model,
+        ),
+    ):
+        result_sigmoid = service._compute_roc_curve_sync(job_id, db_session)
+
+    assert result_sigmoid["is_binary"] is True
+    assert len(result_sigmoid["classes"]) == 2
+    assert result_sigmoid["classes"][1]["roc"]["auc"] == 1.0
+    assert result_sigmoid["classes"][1]["pr"]["auc"] == 1.0
+    assert result_sigmoid["macro_roc_auc"] == 1.0
+    assert result_sigmoid["macro_pr_auc"] == 1.0
+
+
+def test_roc_curve_single_class_fallback(db_session):
+    """When a class has only 1 unique value in ground truth, return empty arrays and insufficient_data flag."""
+    service = InterpretabilityService()
+    job_id = str(uuid4())
+    X_test = np.zeros((10, 2), dtype=np.float32)
+    # y_test has only class 0, class 1 is absent
+    y_test = np.zeros(10, dtype=int)
+    class_names = ["class_0", "class_1"]
+
+    mock_model = MagicMock()
+    mock_probs = np.full((10, 2), 0.5, dtype=np.float32)
+    mock_model.predict = MagicMock(return_value=mock_probs)
+
+    with (
+        patch.object(
+            service,
+            "_load_test_data",
+            return_value=(X_test, y_test, class_names),
+        ),
+        patch(
+            "tensorflow.keras.models.load_model",
+            return_value=mock_model,
+        ),
+    ):
+        result = service._compute_roc_curve_sync(job_id, db_session)
+
+    assert result["classes"][0]["insufficient_data"] is True
+    assert result["classes"][0]["roc"]["fpr"] == []
+    assert result["classes"][0]["roc"]["tpr"] == []
+    assert result["classes"][0]["roc"]["auc"] is None
+    assert result["classes"][0]["pr"]["precision"] == []
+    assert result["classes"][0]["pr"]["auc"] is None
+    assert result["classes"][1]["insufficient_data"] is True
+    assert result["classes"][1]["roc"]["fpr"] == []
+    assert result["classes"][1]["roc"]["auc"] is None
+
+
+@pytest.mark.slow
+def test_roc_curve_caching(trained_job, db_session):
+    """Subsequent calls to compute_roc_curve_async hit cache without recomputing."""
+    job_id = trained_job["job_id"]
+    X_test = trained_job["X_test"]
+    y_test = trained_job["y_test"]
+    class_names = [str(i) for i in range(3)]
+
+    service = InterpretabilityService()
+
+    with (
+        patch.object(
+            service,
+            "_load_test_data",
+            return_value=(X_test, y_test, class_names),
+        ),
+        patch(
+            "app.services.interpretability.EXPORTS_BASE",
+            trained_job["export_dir"],
+        ),
+    ):
+        result1 = asyncio.run(service.compute_roc_curve_async(job_id, db_session))
+
+        with patch.object(service, "_compute_roc_curve_sync") as mock_sync:
+            result2 = asyncio.run(service.compute_roc_curve_async(job_id, db_session))
+            mock_sync.assert_not_called()
+
+    assert result1["macro_roc_auc"] == result2["macro_roc_auc"]
+    assert len(result1["classes"]) == len(result2["classes"])
+
+
+@pytest.mark.slow
+def test_roc_curve_endpoint_returns_200(trained_job, db_session):
+    """GET /model/analysis/{job_id}/roc-curve returns 200 with complete evaluation data."""
+    job_id = trained_job["job_id"]
+    X_test = trained_job["X_test"]
+    y_test = trained_job["y_test"]
+    class_names = [f"class_{i}" for i in range(3)]
+
+    with (
+        patch.object(
+            InterpretabilityService,
+            "_load_test_data",
+            return_value=(X_test, y_test, class_names),
+        ),
+        patch(
+            "app.services.interpretability.EXPORTS_BASE",
+            trained_job["export_dir"],
+        ),
+    ):
+        resp = client.get(f"/api/v1/model/analysis/{job_id}/roc-curve")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["cached"] is False
+    assert len(data["classes"]) == 3
+    assert "macro_roc_auc" in data
+    assert "macro_pr_auc" in data
+
+    # Verify second call hits cache
+    resp2 = client.get(f"/api/v1/model/analysis/{job_id}/roc-curve")
+    assert resp2.status_code == 200
+    assert resp2.json()["cached"] is True
+
+
+def test_roc_curve_endpoint_rejects_regression_model(regression_job):
+    """GET /model/analysis/{job_id}/roc-curve rejects regression models with 400."""
+    resp = client.get(f"/api/v1/model/analysis/{regression_job}/roc-curve")
+    assert resp.status_code == 400
+    assert "only available for classification" in resp.json()["detail"]
+
+
+def test_roc_curve_endpoint_rejects_pending_job(pending_job):
+    """GET /model/analysis/{job_id}/roc-curve rejects incomplete jobs with 400."""
+    resp = client.get(f"/api/v1/model/analysis/{pending_job}/roc-curve")
+    assert resp.status_code == 400
+    assert "only available for completed jobs" in resp.json()["detail"]
+
+
+def test_roc_curve_endpoint_404_for_nonexistent_job(db_session):
+    """GET /model/analysis/{job_id}/roc-curve returns 404 for unknown job."""
+    resp = client.get("/api/v1/model/analysis/00000000-0000-0000-0000-000000000000/roc-curve")
+    assert resp.status_code == 404

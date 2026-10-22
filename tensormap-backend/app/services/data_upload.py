@@ -234,6 +234,12 @@ def delete_one_file_by_id_service(db: Session, file_id: uuid_pkg.UUID) -> tuple:
         with contextlib.suppress(FileNotFoundError):
             os.remove(file_path)
 
+        # Clean up any preprocessing backup (.bak) to prevent orphaned storage leaks
+        bak_path = file_path + ".bak"
+        if os.path.isfile(bak_path):
+            with contextlib.suppress(FileNotFoundError):
+                os.remove(bak_path)
+
         if file.file_type == "zip":
             extract_dir_name = file.disk_name.rsplit(".", 1)[0]
             extract_path = os.path.join(upload_folder, extract_dir_name)

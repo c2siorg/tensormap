@@ -177,10 +177,15 @@ def get_data_metrics(db: Session, file_id: uuid_pkg.UUID) -> tuple:
         logger.exception("Error reading file: %s", str(e))
         return _resp(500, False, f"Error reading CSV: {e}")
 
+    def _clean_str_dict(df_in: pd.DataFrame) -> dict:
+        return {
+            col: {k: None if pd.isna(v) else str(v) for k, v in row.items()} for col, row in df_in.to_dict().items()
+        }
+
     metrics = {
         "data_types": df.dtypes.apply(str).to_dict(),
-        "correlation_matrix": df.corr(numeric_only=True).map(str).to_dict(),
-        "metric": df.describe().map(str).to_dict(),
+        "correlation_matrix": _clean_str_dict(df.corr(numeric_only=True)),
+        "metric": _clean_str_dict(df.describe()),
     }
     return _resp(200, True, "Dataset metrics generated successfully", metrics)
 
@@ -487,3 +492,72 @@ def preprocess_data(db: Session, file_id: uuid_pkg.UUID, transformations: list) 
     except Exception as e:
         logger.exception("Error preprocessing data: %s", str(e))
         return _resp(500, False, f"Error preprocessing data: {e}")
+
+
+def revert_data_process_service(db: Session, file_id: uuid_pkg.UUID) -> tuple:
+    """Revert a CSV dataset to its pre-processed state using the backup file (.bak).
+
+    Atomically restores the original CSV from file_path + ".bak", removes the backup,
+    refreshes the cached columns in DataFile.columns, and commits the updated record.
+    """
+    file = db.exec(select(DataFile).where(DataFile.id == file_id)).first()
+    if not file:
+        return _resp(400, False, "File doesn't exist in DB")
+
+    if file.file_type != "csv":
+        return _resp(400, False, "Revert is only supported for CSV datasets")
+
+    file_path = _get_file_path(file)
+    bak_path = file_path + ".bak"
+
+    if not os.path.isfile(bak_path):
+        return _resp(400, False, "No preprocessing backup found for this dataset")
+
+    # Atomically replace current transformed file with the backup
+    try:
+        os.replace(bak_path, file_path)
+    except OSError as e:
+        logger.exception("Failed to restore backup from %s to %s", bak_path, file_path)
+        return _resp(500, False, f"Failed to restore dataset from backup: {e}")
+
+    # Refresh columns cache
+    refreshed_columns = read_csv_columns(file_path)
+    if refreshed_columns is not None:
+        file.columns = refreshed_columns
+        db.add(file)
+        db.commit()
+
+    return _resp(
+        200,
+        True,
+        "Dataset reverted to pre-processed state successfully",
+        {"file_id": str(file_id), "columns": file.columns},
+    )
+
+
+def get_dataset_backup_status_service(db: Session, file_id: uuid_pkg.UUID) -> tuple:
+    """Check if a preprocessing backup exists for a CSV file and return its metadata."""
+    file = db.exec(select(DataFile).where(DataFile.id == file_id)).first()
+    if not file:
+        return _resp(400, False, "File doesn't exist in DB")
+
+    if file.file_type != "csv":
+        return _resp(
+            200,
+            True,
+            "Backup status retrieved successfully",
+            {"has_backup": False, "backup_size_bytes": None},
+        )
+
+    file_path = _get_file_path(file)
+    bak_path = file_path + ".bak"
+
+    has_backup = os.path.isfile(bak_path)
+    backup_size = os.path.getsize(bak_path) if has_backup else None
+
+    return _resp(
+        200,
+        True,
+        "Backup status retrieved successfully",
+        {"has_backup": has_backup, "backup_size_bytes": backup_size},
+    )

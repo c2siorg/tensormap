@@ -382,6 +382,27 @@ class TestGetDataMetrics:
         assert status == 200
         assert body["data"]["metric"]["a"]["count"] == "0"
 
+    @patch("app.services.data_process.get_settings")
+    def test_nan_correlation_serializes_to_none(self, mock_settings, mock_db, file_id, tmp_path):
+        """Constant column produces NaN in correlation matrix, which must serialize to None (null)."""
+        # Column 'const' has variance 0, so corr produces NaN
+        pd.DataFrame({"const": [5, 5, 5], "val": [1, 2, 3]}).to_csv(tmp_path / "const.csv", index=False)
+
+        const_file = MagicMock(spec=DataFile)
+        const_file.file_name = "const"
+        const_file.file_type = "csv"
+        const_file.disk_name = "const.csv"
+
+        mock_settings.return_value.upload_folder = str(tmp_path)
+        mock_db.exec.return_value.first.return_value = const_file
+
+        body, status = get_data_metrics(mock_db, file_id)
+
+        assert status == 200
+        corr_matrix = body["data"]["correlation_matrix"]
+        assert corr_matrix["const"]["val"] is None, "NaN correlation should serialize to None/null"
+        assert corr_matrix["val"]["const"] is None, "NaN correlation should serialize to None/null"
+
 
 # ---------------------------------------------------------------------------
 # get_file_data

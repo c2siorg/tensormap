@@ -44,17 +44,23 @@ def add_file_service(db: Session, file_wrapper: Any, project_id: uuid_pkg.UUID |
     if file_size > settings.max_content_length:
         return _resp(413, False, "File too large. Maximum allowed size is 200MB.")
 
-    # Generate unique filename to prevent collisions
-    original_name = file_wrapper.filename.rsplit(".", 1)[0].lower()
-    original_ext = file_wrapper.filename.rsplit(".", 1)[1].lower()
+    # Generate unique filename to prevent collisions.
+    # Sanitise the raw filename *before* building the disk path so
+    # directory-traversal sequences like ``../`` are stripped.
+    raw_name = file_wrapper.filename or ""
+    if "." not in raw_name:
+        return _resp(400, False, "Filename must include an extension (e.g. .csv, .zip)")
+    original_ext = raw_name.rsplit(".", 1)[1].lower()
+    safe_base = secure_filename(raw_name.rsplit(".", 1)[0]) or "upload"
+    safe_ext = secure_filename(original_ext) or "dat"
     unique_id = uuid_pkg.uuid4().hex[:8]
-    safe_filename = f"{original_name}_{unique_id}.{original_ext}"
+    safe_filename = f"{safe_base}_{unique_id}.{safe_ext}"
     file_path = os.path.join(upload_folder, safe_filename)
 
     file_wrapper.save(file_path)
 
-    file_name_db = secure_filename(original_name)
-    file_type_db = original_ext
+    file_name_db = safe_base
+    file_type_db = safe_ext
     logger.info("Saving file: %s (disk name: %s)", file_name_db, safe_filename)
 
     file_id = uuid_pkg.uuid4()
@@ -218,6 +224,12 @@ def delete_one_file_by_id_service(db: Session, file_id: uuid_pkg.UUID) -> tuple:
         for mb in model_basics:
             mb.file_id = None
             db.add(mb)
+
+        # Delete the ImageProperties row that shares the same PK before
+        # removing the DataFile itself, so the FK is satisfied.
+        img_props = db.exec(select(ImageProperties).where(ImageProperties.id == file_id)).first()
+        if img_props:
+            db.delete(img_props)
 
         db.delete(file)
         db.commit()

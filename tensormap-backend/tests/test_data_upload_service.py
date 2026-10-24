@@ -40,10 +40,11 @@ class TestDeleteOneFileById:
         assert body["success"] is False
 
     def test_happy_path_deletes_db_and_disk(self, mock_db, file_id, sample_file):
-        r1, r2 = MagicMock(), MagicMock()
+        r1, r2, r3 = MagicMock(), MagicMock(), MagicMock()
         r1.first.return_value = sample_file
         r2.all.return_value = []
-        mock_db.exec.side_effect = [r1, r2]
+        r3.first.return_value = None  # no ImageProperties for CSV
+        mock_db.exec.side_effect = [r1, r2, r3]
 
         with (
             patch("app.services.data_upload.os.remove") as mock_remove,
@@ -59,10 +60,11 @@ class TestDeleteOneFileById:
         mock_remove.assert_called_once()
 
     def test_disk_removed_after_db_commit(self, mock_db, file_id, sample_file):
-        r1, r2 = MagicMock(), MagicMock()
+        r1, r2, r3 = MagicMock(), MagicMock(), MagicMock()
         r1.first.return_value = sample_file
         r2.all.return_value = []
-        mock_db.exec.side_effect = [r1, r2]
+        r3.first.return_value = None  # no ImageProperties for CSV
+        mock_db.exec.side_effect = [r1, r2, r3]
 
         call_order = []
         mock_db.commit.side_effect = lambda: call_order.append("commit")
@@ -78,10 +80,11 @@ class TestDeleteOneFileById:
 
     def test_db_delete_failure_does_not_remove_disk(self, mock_db, file_id, sample_file):
         """If db.commit() raises, the disk file must NOT be removed."""
-        r1, r2 = MagicMock(), MagicMock()
+        r1, r2, r3 = MagicMock(), MagicMock(), MagicMock()
         r1.first.return_value = sample_file
         r2.all.return_value = []
-        mock_db.exec.side_effect = [r1, r2]
+        r3.first.return_value = None  # no ImageProperties for CSV
+        mock_db.exec.side_effect = [r1, r2, r3]
         mock_db.commit.side_effect = SQLAlchemyError("DB commit failed")
 
         removed = []
@@ -96,14 +99,57 @@ class TestDeleteOneFileById:
         assert status == 500
         assert len(removed) == 0, f"os.remove was called despite commit failure: {removed}"
 
+    def test_deletes_image_properties_before_zip_data_file(self, mock_db, file_id):
+        """Deleting a ZIP must remove ImageProperties first to avoid FK violation (#442)."""
+        file = MagicMock(spec=DataFile)
+        file.id = file_id
+        file.disk_name = "images_abc.zip"
+        file.file_type = "zip"
+
+        img_props = MagicMock()
+
+        r1 = MagicMock()
+        r1.first.return_value = file
+        r2 = MagicMock()
+        r2.all.return_value = []  # no ModelBasic refs
+        r3 = MagicMock()
+        r3.first.return_value = img_props
+
+        mock_db.exec.side_effect = [r1, r2, r3]
+
+        call_order = []
+
+        def track_delete(obj):
+            call_order.append(type(obj).__name__ if hasattr(obj, "__name__") else repr(obj))
+
+        mock_db.delete = MagicMock(side_effect=track_delete)
+
+        with (
+            patch("app.services.data_upload.os.remove"),
+            patch("app.services.data_upload.shutil.rmtree"),
+            patch("app.services.data_upload.get_settings") as mock_settings,
+        ):
+            mock_settings.return_value.upload_folder = "/tmp"
+            body, status = delete_one_file_by_id_service(mock_db, file_id)
+
+        assert status == 200
+        assert body["success"] is True
+        # ImageProperties must be deleted before DataFile
+        assert mock_db.delete.call_count == 2
+        first_deleted = mock_db.delete.call_args_list[0][0][0]
+        second_deleted = mock_db.delete.call_args_list[1][0][0]
+        assert first_deleted is img_props
+        assert second_deleted is file
+
     def test_nulls_all_model_basic_file_ids(self, mock_db, file_id, sample_file):
         mb1, mb2 = MagicMock(), MagicMock()
         mb1.file_id = file_id
         mb2.file_id = file_id
-        r1, r2 = MagicMock(), MagicMock()
+        r1, r2, r3 = MagicMock(), MagicMock(), MagicMock()
         r1.first.return_value = sample_file
         r2.all.return_value = [mb1, mb2]
-        mock_db.exec.side_effect = [r1, r2]
+        r3.first.return_value = None  # no ImageProperties for CSV
+        mock_db.exec.side_effect = [r1, r2, r3]
 
         with (
             patch("app.services.data_upload.os.remove"),
@@ -239,6 +285,64 @@ class TestAddFileService:
         assert status == 400
         assert body["success"] is False
         assert "traversal" in body["message"].lower()
+
+    def test_filename_with_path_traversal_is_sanitised(self, tmp_path):
+        """Filenames containing ``../`` must not escape the upload folder."""
+        db = MagicMock()
+        fw = self._make_fw("../../../etc/passwd.csv")
+        fw.save = MagicMock()
+
+        with (
+            patch("app.services.data_upload.get_settings") as ms,
+            patch("app.services.data_upload.os.makedirs"),
+            patch("app.services.data_upload.read_csv_columns", return_value=["a"]),
+            patch(
+                "app.services.data_upload.pd.read_csv",
+                return_value=iter([]),
+            ),
+        ):
+            ms.return_value.max_content_length = 200 * 1024 * 1024
+            ms.return_value.upload_folder = str(tmp_path)
+            body, status = add_file_service(db, fw)
+
+        assert status == 201
+        # The disk path passed to save() must be inside the upload folder
+        saved_path = fw.save.call_args[0][0]
+        assert str(tmp_path) in saved_path
+        assert ".." not in saved_path
+
+    def test_filename_without_extension_is_rejected(self):
+        """Filenames with no extension are refused with 400."""
+        db = MagicMock()
+        fw = self._make_fw("no_extension")
+
+        with (
+            patch("app.services.data_upload.get_settings") as ms,
+            patch("app.services.data_upload.os.makedirs"),
+        ):
+            ms.return_value.max_content_length = 200 * 1024 * 1024
+            ms.return_value.upload_folder = "/tmp/tm_test"
+            body, status = add_file_service(db, fw)
+
+        assert status == 400
+        assert body["success"] is False
+        assert "extension" in body["message"].lower()
+
+    def test_empty_filename_is_rejected(self):
+        """An empty or None filename is refused with 400."""
+        db = MagicMock()
+        fw = self._make_fw("")
+
+        with (
+            patch("app.services.data_upload.get_settings") as ms,
+            patch("app.services.data_upload.os.makedirs"),
+        ):
+            ms.return_value.max_content_length = 200 * 1024 * 1024
+            ms.return_value.upload_folder = "/tmp/tm_test"
+            body, status = add_file_service(db, fw)
+
+        assert status == 400
+        assert body["success"] is False
 
 
 class TestGetAllFilesService:

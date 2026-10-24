@@ -379,12 +379,15 @@ def _run(model_name: str, db: Session, job_id: str | None = None) -> None:
         )
         model.evaluate(test_data, callbacks=callbacks, verbose=0)
     else:
+        validation_data = (x_testing, y_testing) if len(x_testing) > 0 else None
         model.fit(
             x_training,
             y_training,
+            validation_data=validation_data,
             epochs=model_configs.epochs,
             batch_size=batch_size,
             callbacks=callbacks,
             verbose=0,
         )
-        model.evaluate(x_testing, y_testing, callbacks=callbacks, verbose=0)
+        if len(x_testing) > 0:
+            model.evaluate(x_testing, y_testing, callbacks=callbacks, verbose=0)

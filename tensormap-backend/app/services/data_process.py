@@ -13,7 +13,7 @@ from sqlalchemy import func
 from sqlmodel import Session, select
 
 from app.config import get_settings
-from app.models import DataFile, DataProcess
+from app.models import DataFile, DataProcess, ModelBasic
 from app.shared.csv_columns import read_csv_columns
 from app.shared.logging_config import get_logger
 
@@ -310,9 +310,13 @@ def _one_hot_encode(df: pd.DataFrame, col: str, _params: dict | None) -> pd.Data
 
 
 def _categorical_to_numerical(df: pd.DataFrame, col: str, _params: dict | None) -> pd.DataFrame:
-    # Preserve integer dtype so downstream consumers see a proper int column.
-    # pd.Categorical.codes returns int with -1 for NaNs — keep that convention
-    # rather than promoting to float just to hold NaN.
+    # Check for NaNs before converting to categorical codes to prevent silent -1 assignment
+    if df[col].isnull().any():
+        null_count = int(df[col].isnull().sum())
+        raise ValueError(
+            f"Column '{col}' contains {null_count} missing value(s). Please impute missing values "
+            "before converting categorical values to numerical codes to prevent invalid -1 code assignment."
+        )
     df[col] = pd.Categorical(df[col]).codes
     return df
 
@@ -322,20 +326,30 @@ def _drop_column(df: pd.DataFrame, col: str, _params: dict | None) -> pd.DataFra
 
 
 def _min_max_normalize(df: pd.DataFrame, col: str, _params: dict | None) -> pd.DataFrame:
+    if not pd.api.types.is_numeric_dtype(df[col]):
+        raise ValueError(f"Cannot apply Min-Max Normalization to non-numeric column '{col}'")
     col_min = df[col].min()
     col_max = df[col].max()
+    if pd.isna(col_min) or pd.isna(col_max):
+        raise ValueError(f"Cannot normalize column '{col}' because it contains only missing values.")
     df[col] = 0.0 if np.isclose(col_min, col_max) else (df[col] - col_min) / (col_max - col_min)
     return df
 
 
 def _zscore_standardize(df: pd.DataFrame, col: str, _params: dict | None) -> pd.DataFrame:
+    if not pd.api.types.is_numeric_dtype(df[col]):
+        raise ValueError(f"Cannot apply Z-score Standardization to non-numeric column '{col}'")
     mean = df[col].mean()
     std = df[col].std()
+    if pd.isna(mean) or pd.isna(std):
+        raise ValueError(f"Cannot standardize column '{col}' because it contains only missing values.")
     df[col] = 0.0 if np.isclose(std, 0) else (df[col] - mean) / std
     return df
 
 
 def _log_transform(df: pd.DataFrame, col: str, _params: dict | None) -> pd.DataFrame:
+    if not pd.api.types.is_numeric_dtype(df[col]):
+        raise ValueError(f"Cannot apply Log Transform to non-numeric column '{col}'")
     s = df[col]
     # log(1+x) is non-finite for x <= -1: at x == -1 it evaluates to -inf
     # (log 0), so reject those values instead of silently corrupting the CSV.
@@ -351,6 +365,11 @@ def _log_transform(df: pd.DataFrame, col: str, _params: dict | None) -> pd.DataF
 
 def _fill_missing(df: pd.DataFrame, col: str, params: dict | None) -> pd.DataFrame:
     strategy = (params or {}).get("strategy", "mean")
+    if strategy in ("mean", "median") and not pd.api.types.is_numeric_dtype(df[col]):
+        raise ValueError(
+            f"Fill strategy '{strategy}' requires a numeric column, but '{col}' is {df[col].dtype}. "
+            "Use 'mode' for non-numeric columns."
+        )
     if strategy == "median":
         df[col] = df[col].fillna(df[col].median())
     elif strategy == "mode":
@@ -376,6 +395,10 @@ _TRANSFORMATION_REGISTRY: dict[str, Callable[..., pd.DataFrame]] = {
     "Log Transform": _log_transform,
     "Fill Missing Values": _fill_missing,
 }
+
+_NUMERIC_TRANSFORMS = frozenset(
+    {"Min-Max Normalization", "Z-score Standardization", "Log Transform"}
+)
 
 
 def preprocess_data(db: Session, file_id: uuid_pkg.UUID, transformations: list) -> tuple:
@@ -403,6 +426,68 @@ def preprocess_data(db: Session, file_id: uuid_pkg.UUID, transformations: list) 
                     422,
                     False,
                     f"Column '{t.feature}' not found. Available columns: {list(df.columns)}",
+                )
+
+        # Check for active target column protection (prevent deleting or breaking target)
+        active_targets: set[str] = set()
+        try:
+            target_record = db.exec(select(DataProcess).where(DataProcess.file_id == file_id)).first()
+            if target_record and isinstance(getattr(target_record, "target", None), str):
+                active_targets.add(target_record.target)
+        except Exception:
+            pass
+
+        try:
+            linked_models = db.exec(select(ModelBasic).where(ModelBasic.file_id == file_id)).all()
+            for mb in linked_models or []:
+                if isinstance(getattr(mb, "target_field", None), str):
+                    active_targets.add(mb.target_field)
+        except Exception:
+            pass
+
+        for t in transformations:
+            if t.feature in active_targets:
+                if t.transformation == "Drop Column":
+                    return _resp(
+                        422,
+                        False,
+                        f"Cannot drop active target column '{t.feature}'. "
+                        "Reassign or remove the target field before dropping it.",
+                    )
+                if t.transformation == "One Hot Encoding":
+                    return _resp(
+                        422,
+                        False,
+                        f"Cannot one-hot encode active target column '{t.feature}'. "
+                        "One-hot encoding replaces the target column with binary indicator columns "
+                        "and breaks model training.",
+                    )
+
+        # Validate data types for numeric transformations before applying changes
+        for t in transformations:
+            if t.transformation in _NUMERIC_TRANSFORMS and not pd.api.types.is_numeric_dtype(df[t.feature]):
+                return _resp(
+                    422,
+                    False,
+                    f"Cannot apply {t.transformation} to non-numeric column '{t.feature}' "
+                    f"(dtype: {df[t.feature].dtype}).",
+                )
+            if t.transformation == "Fill Missing Values":
+                strategy = (t.params or {}).get("strategy", "mean")
+                if strategy in ("mean", "median") and not pd.api.types.is_numeric_dtype(df[t.feature]):
+                    return _resp(
+                        422,
+                        False,
+                        f"Fill strategy '{strategy}' requires a numeric column, but '{t.feature}' is "
+                        f"{df[t.feature].dtype}. Use 'mode' for non-numeric columns.",
+                    )
+            if t.transformation == "Categorical to Numerical" and df[t.feature].isnull().any():
+                null_count = int(df[t.feature].isnull().sum())
+                return _resp(
+                    422,
+                    False,
+                    f"Column '{t.feature}' contains {null_count} missing value(s). Please impute missing values before "
+                    "converting categorical values to numerical codes to prevent invalid -1 code assignment.",
                 )
 
         for t in transformations:

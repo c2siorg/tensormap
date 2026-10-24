@@ -911,3 +911,44 @@ def test_expires_at_in_formats_response(tmp_path):
         # Allow 1 second tolerance for file system time precision
         time_diff = abs((expires_at - expected_expires).total_seconds())
         assert time_diff < 1, f"Expected {expected_expires}, got {expires_at}"
+
+
+def test_export_onnx_holds_export_lock_and_atomic_move(tmp_path):
+    """export_onnx must hold _export_lock and move the file atomically from scratch."""
+    from unittest.mock import MagicMock, patch
+
+    from app.services.model_export import export_onnx
+
+    job_id = "test-job-onnx-lock"
+    model_name = "test_model"
+
+    export_dir = tmp_path / "exports" / job_id
+    export_dir.mkdir(parents=True, exist_ok=True)
+    model_keras = export_dir / "model.keras"
+    model_keras.write_bytes(b"dummy keras model")
+
+    mock_model = MagicMock()
+    mock_model.input_shape = (None, 10)
+
+    mock_onnx_model = MagicMock()
+    mock_onnx_model.SerializeToString.return_value = b"onnx_model_bytes"
+
+    mock_tf2onnx = MagicMock()
+    mock_tf2onnx.convert.from_keras.return_value = (mock_onnx_model, None)
+
+    with (
+        patch("app.services.model_export.EXPORTS_BASE", tmp_path / "exports"),
+        patch("tensorflow.keras.models.load_model", return_value=mock_model),
+        patch("app.services.model_export.validate_onnx_compatible", return_value=[]),
+        patch.dict("sys.modules", {"tf2onnx": mock_tf2onnx}),
+        patch("app.services.model_export._export_lock") as mock_lock,
+    ):
+        lock_instance = MagicMock()
+        mock_lock.return_value = lock_instance
+
+        onnx_file = export_onnx(job_id, model_name)
+
+        mock_lock.assert_called_once()
+        lock_instance.__enter__.assert_called_once()
+        assert onnx_file.exists()
+        assert onnx_file.read_bytes() == b"onnx_model_bytes"

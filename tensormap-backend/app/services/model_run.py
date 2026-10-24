@@ -295,6 +295,14 @@ def _prepare_training_data(features, target_field, training_split):
     return X[:split_index], y[:split_index], X[split_index:], y[split_index:]
 
 
+def _should_skip_evaluation(callbacks: list[tf.keras.callbacks.Callback], model: tf.keras.Model) -> bool:
+    """Return True if training was cancelled or stopped prematurely, skipping evaluation."""
+    for cb in callbacks:
+        if isinstance(cb, CancellationCheckCallback) and (getattr(cb, "cancelled", False) or cb.check_cancelled()):
+            return True
+    return bool(getattr(model, "stop_training", False))
+
+
 def _run(model_name: str, db: Session, job_id: str | None = None) -> None:
     callbacks = _build_training_callbacks(job_id)
     model_configs = db.exec(select(ModelBasic).where(ModelBasic.model_name == model_name)).first()
@@ -377,7 +385,14 @@ def _run(model_name: str, db: Session, job_id: str | None = None) -> None:
             callbacks=callbacks,
             verbose=0,
         )
-        model.evaluate(test_data, callbacks=callbacks, verbose=0)
+        if _should_skip_evaluation(callbacks, model):
+            logger.info(
+                "Training cancelled or stopped early; skipping evaluation for image model '%s' (job %s)",
+                model_name,
+                job_id,
+            )
+        else:
+            model.evaluate(test_data, callbacks=callbacks, verbose=0)
     else:
         model.fit(
             x_training,
@@ -387,4 +402,11 @@ def _run(model_name: str, db: Session, job_id: str | None = None) -> None:
             callbacks=callbacks,
             verbose=0,
         )
-        model.evaluate(x_testing, y_testing, callbacks=callbacks, verbose=0)
+        if _should_skip_evaluation(callbacks, model):
+            logger.info(
+                "Training cancelled or stopped early; skipping evaluation for model '%s' (job %s)",
+                model_name,
+                job_id,
+            )
+        else:
+            model.evaluate(x_testing, y_testing, callbacks=callbacks, verbose=0)

@@ -40,6 +40,7 @@ interface UseTrainingMetricsReturn {
   startedAt: string | null;
   error: string | null;
   isCompleted: boolean;
+  isCancelled: boolean;
 }
 
 export function mergeEpochMetric(
@@ -170,6 +171,9 @@ export function useTrainingMetrics(
     } else if ("type" in data && data.type === "status") {
       // Terminal status
       setStatus(data.status);
+      if (data.status === "cancelled") {
+        setCancelRequested(false);
+      }
       if (data.error) {
         setError(data.error);
       }
@@ -263,5 +267,6 @@ export function useTrainingMetrics(
     startedAt,
     error,
     isCompleted: status === "completed",
+    isCancelled: status === "cancelled",
   };
 }

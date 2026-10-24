@@ -127,6 +127,8 @@ describe("shouldPollTrainingMetrics", () => {
     expect(shouldPollTrainingMetrics("job-1", false, "running")).toBe(true);
     expect(shouldPollTrainingMetrics("job-1", true, "running")).toBe(false);
     expect(shouldPollTrainingMetrics("job-1", false, "completed")).toBe(false);
+    expect(shouldPollTrainingMetrics("job-1", false, "cancelled")).toBe(false);
+    expect(shouldPollTrainingMetrics("job-1", false, "failed")).toBe(false);
     expect(shouldPollTrainingMetrics(null, false, "running")).toBe(false);
   });
 });

@@ -85,8 +85,10 @@ async def lifespan(app: FastAPI):
         # a failure here must not prevent the app from starting.
         try:
             from app.services.training_service import orphan_recovery
+            from app.services.tuning_service import orphan_recovery_tuning
 
             orphan_recovery()
+            orphan_recovery_tuning()
         except Exception as e:
             logger.error(f"Orphan recovery error: {e}")
 

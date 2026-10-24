@@ -6,6 +6,8 @@ hyperparameter combinations.  Progress is streamed via Socket.IO to a
 """
 
 import asyncio
+import contextlib
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse, Response
@@ -17,7 +19,12 @@ from app.models.ml import ModelBasic
 from app.models.training_job import TrainingJob, TrainingStatus
 from app.models.tuning_session import TuningSession, TuningStatus, TuningStrategy
 from app.schemas.tuning import TuningStartRequest
-from app.services.tuning_service import launch_tuning_session, tuning_service
+from app.services.tuning_service import (
+    check_tuning_concurrency_limit,
+    emit_tuning_cancellation,
+    launch_tuning_session,
+    tuning_service,
+)
 from app.shared.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -48,6 +55,9 @@ async def start_tuning(
             400,
             "Training configuration not set. Please configure training parameters first.",
         )
+
+    # Enforce concurrency check before creating new session
+    check_tuning_concurrency_limit(db)
 
     # Validate grid search size upfront.
     strategy = TuningStrategy(body.strategy)
@@ -186,7 +196,9 @@ def cancel_tuning(tuning_id: str, db: Session = Depends(get_db)) -> Response:
         raise AppException(404, "Tuning session not found")
 
     if ts.status in (TuningStatus.PENDING, TuningStatus.RUNNING):
+        now = datetime.now(UTC)
         ts.status = TuningStatus.CANCELLED
+        ts.completed_at = now
         db.add(ts)
         db.commit()
         logger.info("Cancellation requested for tuning session %s", tuning_id)
@@ -200,9 +212,16 @@ def cancel_tuning(tuning_id: str, db: Session = Depends(get_db)) -> Response:
         ).all()
         for job in running_jobs:
             job.status = TrainingStatus.CANCELLED
+            job.completed_at = now
             db.add(job)
         if running_jobs:
             db.commit()
+
+        # Emit cancellation event to Socket.IO room immediately
+        loop = None
+        with contextlib.suppress(RuntimeError):
+            loop = asyncio.get_running_loop()
+        emit_tuning_cancellation(tuning_id, loop)
 
     return Response(status_code=204)
 

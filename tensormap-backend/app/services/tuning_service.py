@@ -10,6 +10,7 @@ Progress is emitted via Socket.IO to a ``tuning:{session_id}`` room.
 """
 
 import asyncio
+import contextlib
 import itertools
 import os
 import threading
@@ -33,6 +34,7 @@ logger = get_logger(__name__)
 MAX_GRID_COMBINATIONS = int(os.getenv("MAX_GRID_COMBINATIONS", "50"))
 TRIAL_TIMEOUT_SECONDS = int(os.getenv("TRIAL_TIMEOUT_SECONDS", "600"))
 DEFAULT_TRIAL_ESTIMATE_SECONDS = int(os.getenv("DEFAULT_TRIAL_ESTIMATE_SECONDS", "120"))
+MAX_CONCURRENT_TUNING_SESSIONS = int(os.getenv("MAX_CONCURRENT_TUNING_SESSIONS", "2"))
 
 # Strong references to in-flight tuning tasks so asyncio doesn't GC them.
 _tuning_tasks: set[asyncio.Task] = set()
@@ -48,6 +50,84 @@ def make_session() -> Session:
     Used by the tuning loop running in a background thread.
     """
     return Session(engine)
+
+
+def check_tuning_concurrency_limit(session: Session) -> None:
+    """Raise HTTP 429 if the active tuning session limit is already reached."""
+    active = session.exec(
+        select(TuningSession).where(TuningSession.status.in_((TuningStatus.PENDING, TuningStatus.RUNNING)))
+    ).all()
+    if len(active) >= MAX_CONCURRENT_TUNING_SESSIONS:
+        raise AppException(
+            429,
+            f"Max concurrent tuning sessions reached ({MAX_CONCURRENT_TUNING_SESSIONS}). Try again shortly.",
+        )
+
+
+def orphan_recovery_tuning(session: Session | None = None) -> int:
+    """Mark tuning sessions left PENDING/RUNNING by a crash as FAILED.
+
+    Called on startup: any session still active in the DB cannot actually be
+    running (the process that owned it is gone), so it is failed with a clear
+    message. Also marks any orphaned child jobs as FAILED.
+    Returns the number of tuning sessions recovered.
+    """
+    own_session = session is None
+    session = session or make_session()
+    try:
+        orphans = session.exec(
+            select(TuningSession).where(TuningSession.status.in_((TuningStatus.PENDING, TuningStatus.RUNNING)))
+        ).all()
+        for ts in orphans:
+            ts.status = TuningStatus.FAILED
+            ts.completed_at = _utcnow()
+            session.add(ts)
+            child_jobs = session.exec(
+                select(TrainingJob).where(
+                    TrainingJob.tuning_session_id == ts.id,
+                    TrainingJob.status.in_((TrainingStatus.PENDING, TrainingStatus.RUNNING)),
+                )
+            ).all()
+            for job in child_jobs:
+                job.status = TrainingStatus.FAILED
+                job.error_message = "Recovered orphaned tuning trial after restart"
+                job.completed_at = _utcnow()
+                session.add(job)
+        if orphans:
+            session.commit()
+            logger.info("Orphan recovery (tuning): marked %d stale session(s) as failed", len(orphans))
+        return len(orphans)
+    finally:
+        if own_session:
+            session.close()
+
+
+def emit_tuning_cancellation(session_id: str, loop: asyncio.AbstractEventLoop | None = None) -> None:
+    """Thread-safely emit a tuning_complete event with status='cancelled' to room."""
+    data = {
+        "type": "tuning_complete",
+        "status": "cancelled",
+        "best_job_id": None,
+        "best_metric": None,
+        "error": "Tuning session cancelled by user",
+    }
+    if loop is None:
+        with contextlib.suppress(RuntimeError):
+            loop = asyncio.get_running_loop()
+    if loop is not None and loop.is_running():
+        future = asyncio.run_coroutine_threadsafe(
+            sio.emit(
+                "tuning_progress",
+                data,
+                room=f"tuning:{session_id}",
+                namespace=SOCKETIO_DL_NAMESPACE,
+            ),
+            loop,
+        )
+        try:
+            future.result(timeout=5)
+        except Exception:
+            logger.warning("Failed to emit tuning cancellation for session %s", session_id)
 
 
 class TuningService:
@@ -196,20 +276,21 @@ class TuningService:
         # reads the model config from the DB, we need to update it first.
         self._apply_hyperparams_to_model(model_name, hyperparams)
 
-        timer = threading.Timer(TRIAL_TIMEOUT_SECONDS, self._timeout_trial, args=[job_id])
-        timer.start()
         try:
-            with make_session() as session:
-                model_run(model_name, session, loop=loop, job_id=job_id)
-        except Exception as e:
-            logger.error("Trial %d failed for tuning session %s: %s", trial_num, session_id, e)
-            with make_session() as session:
-                update_job_status(job_id, TrainingStatus.FAILED, session, error_message=str(e))
+            timer = threading.Timer(TRIAL_TIMEOUT_SECONDS, self._timeout_trial, args=[job_id])
+            timer.start()
+            try:
+                with make_session() as session:
+                    model_run(model_name, session, loop=loop, job_id=job_id)
+            except Exception as e:
+                logger.error("Trial %d failed for tuning session %s: %s", trial_num, session_id, e)
+                with make_session() as session:
+                    update_job_status(job_id, TrainingStatus.FAILED, session, error_message=str(e))
+            finally:
+                timer.cancel()
         finally:
-            timer.cancel()
-
-        # Restore model config after trial.
-        self._restore_model_config(model_name)
+            # Restore model config after trial.
+            self._restore_model_config(model_name)
 
         return job_id
 
@@ -522,10 +603,11 @@ class TuningService:
                 .limit(1)
             ).first()
             if last_job and last_job.started_at and last_job.completed_at:
-                per_trial = (last_job.completed_at - last_job.started_at).total_seconds()
+                elapsed = (last_job.completed_at - last_job.started_at).total_seconds()
+                per_trial = max(1.0, elapsed)
             else:
-                per_trial = DEFAULT_TRIAL_ESTIMATE_SECONDS
-        return int(per_trial * n_trials)
+                per_trial = float(DEFAULT_TRIAL_ESTIMATE_SECONDS)
+        return max(1, int(per_trial * n_trials))
 
     # ------------------------------------------------------------------
     # Apply best

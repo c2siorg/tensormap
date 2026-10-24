@@ -15,12 +15,14 @@ from app.shared.constants import (
     MODEL_EPOCHS,
     MODEL_GENERATION_TYPE,
     MODEL_JSON_FILE,
+    MODEL_LOSS,
+    MODEL_LOSS_EXPRESSION,
     MODEL_METRIC,
     MODEL_OPTIMIZER,
     MODEL_TRAINING_SPLIT,
     TEMPLATE_ROOT,
 )
-from app.shared.enums import ProblemType
+from app.shared.enums import LossFunction, ProblemType, default_loss_for_problem_type, loss_to_code_expression
 from app.shared.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -41,6 +43,11 @@ def generate_code(model_name: str, db: Session) -> str:
     if file is None:
         raise CodeGenerationError(f"Dataset file not found (id={model_configs.file_id})")
 
+    loss_val = getattr(model_configs, "loss", None)
+    if isinstance(loss_val, str) and loss_val in [e.value for e in LossFunction]:
+        effective_loss = loss_val
+    else:
+        effective_loss = default_loss_for_problem_type(model_configs.model_type).value
     data = {
         DATASET: {
             FILE_NAME: _file_location(file),
@@ -52,6 +59,8 @@ def generate_code(model_name: str, db: Session) -> str:
             MODEL_OPTIMIZER: model_configs.optimizer,
             MODEL_METRIC: model_configs.metric,
             MODEL_EPOCHS: model_configs.epochs,
+            MODEL_LOSS: effective_loss,
+            MODEL_LOSS_EXPRESSION: loss_to_code_expression(effective_loss),
         },
     }
 

@@ -46,7 +46,7 @@ def mock_db():
     return db
 
 
-def _make_model(model_type, file_id=1, target_field="label", training_split=0.8):
+def _make_model(model_type, file_id=1, target_field="label", training_split=0.8, loss=None):
     model = MagicMock()
     model.file_id = file_id
     model.model_type = model_type
@@ -55,6 +55,7 @@ def _make_model(model_type, file_id=1, target_field="label", training_split=0.8)
     model.optimizer = "adam"
     model.metric = "accuracy"
     model.epochs = 10
+    model.loss = loss
     return model
 
 
@@ -197,3 +198,22 @@ class TestGenerateCodeHappyPaths:
         assert BATCH_SIZE not in rendered_data[DATASET]
         assert COLOR_MODE not in rendered_data[DATASET]
         assert LABEL_MODE not in rendered_data[DATASET]
+
+    @patch("app.services.code_generation.Environment")
+    @patch("app.services.code_generation.FileSystemLoader")
+    def test_configured_loss_is_passed_to_template(self, mock_loader, mock_env, mock_db):
+        from app.shared.constants import MODEL_LOSS, MODEL_LOSS_EXPRESSION
+
+        model = _make_model(ProblemType.REGRESSION, loss="huber")
+        file = _make_file(file_type="csv", file_name="housing.csv")
+        mock_db.exec.return_value.first.side_effect = [model, file]
+
+        mock_template = MagicMock()
+        mock_template.render.return_value = "CODE"
+        mock_env.return_value.get_template.return_value = mock_template
+
+        generate_code("housing_model", mock_db)
+
+        rendered_data = mock_template.render.call_args.kwargs["data"]
+        assert rendered_data["dl_model"][MODEL_LOSS] == "huber"
+        assert rendered_data["dl_model"][MODEL_LOSS_EXPRESSION] == "tf.keras.losses.Huber()"

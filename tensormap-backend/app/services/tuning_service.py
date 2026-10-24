@@ -16,8 +16,7 @@ import threading
 from datetime import UTC, datetime
 
 import numpy as np
-from sqlalchemy import func
-from sqlmodel import Session, select
+from sqlmodel import Session, func, select
 
 from app.database import engine
 from app.exceptions import AppException
@@ -69,6 +68,65 @@ def check_tuning_concurrency_limit(session: Session) -> None:
             429,
             f"Max concurrent tuning sessions reached ({MAX_CONCURRENT_TUNING_SESSIONS}). Try again shortly.",
         )
+
+
+def orphan_recovery_tuning(session: Session | None = None) -> int:
+    """Mark tuning sessions left PENDING/RUNNING by a crash as FAILED.
+
+    Called on startup: any session still active in the DB cannot actually be
+    running (the process that owned it is gone), so it is failed with a clear
+    message. Also marks any orphaned child jobs as FAILED. Designed for single-worker
+    deployments matching the training job orphan_recovery semantics.
+    Returns the number of tuning sessions recovered.
+    """
+    own_session = session is None
+    session = session or make_session()
+    try:
+        orphans = session.exec(
+            select(TuningSession).where(TuningSession.status.in_((TuningStatus.PENDING, TuningStatus.RUNNING)))
+        ).all()
+        now = _utcnow()
+        for ts in orphans:
+            ts.status = TuningStatus.FAILED
+            ts.completed_at = now
+            session.add(ts)
+            child_jobs = session.exec(
+                select(TrainingJob).where(
+                    TrainingJob.tuning_session_id == ts.id,
+                    TrainingJob.status.in_((TrainingStatus.PENDING, TrainingStatus.RUNNING)),
+                )
+            ).all()
+            for job in child_jobs:
+                job.status = TrainingStatus.FAILED
+                job.error_message = "Recovered orphaned tuning trial after restart"
+                job.completed_at = now
+                session.add(job)
+        if orphans:
+            session.commit()
+            logger.info("Orphan recovery (tuning): marked %d stale session(s) as failed", len(orphans))
+        return len(orphans)
+    finally:
+        if own_session:
+            session.close()
+
+
+async def emit_tuning_cancellation(session_id: str) -> None:
+    """Emit a tuning_complete event with status='cancelled' directly to the room."""
+    data = {
+        "type": "tuning_complete",
+        "status": "cancelled",
+        "best_job_id": None,
+        "best_metric": None,
+    }
+    try:
+        await sio.emit(
+            "tuning_progress",
+            data,
+            room=f"tuning:{session_id}",
+            namespace=SOCKETIO_DL_NAMESPACE,
+        )
+    except Exception:
+        logger.warning("Failed to emit tuning cancellation for session %s", session_id)
 
 
 class TuningService:
@@ -505,17 +563,18 @@ class TuningService:
             session.commit()
             final_status = ts.status.value
 
-        # Emit completion event.
-        self._emit_progress(
-            loop,
-            session_id,
-            {
-                "type": "tuning_complete",
-                "status": final_status,
-                "best_job_id": best_job_id,
-                "best_metric": best_metric,
-            },
-        )
+        # Emit completion event (skip if cancelled, as cancel endpoint already emitted cancellation event).
+        if final_status != TuningStatus.CANCELLED.value:
+            self._emit_progress(
+                loop,
+                session_id,
+                {
+                    "type": "tuning_complete",
+                    "status": final_status,
+                    "best_job_id": best_job_id,
+                    "best_metric": best_metric,
+                },
+            )
 
     # ------------------------------------------------------------------
     # Duration estimation
@@ -537,7 +596,7 @@ class TuningService:
             if last_job and last_job.started_at and last_job.completed_at:
                 per_trial = max(1.0, (last_job.completed_at - last_job.started_at).total_seconds())
             else:
-                per_trial = DEFAULT_TRIAL_ESTIMATE_SECONDS
+                per_trial = float(DEFAULT_TRIAL_ESTIMATE_SECONDS)
         return max(1, int(per_trial * n_trials))
 
     # ------------------------------------------------------------------
@@ -591,30 +650,3 @@ def launch_tuning_session(session_id: str, model_name: str, loop: asyncio.Abstra
     task = asyncio.create_task(asyncio.to_thread(tuning_service.run_tuning_loop, session_id, model_name, loop))
     _tuning_tasks.add(task)
     task.add_done_callback(_tuning_tasks.discard)
-
-
-def orphan_recovery_tuning(session: Session | None = None) -> int:
-    """Mark tuning sessions left PENDING/RUNNING by a crash as FAILED.
-
-    Called on startup: any session still active in the DB cannot actually be
-    running (the process that owned it is gone), so it is failed with a clear
-    status and completed_at timestamp. Returns the number of sessions recovered.
-    """
-    own_session = session is None
-    session = session or make_session()
-    try:
-        orphans = session.exec(
-            select(TuningSession).where(TuningSession.status.in_((TuningStatus.PENDING, TuningStatus.RUNNING)))
-        ).all()
-        now = _utcnow()
-        for ts in orphans:
-            ts.status = TuningStatus.FAILED
-            ts.completed_at = now
-            session.add(ts)
-        if orphans:
-            session.commit()
-            logger.info("Tuning orphan recovery: marked %d stale session(s) as failed", len(orphans))
-        return len(orphans)
-    finally:
-        if own_session:
-            session.close()

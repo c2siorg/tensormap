@@ -6,6 +6,7 @@ formatted strings to every client, it writes structured metrics to the
 """
 
 import asyncio
+import contextlib
 from datetime import UTC, datetime
 
 import tensorflow as tf
@@ -141,29 +142,42 @@ class MetricsCallback(tf.keras.callbacks.Callback):
 
         Cancellation sets ``model.stop_training`` and still calls ``on_train_end``;
         the status guard prevents overwriting CANCELLED/FAILED. The trained model
-        is also saved to ``exports/{job_id}/model.keras`` for later export.
+        is saved to ``exports/{job_id}/model.keras`` only for successfully completed runs.
         """
         from app.services.model_export import EXPORTS_BASE
 
         export_dir = EXPORTS_BASE / self.job_id
-        export_dir.mkdir(parents=True, exist_ok=True)
-
-        try:
-            self.model.save(export_dir / "model.keras")
-            logger.info(f"Saved model.keras for job {self.job_id}")
-        except Exception as e:
-            logger.error(f"Failed to save model.keras for job {self.job_id}: {e}")
-
         final_status = None
+        is_cancelled_or_failed = False
+
         with self.session_factory() as session:
             job = session.get(TrainingJob, self.job_id)
             if job is not None:
-                if job.status == TrainingStatus.RUNNING:
+                if job.status in (TrainingStatus.CANCELLED, TrainingStatus.FAILED):
+                    is_cancelled_or_failed = True
+                    final_status = job.status.value
+                elif job.status == TrainingStatus.RUNNING:
                     job.status = TrainingStatus.COMPLETED
                     job.completed_at = _utcnow()
                     session.add(job)
                     session.commit()
-                final_status = job.status.value
+                    final_status = job.status.value
+
+        # Only save model artifact if the training completed successfully
+        if not is_cancelled_or_failed:
+            export_dir.mkdir(parents=True, exist_ok=True)
+            try:
+                self.model.save(export_dir / "model.keras")
+                logger.info(f"Saved model.keras for job {self.job_id}")
+            except Exception as e:
+                logger.error(f"Failed to save model.keras for job {self.job_id}: {e}")
+        else:
+            # If the job was cancelled or failed, ensure we do not leave an incomplete model.keras
+            partial_model_path = export_dir / "model.keras"
+            if partial_model_path.exists():
+                with contextlib.suppress(OSError):
+                    partial_model_path.unlink()
+            logger.info("Skipped saving model.keras for non-completed job %s (status=%s)", self.job_id, final_status)
 
         if final_status is not None:
             self._emit(

@@ -1,7 +1,16 @@
+import os
+from typing import Any
+
+import tensorflow as tf
 from jinja2 import Environment, FileSystemLoader
 from sqlmodel import Session, select
 
 from app.models import DataFile, ImageProperties, ModelBasic
+from app.services.model_run import (
+    _emits_logits,
+    _helper_generate_json_model_file_location,
+    loss_to_code_expression,
+)
 from app.shared.constants import (
     BATCH_SIZE,
     CODE_TEMPLATE_FOLDER,
@@ -15,12 +24,14 @@ from app.shared.constants import (
     MODEL_EPOCHS,
     MODEL_GENERATION_TYPE,
     MODEL_JSON_FILE,
+    MODEL_LOSS,
+    MODEL_LOSS_EXPRESSION,
     MODEL_METRIC,
     MODEL_OPTIMIZER,
     MODEL_TRAINING_SPLIT,
     TEMPLATE_ROOT,
 )
-from app.shared.enums import ProblemType
+from app.shared.enums import LossFunction, ProblemType, default_loss_for_problem_type
 from app.shared.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -32,7 +43,7 @@ class CodeGenerationError(Exception):
     pass
 
 
-def generate_code(model_name: str, db: Session) -> str:
+def generate_code(model_name: str, db: Session, model: Any = None) -> str:
     """Generate TensorFlow Python code from a saved model configuration."""
     model_configs = db.exec(select(ModelBasic).where(ModelBasic.model_name == model_name)).first()
     if model_configs is None:
@@ -40,6 +51,30 @@ def generate_code(model_name: str, db: Session) -> str:
     file = db.exec(select(DataFile).where(DataFile.id == model_configs.file_id)).first()
     if file is None:
         raise CodeGenerationError(f"Dataset file not found (id={model_configs.file_id})")
+
+    if model_configs.loss in LossFunction:
+        effective_loss = model_configs.loss
+    else:
+        if model_configs.loss is not None:
+            logger.warning(
+                "Unrecognised loss '%s' for model '%s'; falling back to default.",
+                model_configs.loss,
+                model_name,
+            )
+        effective_loss = default_loss_for_problem_type(model_configs.model_type)
+
+    if model is None:
+        try:
+            json_path = _helper_generate_json_model_file_location(model_name=model_name)
+            if os.path.isfile(json_path):
+                with open(json_path) as f:
+                    json_string = f.read()
+                model = tf.keras.models.model_from_json(json_string, custom_objects=None)
+        except Exception as exc:
+            logger.debug("Could not inspect model architecture for logits: %s", exc)
+
+    from_logits = _emits_logits(model) if model is not None else True
+    loss_expr = loss_to_code_expression(effective_loss, from_logits=from_logits)
 
     data = {
         DATASET: {
@@ -52,6 +87,8 @@ def generate_code(model_name: str, db: Session) -> str:
             MODEL_OPTIMIZER: model_configs.optimizer,
             MODEL_METRIC: model_configs.metric,
             MODEL_EPOCHS: model_configs.epochs,
+            MODEL_LOSS: effective_loss,
+            MODEL_LOSS_EXPRESSION: loss_expr,
         },
     }
 

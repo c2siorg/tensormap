@@ -39,7 +39,7 @@ from app.shared.enums import (
     LossFunction,
     Metric,
     Optimizer,
-    ProblemType,
+    default_loss_for_problem_type,
     losses_for_problem_type,
 )
 from app.shared.logging_config import get_logger
@@ -55,9 +55,7 @@ def _resp(status_code: int, success: bool, message: str, data: Any = None) -> tu
 
 def _default_loss(problem_type_id: int) -> str:
     """Loss used when a training config does not name one (and for models saved before the field existed)."""
-    if problem_type_id in (ProblemType.CLASSIFICATION, ProblemType.IMAGE_CLASSIFICATION):
-        return LossFunction.SPARSE_CATEGORICAL_CROSSENTROPY.value
-    return LossFunction.MEAN_SQUARED_ERROR.value
+    return default_loss_for_problem_type(problem_type_id)
 
 
 def _sanitize_model_name(name: str) -> str:

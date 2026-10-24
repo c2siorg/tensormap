@@ -47,7 +47,7 @@ def mock_db():
     return db
 
 
-def _make_model(model_type, file_id=1, target_field="label", training_split=0.8):
+def _make_model(model_type, file_id=1, target_field="label", training_split=0.8, loss=None):
     model = MagicMock()
     model.file_id = file_id
     model.model_type = model_type
@@ -56,6 +56,7 @@ def _make_model(model_type, file_id=1, target_field="label", training_split=0.8)
     model.optimizer = "adam"
     model.metric = "accuracy"
     model.epochs = 10
+    model.loss = loss
     return model
 
 
@@ -235,3 +236,159 @@ class TestGenerateCodeHappyPaths:
         assert BATCH_SIZE not in rendered_data[DATASET]
         assert COLOR_MODE not in rendered_data[DATASET]
         assert LABEL_MODE not in rendered_data[DATASET]
+
+    @patch("app.services.code_generation.Environment")
+    @patch("app.services.code_generation.FileSystemLoader")
+    def test_configured_loss_is_passed_to_template(self, mock_loader, mock_env, mock_db):
+        from app.shared.constants import MODEL_LOSS, MODEL_LOSS_EXPRESSION
+
+        model = _make_model(ProblemType.REGRESSION, loss="huber")
+        file = _make_file(file_type="csv", file_name="housing.csv")
+        mock_db.exec.return_value.first.side_effect = [model, file]
+
+        mock_template = MagicMock()
+        mock_template.render.return_value = "CODE"
+        mock_env.return_value.get_template.return_value = mock_template
+
+        generate_code("housing_model", mock_db)
+
+        rendered_data = mock_template.render.call_args.kwargs["data"]
+        assert rendered_data["dl_model"][MODEL_LOSS] == "huber"
+        assert rendered_data["dl_model"][MODEL_LOSS_EXPRESSION] == "tf.keras.losses.Huber()"
+
+    def test_default_loss_fallback_when_none_for_regression_and_classification(self, mock_db):
+        from app.shared.constants import MODEL_LOSS, MODEL_LOSS_EXPRESSION
+
+        # Regression defaults to MSE
+        reg_model = _make_model(ProblemType.REGRESSION, loss=None)
+        csv_file = _make_file(file_type="csv", file_name="data.csv")
+        mock_db.exec.return_value.first.side_effect = [reg_model, csv_file]
+
+        with (
+            patch("app.services.code_generation.Environment") as mock_env,
+            patch("app.services.code_generation.FileSystemLoader"),
+        ):
+            mock_tmpl = MagicMock()
+            mock_env.return_value.get_template.return_value = mock_tmpl
+            generate_code("reg_model", mock_db)
+            data = mock_tmpl.render.call_args.kwargs["data"]
+            assert data["dl_model"][MODEL_LOSS] == "mean_squared_error"
+            assert data["dl_model"][MODEL_LOSS_EXPRESSION] == "tf.keras.losses.MeanSquaredError()"
+
+        # Classification defaults to Sparse Categorical Crossentropy
+        cls_model = _make_model(ProblemType.CLASSIFICATION, loss=None)
+        mock_db.exec.return_value.first.side_effect = [cls_model, csv_file]
+
+        with (
+            patch("app.services.code_generation.Environment") as mock_env,
+            patch("app.services.code_generation.FileSystemLoader"),
+        ):
+            mock_tmpl = MagicMock()
+            mock_env.return_value.get_template.return_value = mock_tmpl
+            generate_code("cls_model", mock_db)
+            data = mock_tmpl.render.call_args.kwargs["data"]
+            assert data["dl_model"][MODEL_LOSS] == "sparse_categorical_crossentropy"
+            expected = "tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)"
+            assert data["dl_model"][MODEL_LOSS_EXPRESSION] == expected
+
+    def test_cross_entropy_from_logits_handling_with_output_layer_activations(self, mock_db):
+        import tensorflow as tf
+
+        from app.shared.constants import MODEL_LOSS_EXPRESSION
+
+        csv_file = _make_file(file_type="csv", file_name="data.csv")
+
+        # 1. Output layer with softmax -> from_logits=False
+        softmax_model = tf.keras.Sequential([tf.keras.layers.Dense(10, activation="softmax")])
+        cls_model = _make_model(ProblemType.CLASSIFICATION, loss="sparse_categorical_crossentropy")
+        mock_db.exec.return_value.first.side_effect = [cls_model, csv_file]
+
+        with (
+            patch("app.services.code_generation.Environment") as mock_env,
+            patch("app.services.code_generation.FileSystemLoader"),
+        ):
+            mock_tmpl = MagicMock()
+            mock_env.return_value.get_template.return_value = mock_tmpl
+            generate_code("cls_model", mock_db, model=softmax_model)
+            data = mock_tmpl.render.call_args.kwargs["data"]
+            expected = "tf.keras.losses.SparseCategoricalCrossentropy(from_logits=False)"
+            assert data["dl_model"][MODEL_LOSS_EXPRESSION] == expected
+
+        # 2. Output layer with sigmoid -> from_logits=False
+        sigmoid_model = tf.keras.Sequential([tf.keras.layers.Dense(1, activation="sigmoid")])
+        bin_model = _make_model(ProblemType.CLASSIFICATION, loss="binary_crossentropy")
+        mock_db.exec.return_value.first.side_effect = [bin_model, csv_file]
+
+        with (
+            patch("app.services.code_generation.Environment") as mock_env,
+            patch("app.services.code_generation.FileSystemLoader"),
+        ):
+            mock_tmpl = MagicMock()
+            mock_env.return_value.get_template.return_value = mock_tmpl
+            generate_code("bin_model", mock_db, model=sigmoid_model)
+            data = mock_tmpl.render.call_args.kwargs["data"]
+            assert data["dl_model"][MODEL_LOSS_EXPRESSION] == "tf.keras.losses.BinaryCrossentropy(from_logits=False)"
+
+        # 3. Output layer linear (logits) -> from_logits=True
+        linear_model = tf.keras.Sequential([tf.keras.layers.Dense(5)])
+        cat_model = _make_model(ProblemType.CLASSIFICATION, loss="categorical_crossentropy")
+        mock_db.exec.return_value.first.side_effect = [cat_model, csv_file]
+
+        with (
+            patch("app.services.code_generation.Environment") as mock_env,
+            patch("app.services.code_generation.FileSystemLoader"),
+        ):
+            mock_tmpl = MagicMock()
+            mock_env.return_value.get_template.return_value = mock_tmpl
+            generate_code("cat_model", mock_db, model=linear_model)
+            data = mock_tmpl.render.call_args.kwargs["data"]
+            expected = "tf.keras.losses.CategoricalCrossentropy(from_logits=True)"
+            assert data["dl_model"][MODEL_LOSS_EXPRESSION] == expected
+
+    def test_loss_to_code_expression_all_losses_and_error_handling(self):
+        from app.services.model_run import loss_to_code_expression
+        from app.shared.enums import LossFunction
+
+        assert loss_to_code_expression(LossFunction.MEAN_SQUARED_ERROR) == "tf.keras.losses.MeanSquaredError()"
+        assert loss_to_code_expression("mean_absolute_error") == "tf.keras.losses.MeanAbsoluteError()"
+        assert loss_to_code_expression("huber") == "tf.keras.losses.Huber()"
+        assert (
+            loss_to_code_expression("binary_crossentropy", from_logits=False)
+            == "tf.keras.losses.BinaryCrossentropy(from_logits=False)"
+        )
+        assert (
+            loss_to_code_expression("categorical_crossentropy", from_logits=True)
+            == "tf.keras.losses.CategoricalCrossentropy(from_logits=True)"
+        )
+
+        with pytest.raises(ValueError, match="Unsupported loss function"):
+            loss_to_code_expression("invalid_loss")
+
+    def test_real_templates_render_expected_compile_loss(self, mock_db):
+        import tensorflow as tf
+
+        # 1. Linear regression template
+        reg_model = _make_model(ProblemType.REGRESSION, loss="huber")
+        csv_file = _make_file(file_type="csv", file_name="housing.csv")
+        mock_db.exec.return_value.first.side_effect = [reg_model, csv_file]
+
+        code_reg = generate_code("reg_model", mock_db)
+        assert "loss=tf.keras.losses.Huber()" in code_reg
+        assert 'optimizer="adam"' in code_reg
+
+        # 2. Multi-class classification template with softmax model
+        softmax_model = tf.keras.Sequential([tf.keras.layers.Dense(3, activation="softmax")])
+        cls_model = _make_model(ProblemType.CLASSIFICATION, loss="categorical_crossentropy")
+        mock_db.exec.return_value.first.side_effect = [cls_model, csv_file]
+
+        code_cls = generate_code("cls_model", mock_db, model=softmax_model)
+        assert "loss=tf.keras.losses.CategoricalCrossentropy(from_logits=False)" in code_cls
+
+        # 3. Simple image classification template with logits
+        img_model = _make_model(ProblemType.IMAGE_CLASSIFICATION, loss="sparse_categorical_crossentropy")
+        zip_file = _make_file(file_type="zip", file_name="images.zip")
+        image_props = MagicMock(image_size=128, batch_size=32, color_mode="rgb", label_mode="categorical")
+        mock_db.exec.return_value.first.side_effect = [img_model, zip_file, image_props]
+
+        code_img = generate_code("img_model", mock_db)
+        assert "loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)" in code_img

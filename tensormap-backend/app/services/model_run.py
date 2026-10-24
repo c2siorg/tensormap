@@ -101,6 +101,19 @@ def resolve_loss(name: str | None, from_logits: bool) -> tf.keras.losses.Loss:
     return loss_cls()
 
 
+def loss_to_code_expression(name: str | LossFunction | None, from_logits: bool = True) -> str:
+    """Return the Python expression string for compiling a model with the specified loss."""
+    if isinstance(name, LossFunction):
+        name = name.value
+    loss_cls = _LOSS_CLASSES.get(name)
+    if loss_cls is None:
+        valid = ", ".join(_LOSS_CLASSES)
+        raise ValueError(f"Unsupported loss function: {name!r}. Valid: {valid}")
+    if name in _LOGIT_LOSSES:
+        return f"tf.keras.losses.{loss_cls.__name__}(from_logits={from_logits})"
+    return f"tf.keras.losses.{loss_cls.__name__}()"
+
+
 def _build_optimizer(optimizer_name: Any, lr: float | None = None) -> Any:
     """Build a Keras optimizer, configuring learning rate if specified.
 

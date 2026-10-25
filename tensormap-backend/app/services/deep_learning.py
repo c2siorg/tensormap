@@ -35,7 +35,14 @@ from app.shared.constants import (
     MODEL_TRAINING_SPLIT,
     PROBLEM_TYPE,
 )
-from app.shared.enums import CLASSIFICATION_LOSSES, LossFunction, ProblemType, losses_for_problem_type
+from app.shared.enums import (
+    CLASSIFICATION_LOSSES,
+    LossFunction,
+    Metric,
+    Optimizer,
+    ProblemType,
+    losses_for_problem_type,
+)
 from app.shared.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -434,6 +441,18 @@ def update_training_config_service(
 
     problem_type_id = config["problem_type_id"]
     loss = config.get("loss") or _default_loss(problem_type_id)
+    try:
+        Optimizer(config["optimizer"])
+    except ValueError:
+        valid_opts = ", ".join(sorted(o.value for o in Optimizer))
+        return _resp(400, False, f"Optimizer {config['optimizer']!r} is not supported. Choose one of: {valid_opts}.")
+
+    try:
+        Metric(config["metric"])
+    except ValueError:
+        valid_metrics = ", ".join(sorted(m.value for m in Metric))
+        return _resp(400, False, f"Metric {config['metric']!r} is not supported. Choose one of: {valid_metrics}.")
+
     if LossFunction(loss) not in losses_for_problem_type(problem_type_id):
         # A mismatch only fails (or trains to nonsense) at run time, so refuse it here.
         kind = "classification" if losses_for_problem_type(problem_type_id) is CLASSIFICATION_LOSSES else "regression"

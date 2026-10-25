@@ -5,6 +5,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
+from app.shared.enums import Optimizer
+
 
 class TrainingStartRequest(BaseModel):
     """Request body for starting a training run.
@@ -17,7 +19,7 @@ class TrainingStartRequest(BaseModel):
 
     model_name: str = Field(min_length=1)
     project_id: uuid_pkg.UUID | None = None
-    optimizer: str | None = None
+    optimizer: Optimizer | None = None
     lr: float | None = Field(default=None, gt=0)
     epochs: int | None = Field(default=None, gt=0)
     batch_size: int | None = Field(default=None, gt=0)

@@ -186,3 +186,64 @@ class TestUpdateTrainingConfigServiceLoss:
 
         assert status == 200
         assert model.loss == expected
+
+
+class TestTrainingConfigOptimizerMetricValidation:
+    def test_schema_accepts_supported_optimizers_and_metrics(self):
+        from app.shared.enums import Metric, Optimizer
+
+        for opt in Optimizer:
+            for met in Metric:
+                req = TrainingConfigRequest(
+                    model_name="my_model",
+                    file_id="0d2a3f1e-7c4b-4b2a-9f2e-1c3d4e5f6a7b",
+                    training_split=80,
+                    problem_type_id=1,
+                    optimizer=opt,
+                    metric=met,
+                    epochs=5,
+                )
+                assert req.optimizer == opt
+                assert req.metric == met
+
+    def test_schema_rejects_unsupported_optimizer(self):
+        with pytest.raises(ValidationError) as exc:
+            TrainingConfigRequest(
+                model_name="my_model",
+                file_id="0d2a3f1e-7c4b-4b2a-9f2e-1c3d4e5f6a7b",
+                training_split=80,
+                problem_type_id=1,
+                optimizer="unsupported_optimizer",
+                metric="accuracy",
+                epochs=5,
+            )
+        assert "optimizer" in str(exc.value)
+
+    def test_schema_rejects_unsupported_metric(self):
+        with pytest.raises(ValidationError) as exc:
+            TrainingConfigRequest(
+                model_name="my_model",
+                file_id="0d2a3f1e-7c4b-4b2a-9f2e-1c3d4e5f6a7b",
+                training_split=80,
+                problem_type_id=1,
+                optimizer="adam",
+                metric="unsupported_metric",
+                epochs=5,
+            )
+        assert "metric" in str(exc.value)
+
+    def test_service_rejects_unsupported_optimizer(self):
+        model = ModelBasic(model_name="my_model")
+        db = _db_returning(model)
+
+        body, status = update_training_config_service(db, "my_model", _training_config(optimizer="fake_opt"))
+        assert status == 400
+        assert "Optimizer 'fake_opt' is not supported" in body["message"]
+
+    def test_service_rejects_unsupported_metric(self):
+        model = ModelBasic(model_name="my_model")
+        db = _db_returning(model)
+
+        body, status = update_training_config_service(db, "my_model", _training_config(metric="fake_metric"))
+        assert status == 400
+        assert "Metric 'fake_metric' is not supported" in body["message"]

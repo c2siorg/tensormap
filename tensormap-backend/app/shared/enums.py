@@ -9,6 +9,23 @@ class ProblemType(IntEnum):
     IMAGE_CLASSIFICATION = 3
 
 
+class Optimizer(StrEnum):
+    """Supported Keras optimizers in TensorMap."""
+
+    ADAM = "adam"
+    SGD = "sgd"
+    RMSPROP = "rmsprop"
+    ADAGRAD = "adagrad"
+    ADAMW = "adamw"
+
+
+class Metric(StrEnum):
+    """Supported Keras evaluation metrics in TensorMap."""
+
+    ACCURACY = "accuracy"
+    MSE = "mse"
+
+
 class LossFunction(StrEnum):
     """Keras loss functions a user can pick on the Training page."""
 

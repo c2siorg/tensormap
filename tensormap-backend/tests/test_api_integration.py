@@ -2,6 +2,7 @@ import io
 import uuid
 from unittest.mock import MagicMock, mock_open, patch
 
+import pytest
 from fastapi.testclient import TestClient
 
 CSV_BYTES = b"col1,col2\nval1,val2\nval3,val4\n"
@@ -25,6 +26,53 @@ def test_create_project_valid(client: TestClient):
 def test_create_project_missing_name(client: TestClient):
     resp = client.post("/api/v1/project", json={})
     assert resp.status_code == 422
+
+
+@pytest.mark.parametrize("name", ["", "   "])
+def test_create_project_blank_name(client: TestClient, name: str):
+    resp = client.post("/api/v1/project", json={"name": name})
+    assert resp.status_code == 422
+
+
+def test_create_project_strips_name(client: TestClient):
+    created = _create_project(client, name="  MyProj  ")
+    assert created["data"]["name"] == "MyProj"
+
+    resp = client.get(f"/api/v1/project/{created['data']['id']}")
+    assert resp.json()["data"]["name"] == "MyProj"
+
+
+@pytest.mark.parametrize("name", ["", "   ", None])
+def test_update_project_rejects_blank_or_null_name(client: TestClient, name):
+    created = _create_project(client, name="Original")
+    project_id = created["data"]["id"]
+
+    resp = client.patch(f"/api/v1/project/{project_id}", json={"name": name})
+    assert resp.status_code == 422
+
+    resp = client.get(f"/api/v1/project/{project_id}")
+    assert resp.json()["data"]["name"] == "Original"
+
+
+def test_update_project_description_only_keeps_name(client: TestClient):
+    created = _create_project(client, name="Original")
+    project_id = created["data"]["id"]
+
+    resp = client.patch(f"/api/v1/project/{project_id}", json={"description": "New description"})
+    assert resp.status_code == 200
+    assert resp.json()["data"]["name"] == "Original"
+    assert resp.json()["data"]["description"] == "New description"
+
+
+def test_update_project_null_description_clears_it(client: TestClient):
+    resp = client.post("/api/v1/project", json={"name": "Original", "description": "Old description"})
+    assert resp.status_code == 201
+    project_id = resp.json()["data"]["id"]
+
+    resp = client.patch(f"/api/v1/project/{project_id}", json={"description": None})
+    assert resp.status_code == 200
+    assert resp.json()["data"]["name"] == "Original"
+    assert resp.json()["data"]["description"] is None
 
 
 def test_list_projects_empty(client: TestClient):

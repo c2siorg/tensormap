@@ -110,3 +110,16 @@ def test_response_shape(tmp_path):
     for row in body["data"]["columns"]:
         for key in ("column", "dtype", "count", "null_count", "mean", "min", "max"):
             assert key in row
+
+
+def test_rejects_non_csv_file():
+    fake_file = MagicMock()
+    fake_file.file_name = "images.zip"
+    fake_file.file_type = "zip"
+    db = MagicMock()
+    db.exec.return_value.first.return_value = fake_file
+
+    body, status = get_column_stats_service(db, uuid.uuid4())
+    assert status == 400
+    assert body["success"] is False
+    assert "CSV" in body["message"]

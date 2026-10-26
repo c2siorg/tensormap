@@ -301,6 +301,19 @@ class TestGetAllTargetsService:
 
 
 class TestGetDataMetrics:
+    def test_rejects_non_csv_file(self, mock_db, file_id):
+        zip_file = MagicMock(spec=DataFile)
+        zip_file.id = file_id
+        zip_file.file_name = "dataset.zip"
+        zip_file.file_type = "zip"
+        mock_db.exec.return_value.first.return_value = zip_file
+
+        body, status = get_data_metrics(mock_db, file_id)
+
+        assert status == 400
+        assert body["success"] is False
+        assert "CSV" in body["message"]
+
     @patch("app.services.data_process.get_settings")
     def test_classification_csv(self, mock_settings, mock_db, file_id, sample_file, classification_csv):
         mock_settings.return_value.upload_folder = str(classification_csv)
@@ -376,6 +389,19 @@ class TestGetDataMetrics:
 
 
 class TestGetFileData:
+    def test_rejects_non_csv_file(self, mock_db, file_id):
+        zip_file = MagicMock(spec=DataFile)
+        zip_file.id = file_id
+        zip_file.file_name = "dataset.zip"
+        zip_file.file_type = "zip"
+        mock_db.exec.return_value.first.return_value = zip_file
+
+        body, status = get_file_data(mock_db, file_id)
+
+        assert status == 400
+        assert body["success"] is False
+        assert "CSV" in body["message"]
+
     @patch("app.services.data_process.get_settings")
     def test_get_file_data_page1(self, mock_settings, mock_db, file_id, sample_file, classification_csv):
         mock_settings.return_value.upload_folder = str(classification_csv)
@@ -488,6 +514,19 @@ class TestGetFileData:
 
 
 class TestPreprocessData:
+    def test_rejects_non_csv_file(self, mock_db, file_id):
+        zip_file = MagicMock(spec=DataFile)
+        zip_file.id = file_id
+        zip_file.file_name = "dataset.zip"
+        zip_file.file_type = "zip"
+        mock_db.exec.return_value.first.return_value = zip_file
+
+        body, status = preprocess_data(mock_db, file_id, [])
+
+        assert status == 400
+        assert body["success"] is False
+        assert "CSV" in body["message"]
+
     @patch("app.services.data_process.get_settings")
     def test_drop_column(self, mock_settings, mock_db, file_id, sample_file, classification_csv):
         mock_settings.return_value.upload_folder = str(classification_csv)

@@ -49,6 +49,13 @@ _FAKE_PATH = "/tmp/fake_dataset.csv"
 class TestGetCorrelationMatrix:
     """Unit tests for get_correlation_matrix()."""
 
+    def test_rejects_non_csv_file(self):
+        db = _make_db(_fake_file("images.zip", "zip"))
+        body, status = get_correlation_matrix(db, FILE_ID)
+        assert status == 400
+        assert body["success"] is False
+        assert "CSV" in body["message"]
+
     def test_file_not_found_in_db(self):
         """Returns 400 when the file_id is not in the database."""
         db = _make_db(None)

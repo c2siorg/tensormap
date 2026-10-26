@@ -42,6 +42,17 @@ def _get_file_path(file: DataFile) -> str:
     return f"{settings.upload_folder}/{file.disk_name}"
 
 
+def _require_csv_file(file: DataFile, operation: str = "tabular data processing") -> tuple | None:
+    """Validate that the file has a 'csv' file_type for tabular operations."""
+    if file.file_type != "csv":
+        return _resp(
+            400,
+            False,
+            f"Only CSV files support {operation}, but file '{file.file_name}' has type '{file.file_type}'",
+        )
+    return None
+
+
 def add_target_service(db: Session, file_id: uuid_pkg.UUID, target: str) -> tuple:
     """Create or update the target field assignment for a file.
 
@@ -52,8 +63,9 @@ def add_target_service(db: Session, file_id: uuid_pkg.UUID, target: str) -> tupl
         file = db.exec(select(DataFile).where(DataFile.id == file_id)).first()
         if not file:
             return _resp(400, False, "File doesn't exist in DB")
-        if file.file_type != "csv":
-            return _resp(400, False, "Only CSV files support target field assignment")
+        csv_err = _require_csv_file(file, "target field assignment")
+        if csv_err:
+            return csv_err
         if file.columns is not None and target not in file.columns:
             return _resp(
                 400,
@@ -140,7 +152,7 @@ def get_one_target_by_id_service(db: Session, file_id: uuid_pkg.UUID) -> tuple:
         "file_type": file.file_type,
         "target_field": target_record.target,
     }
-    return _resp(200, True, "Target fields of all files received successfully", data)
+    return _resp(200, True, "Target field received successfully", data)
 
 
 def get_data_metrics(db: Session, file_id: uuid_pkg.UUID) -> tuple:
@@ -148,6 +160,10 @@ def get_data_metrics(db: Session, file_id: uuid_pkg.UUID) -> tuple:
     file = db.exec(select(DataFile).where(DataFile.id == file_id)).first()
     if not file:
         return _resp(400, False, "File doesn't exist in DB")
+
+    csv_err = _require_csv_file(file, "computing dataset metrics")
+    if csv_err:
+        return csv_err
 
     file_path = _get_file_path(file)
     try:
@@ -174,6 +190,10 @@ def get_column_stats_service(db: Session, file_id: uuid_pkg.UUID) -> tuple:
     file = db.exec(select(DataFile).where(DataFile.id == file_id)).first()
     if not file:
         return _resp(400, False, "File doesn't exist in DB")
+
+    csv_err = _require_csv_file(file, "computing column statistics")
+    if csv_err:
+        return csv_err
 
     file_path = _get_file_path(file)
     try:
@@ -228,6 +248,10 @@ def get_correlation_matrix(db: Session, file_id: uuid_pkg.UUID) -> tuple:
     if not file:
         return _resp(400, False, "File doesn't exist in DB")
 
+    csv_err = _require_csv_file(file, "computing correlation matrix")
+    if csv_err:
+        return csv_err
+
     file_path = _get_file_path(file)
     try:
         df = pd.read_csv(file_path)
@@ -261,6 +285,10 @@ def get_file_data(db: Session, file_id: uuid_pkg.UUID, page: int = 1, page_size:
     file = db.exec(select(DataFile).where(DataFile.id == file_id)).first()
     if not file:
         return _resp(400, False, "Unable to open file")
+
+    csv_err = _require_csv_file(file, "tabular data preview")
+    if csv_err:
+        return csv_err
 
     file_path = _get_file_path(file)
 
@@ -383,6 +411,10 @@ def preprocess_data(db: Session, file_id: uuid_pkg.UUID, transformations: list) 
     file = db.exec(select(DataFile).where(DataFile.id == file_id)).first()
     if not file:
         return _resp(400, False, "File doesn't exist in DB")
+
+    csv_err = _require_csv_file(file, "dataset preprocessing")
+    if csv_err:
+        return csv_err
 
     file_path = _get_file_path(file)
 

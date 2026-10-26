@@ -23,7 +23,8 @@ function DataProcess() {
 
   useEffect(() => {
     if (files.length > 0 && !selectedFileId) {
-      setSelectedFileId(String(files[0].file_id));
+      const firstCsv = files.find((f) => f.file_type === "csv");
+      setSelectedFileId(String(firstCsv ? firstCsv.file_id : files[0].file_id));
     }
     if (files.length === 0) {
       setSelectedFileId(null);
@@ -36,7 +37,8 @@ function DataProcess() {
       .then((response) => {
         setFiles(response);
         if (response.length > 0 && !selectedFileId) {
-          setSelectedFileId(String(response[0].file_id));
+          const firstCsv = response.find((f) => f.file_type === "csv");
+          setSelectedFileId(String(firstCsv ? firstCsv.file_id : response[0].file_id));
         }
       })
       .catch((error) => {
@@ -45,6 +47,9 @@ function DataProcess() {
         setSelectedFileId(null);
       });
   };
+
+  const selectedFile = files.find((f) => String(f.file_id) === String(selectedFileId));
+  const isNonCsv = selectedFile && selectedFile.file_type && selectedFile.file_type !== "csv";
 
   return (
     <div className="space-y-6">
@@ -73,45 +78,71 @@ function DataProcess() {
               {files.map((file) => (
                 <option key={file.file_id} value={String(file.file_id)}>
                   {file.file_name}
+                  {file.file_type && file.file_type !== "csv"
+                    ? ` (${file.file_type.toUpperCase()} - Image Dataset)`
+                    : ""}
                 </option>
               ))}
             </select>
           </div>
 
-          {selectedFileId && (
-            <div className="space-y-6">
-              <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          {isNonCsv ? (
+            <Card className="border-amber-200 bg-amber-50/50">
+              <CardHeader>
+                <CardTitle className="text-base font-semibold text-amber-800">
+                  Image Dataset Selected
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2 text-sm text-amber-700">
+                <p>
+                  The selected file <strong>{selectedFile.file_name}</strong> is an image dataset
+                  archive ({selectedFile.file_type?.toUpperCase() || "ZIP"}). Tabular
+                  operations—such as CSV data preview, column statistics, correlation heatmaps, and
+                  preprocessing transformations—only apply to tabular CSV datasets.
+                </p>
+                <p>
+                  To configure and train image classification models using this dataset, visit the{" "}
+                  <strong>Deep Learning</strong> canvas and select this image dataset in model
+                  configurations.
+                </p>
+              </CardContent>
+            </Card>
+          ) : (
+            selectedFileId && (
+              <div className="space-y-6">
+                <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Dataset Preview</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <DisplayDataset fileId={selectedFileId} />
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Preprocessing</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <PreprocessData fileId={selectedFileId} updateFileList={refreshFiles} />
+                    </CardContent>
+                  </Card>
+                </div>
                 <Card>
-                  <CardHeader>
-                    <CardTitle>Dataset Preview</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <DisplayDataset fileId={selectedFileId} />
+                  <CardContent className="pt-4">
+                    <ColumnStatsPanel fileId={selectedFileId} />
                   </CardContent>
                 </Card>
                 <Card>
                   <CardHeader>
-                    <CardTitle>Preprocessing</CardTitle>
+                    <CardTitle>Correlation Heatmap</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <PreprocessData fileId={selectedFileId} updateFileList={refreshFiles} />
+                    <CorrelationHeatmap fileId={selectedFileId} />
                   </CardContent>
                 </Card>
               </div>
-              <Card>
-                <CardContent className="pt-4">
-                  <ColumnStatsPanel fileId={selectedFileId} />
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader>
-                  <CardTitle>Correlation Heatmap</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <CorrelationHeatmap fileId={selectedFileId} />
-                </CardContent>
-              </Card>
-            </div>
+            )
           )}
         </div>
       )}

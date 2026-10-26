@@ -10,7 +10,7 @@ from sqlmodel import Session
 
 from app.database import get_db, get_session
 from app.models.ml import ModelBasic
-from app.models.training_job import TrainingJob
+from app.models.training_job import TrainingJob, TrainingStatus
 from app.services.model_export import (
     ONNXUnsupportedError,
     export_onnx,
@@ -23,6 +23,32 @@ from app.shared.logging_config import get_logger
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/model/export", tags=["export"])
+
+
+def _verify_job_completed(job_id: str, session: Session) -> TrainingJob:
+    """Verify that a training job exists and is completed.
+
+    Args:
+        job_id: Training job ID
+        session: Database session
+
+    Returns:
+        TrainingJob instance
+
+    Raises:
+        HTTPException: 404 if job not found, 400 if job not completed
+    """
+    job = session.get(TrainingJob, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Training job not found")
+
+    if job.status != TrainingStatus.COMPLETED:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Export only available for completed training jobs. Current status: {job.status}",
+        )
+
+    return job
 
 
 @router.get("/{job_id}/formats")
@@ -49,10 +75,8 @@ async def list_export_formats(
         }
     }
     """
-    # Check if job exists
-    job = db.get(TrainingJob, job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Training job not found")
+    # Check if job exists and is completed
+    job = _verify_job_completed(job_id, db)
 
     # Get model to retrieve name and graph_ir
     model = db.get(ModelBasic, job.model_id)
@@ -82,10 +106,8 @@ async def download_export(
     Updates last_export_download_at on training_job after download.
     Runs export generation in threadpool to avoid blocking the event loop.
     """
-    # Check if job exists
-    job = db.get(TrainingJob, job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Training job not found")
+    # Check if job exists and is completed
+    job = _verify_job_completed(job_id, db)
 
     # Get model to retrieve name
     model = db.get(ModelBasic, job.model_id)

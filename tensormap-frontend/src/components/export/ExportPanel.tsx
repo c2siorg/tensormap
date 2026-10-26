@@ -7,6 +7,7 @@
  * - Handles ONNX compatibility issues gracefully
  * - Downloads exports on button click
  * - Shows loading and error states
+ * - Supports retry on format loading failure
  */
 
 import { useState, useEffect } from "react";
@@ -76,7 +77,12 @@ export default function ExportPanel({ jobId, modelName }: ExportPanelProps) {
       setFormats(response.data.formats);
     } catch (err: any) {
       logger.error("Failed to fetch export formats:", err);
-      setError(err.response?.data?.message || err.message || "Failed to load export formats");
+      setError(
+        err.response?.data?.detail ||
+          err.response?.data?.message ||
+          err.message ||
+          "Failed to load export formats",
+      );
     } finally {
       setLoading(false);
     }
@@ -93,24 +99,22 @@ export default function ExportPanel({ jobId, modelName }: ExportPanelProps) {
       });
 
       // Extract filename from Content-Disposition header or generate one
-      const contentDisposition = response.headers["content-disposition"];
+      const contentDisposition = response.headers?.["content-disposition"];
       let filename: string;
-      
+
       if (contentDisposition) {
-        const filenameMatch = contentDisposition.match(/filename="?(.+)"?/);
-        if (filenameMatch) {
-          filename = filenameMatch[1];
+        const filenameMatch = contentDisposition.match(
+          /filename\*?=(?:UTF-8'')?["']?([^";\r\n]+)["']?/i,
+        );
+        if (filenameMatch && filenameMatch[1]) {
+          filename = filenameMatch[1].replace(/["']/g, "").trim();
         } else {
-          // Fallback with correct extension
-          filename = format === "savedmodel" 
-            ? `${modelName}.savedmodel.zip` 
-            : `${modelName}.${format}`;
+          filename =
+            format === "savedmodel" ? `${modelName}.savedmodel.zip` : `${modelName}.${format}`;
         }
       } else {
-        // Fallback with correct extension
-        filename = format === "savedmodel" 
-          ? `${modelName}.savedmodel.zip` 
-          : `${modelName}.${format}`;
+        filename =
+          format === "savedmodel" ? `${modelName}.savedmodel.zip` : `${modelName}.${format}`;
       }
 
       // Create download link
@@ -128,24 +132,52 @@ export default function ExportPanel({ jobId, modelName }: ExportPanelProps) {
     } catch (err: any) {
       logger.error(`Failed to download ${format} export:`, err);
 
-      // Check if it's an ONNX compatibility error
-      if (err.response?.data && typeof err.response.data === "object") {
+      let parsedDetail: string | null = null;
+
+      // Extract error details from blob or object response
+      if (err.response?.data) {
         try {
-          // If the response is a blob, try to parse it as JSON
-          const text = await new Response(err.response.data).text();
-          const errorData: ExportError = JSON.parse(text);
-          if (errorData.error === "onnx_unsupported") {
-            setError(
-              `ONNX export not supported: ${errorData.issues.join("; ")}. ${errorData.suggestion}`,
-            );
-            return;
+          let errorData: any = err.response.data;
+          if (typeof Blob !== "undefined" && errorData instanceof Blob) {
+            const text = await errorData.text();
+            errorData = JSON.parse(text);
+          } else if (typeof errorData === "string") {
+            try {
+              errorData = JSON.parse(errorData);
+            } catch {
+              // Not JSON string
+            }
+          }
+
+          if (errorData && typeof errorData === "object") {
+            const exportErr = errorData as Partial<ExportError> & {
+              detail?: string;
+              message?: string;
+            };
+            if (exportErr.error === "onnx_unsupported" && Array.isArray(exportErr.issues)) {
+              setError(
+                `ONNX export not supported: ${exportErr.issues.join("; ")}. ${exportErr.suggestion || ""}`.trim(),
+              );
+              return;
+            }
+            if (exportErr.detail) {
+              parsedDetail = exportErr.detail;
+            } else if (exportErr.message) {
+              parsedDetail = exportErr.message;
+            }
           }
         } catch {
-          // Not a JSON error, continue with default error handling
+          // Fall through to generic error extraction
         }
       }
 
-      setError(err.response?.data?.detail || err.message || `Failed to download ${format} export`);
+      setError(
+        parsedDetail ||
+          err.response?.data?.detail ||
+          err.response?.data?.message ||
+          err.message ||
+          `Failed to download ${format} export`,
+      );
     } finally {
       setDownloading((prev) => ({ ...prev, [format]: false }));
     }
@@ -200,13 +232,18 @@ export default function ExportPanel({ jobId, modelName }: ExportPanelProps) {
             Export Model
           </CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
           <Alert variant="destructive">
             <AlertCircle className="h-4 w-4" />
             <AlertDescription>
               {error || "Failed to load export formats. Please try again."}
             </AlertDescription>
           </Alert>
+          <div className="flex justify-end">
+            <Button variant="outline" size="sm" onClick={fetchFormats}>
+              Retry
+            </Button>
+          </div>
         </CardContent>
       </Card>
     );

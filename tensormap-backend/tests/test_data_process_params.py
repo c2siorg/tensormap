@@ -25,8 +25,8 @@ def mock_settings():
 @pytest.mark.parametrize(
     "file_type,expected_status",
     [
-        ("json", 500),
-        ("parquet", 500),
+        ("json", 400),
+        ("parquet", 400),
     ],
 )
 def test_get_file_data_unsupported_file_type(mock_db, mock_settings, file_type, expected_status):
@@ -36,9 +36,10 @@ def test_get_file_data_unsupported_file_type(mock_db, mock_settings, file_type, 
     mock_file.file_type = file_type
     mock_file.disk_name = f"test.{file_type}"
     mock_db.exec.return_value.first.return_value = mock_file
-    with patch("builtins.open", side_effect=FileNotFoundError):
-        body, status = get_file_data(mock_db, uuid.uuid4())
+    body, status = get_file_data(mock_db, uuid.uuid4())
     assert status == expected_status
+    assert body["success"] is False
+    assert "CSV" in body["message"]
 
 
 def test_get_file_data_csv_success(tmp_path, mock_db, mock_settings):

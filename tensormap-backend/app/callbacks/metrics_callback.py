@@ -140,20 +140,9 @@ class MetricsCallback(tf.keras.callbacks.Callback):
         """Mark the job COMPLETED unless it was cancelled/failed meanwhile.
 
         Cancellation sets ``model.stop_training`` and still calls ``on_train_end``;
-        the status guard prevents overwriting CANCELLED/FAILED. The trained model
-        is also saved to ``exports/{job_id}/model.keras`` for later export.
+        the status guard prevents overwriting CANCELLED/FAILED and skips saving
+        partial model artifacts to disk for cancelled jobs.
         """
-        from app.services.model_export import EXPORTS_BASE
-
-        export_dir = EXPORTS_BASE / self.job_id
-        export_dir.mkdir(parents=True, exist_ok=True)
-
-        try:
-            self.model.save(export_dir / "model.keras")
-            logger.info(f"Saved model.keras for job {self.job_id}")
-        except Exception as e:
-            logger.error(f"Failed to save model.keras for job {self.job_id}: {e}")
-
         final_status = None
         with self.session_factory() as session:
             job = session.get(TrainingJob, self.job_id)
@@ -164,6 +153,19 @@ class MetricsCallback(tf.keras.callbacks.Callback):
                     session.add(job)
                     session.commit()
                 final_status = job.status.value
+
+        # Only persist model artifact if job completed successfully
+        if final_status == TrainingStatus.COMPLETED.value:
+            from app.services.model_export import EXPORTS_BASE
+
+            export_dir = EXPORTS_BASE / self.job_id
+            export_dir.mkdir(parents=True, exist_ok=True)
+
+            try:
+                self.model.save(export_dir / "model.keras")
+                logger.info(f"Saved model.keras for job {self.job_id}")
+            except Exception as e:
+                logger.error(f"Failed to save model.keras for job {self.job_id}: {e}")
 
         if final_status is not None:
             self._emit(

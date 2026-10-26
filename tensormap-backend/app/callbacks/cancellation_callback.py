@@ -28,11 +28,24 @@ class CancellationCheckCallback(tf.keras.callbacks.Callback):
         # Side-effect flag so tests (and callers) can confirm a cancellation fired.
         self.cancelled = False
 
-    def on_epoch_begin(self, epoch: int, logs: dict = None) -> None:
-        """Set ``model.stop_training`` if the job has been cancelled."""
+    def _check_cancellation(self) -> bool:
+        """Check if job status is CANCELLED and signal model.stop_training."""
+        if self.cancelled:
+            return True
         with self.session_factory() as session:
             job = session.get(TrainingJob, self.job_id)
             if job is not None and job.status == TrainingStatus.CANCELLED:
-                logger.info("Cancellation detected for job %s at epoch %d", self.job_id, epoch)
+                logger.info("Cancellation detected for job %s", self.job_id)
                 self.cancelled = True
-                self.model.stop_training = True
+                if hasattr(self, "model") and self.model is not None:
+                    self.model.stop_training = True
+                return True
+        return False
+
+    def on_epoch_begin(self, epoch: int, logs: dict = None) -> None:
+        """Check cancellation at the start of each epoch."""
+        self._check_cancellation()
+
+    def on_train_batch_begin(self, batch: int, logs: dict = None) -> None:
+        """Check cancellation at batch boundaries for prompt termination."""
+        self._check_cancellation()

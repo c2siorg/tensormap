@@ -369,6 +369,10 @@ def _run(model_name: str, db: Session, job_id: str | None = None) -> None:
         metrics=[model_configs.metric],
     )
 
+    # Check whether cancellation was requested during training
+    def _was_cancelled() -> bool:
+        return any(isinstance(cb, CancellationCheckCallback) and cb.cancelled for cb in callbacks)
+
     if model_configs.model_type == ProblemType.IMAGE_CLASSIFICATION:
         model.fit(
             train_data,
@@ -377,7 +381,10 @@ def _run(model_name: str, db: Session, job_id: str | None = None) -> None:
             callbacks=callbacks,
             verbose=0,
         )
-        model.evaluate(test_data, callbacks=callbacks, verbose=0)
+        if not _was_cancelled():
+            model.evaluate(test_data, callbacks=callbacks, verbose=0)
+        else:
+            logger.info("Skipping model evaluation because job was cancelled")
     else:
         model.fit(
             x_training,
@@ -387,4 +394,7 @@ def _run(model_name: str, db: Session, job_id: str | None = None) -> None:
             callbacks=callbacks,
             verbose=0,
         )
-        model.evaluate(x_testing, y_testing, callbacks=callbacks, verbose=0)
+        if not _was_cancelled():
+            model.evaluate(x_testing, y_testing, callbacks=callbacks, verbose=0)
+        else:
+            logger.info("Skipping model evaluation because job was cancelled")

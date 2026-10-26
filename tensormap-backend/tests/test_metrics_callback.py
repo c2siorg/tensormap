@@ -254,3 +254,33 @@ def test_job_stores_error_on_exception(training_session_factory):
         job = session.get(TrainingJob, job_id)
         assert job.status == TrainingStatus.FAILED
         assert "boom" in job.error_message
+
+
+def test_cancellation_skips_model_artifact_save(training_session_factory, tmp_path):
+    """When a job is cancelled, model.save() must NOT be called in on_train_end."""
+
+    job_id = _seed_job(training_session_factory, status=TrainingStatus.CANCELLED)
+    sio = MagicMock()
+    cb = MetricsCallback(job_id, training_session_factory, sio, None)
+    mock_model = MagicMock()
+    cb.set_model(mock_model)
+
+    with patch("app.services.model_export.EXPORTS_BASE", tmp_path / "exports"):
+        cb.on_train_end()
+
+    mock_model.save.assert_not_called()
+    assert not (tmp_path / "exports" / job_id / "model.keras").exists()
+
+
+def test_cancellation_stops_at_batch_boundary(training_session_factory):
+    """CancellationCheckCallback detects cancellation on batch boundaries."""
+    job_id = _seed_job(training_session_factory, status=TrainingStatus.CANCELLED)
+    cb = CancellationCheckCallback(job_id, training_session_factory)
+    model = MagicMock()
+    model.stop_training = False
+    cb.set_model(model)
+
+    cb.on_train_batch_begin(0)
+
+    assert cb.model.stop_training is True
+    assert cb.cancelled is True

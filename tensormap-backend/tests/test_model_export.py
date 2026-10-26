@@ -11,6 +11,7 @@ from unittest.mock import Mock, patch
 from uuid import uuid4
 
 import pytest
+from fastapi.testclient import TestClient
 from sqlmodel import Session
 
 from app.models.ml import ModelBasic
@@ -1011,3 +1012,189 @@ def test_expires_at_in_formats_response(tmp_path):
         # Allow 1 second tolerance for file system time precision
         time_diff = abs((expires_at - expected_expires).total_seconds())
         assert time_diff < 1, f"Expected {expected_expires}, got {expires_at}"
+
+
+def test_export_endpoints_reject_non_completed_job_status(client: TestClient, db_session: Session):
+    """Both /formats and download endpoints return 400 when training is not completed."""
+    model = ModelBasic(id=10, model_name="status_test_model", graph_ir={})
+    db_session.add(model)
+    db_session.commit()
+
+    non_completed_statuses = [
+        TrainingStatus.PENDING,
+        TrainingStatus.RUNNING,
+        TrainingStatus.FAILED,
+        TrainingStatus.CANCELLED,
+    ]
+
+    for status in non_completed_statuses:
+        job = TrainingJob(
+            id=str(uuid4()),
+            model_id=model.id,
+            status=status,
+            hyperparams={},
+        )
+        db_session.add(job)
+        db_session.commit()
+
+        # Check /formats endpoint
+        formats_resp = client.get(f"/api/v1/model/export/{job.id}/formats")
+        assert formats_resp.status_code == 400
+        assert f"Current status: {status.value}" in formats_resp.json()["detail"]
+        assert "Export only available for completed training jobs" in formats_resp.json()["detail"]
+
+        # Check download endpoint
+        download_resp = client.get(f"/api/v1/model/export/{job.id}?format=savedmodel")
+        assert download_resp.status_code == 400
+        assert f"Current status: {status.value}" in download_resp.json()["detail"]
+        assert "Export only available for completed training jobs" in download_resp.json()["detail"]
+
+
+def test_export_endpoints_return_404_when_job_not_found(client: TestClient):
+    """Endpoints return 404 when requested job_id does not exist."""
+    missing_job_id = str(uuid4())
+
+    formats_resp = client.get(f"/api/v1/model/export/{missing_job_id}/formats")
+    assert formats_resp.status_code == 404
+    assert formats_resp.json()["detail"] == "Training job not found"
+
+    download_resp = client.get(f"/api/v1/model/export/{missing_job_id}?format=savedmodel")
+    assert download_resp.status_code == 404
+    assert download_resp.json()["detail"] == "Training job not found"
+
+
+def test_export_endpoints_return_404_when_model_missing(client: TestClient, db_session: Session):
+    """Endpoints return 404 when job's associated model is missing."""
+    model = ModelBasic(id=11, model_name="missing_model_test", graph_ir={})
+    db_session.add(model)
+    db_session.commit()
+
+    job = TrainingJob(
+        id=str(uuid4()),
+        model_id=model.id,
+        status=TrainingStatus.COMPLETED,
+        hyperparams={},
+    )
+    db_session.add(job)
+    db_session.commit()
+
+    with patch.object(
+        Session, "get", side_effect=lambda entity, ident, *a, **k: job if entity is TrainingJob else None
+    ):
+        formats_resp = client.get(f"/api/v1/model/export/{job.id}/formats")
+        assert formats_resp.status_code == 404
+        assert formats_resp.json()["detail"] == "Model not found"
+
+        download_resp = client.get(f"/api/v1/model/export/{job.id}?format=savedmodel")
+        assert download_resp.status_code == 404
+        assert download_resp.json()["detail"] == "Model not found"
+
+
+def test_export_endpoints_success_for_completed_job(client: TestClient, db_session: Session, tmp_path):
+    """Endpoints succeed for completed training jobs."""
+    model = ModelBasic(id=12, model_name="success_model", graph_ir={})
+    db_session.add(model)
+    db_session.commit()
+
+    job_id = str(uuid4())
+    job = TrainingJob(
+        id=job_id,
+        model_id=model.id,
+        status=TrainingStatus.COMPLETED,
+        hyperparams={},
+    )
+    db_session.add(job)
+    db_session.commit()
+
+    dummy_zip = tmp_path / "dummy.zip"
+    dummy_zip.write_bytes(b"PK\x05\x06" + b"\x00" * 18)
+
+    with (
+        patch("app.routers.export.export_savedmodel", return_value=dummy_zip),
+        patch("app.routers.export.get_export_formats", return_value={"savedmodel": {"available": True}}),
+    ):
+        formats_resp = client.get(f"/api/v1/model/export/{job_id}/formats")
+        assert formats_resp.status_code == 200
+        assert formats_resp.json() == {"formats": {"savedmodel": {"available": True}}}
+
+        download_resp = client.get(f"/api/v1/model/export/{job_id}?format=savedmodel")
+        assert download_resp.status_code == 200
+        assert download_resp.headers["content-type"] == "application/zip"
+        assert download_resp.content == b"PK\x05\x06" + b"\x00" * 18
+
+
+def test_export_download_model_file_missing_on_disk(client: TestClient, db_session: Session):
+    """Download endpoint returns 404 if model file is missing on disk for a completed job."""
+    model = ModelBasic(id=13, model_name="missing_disk_model", graph_ir={})
+    db_session.add(model)
+    db_session.commit()
+
+    job_id = str(uuid4())
+    job = TrainingJob(
+        id=job_id,
+        model_id=model.id,
+        status=TrainingStatus.COMPLETED,
+        hyperparams={},
+    )
+    db_session.add(job)
+    db_session.commit()
+
+    with patch("app.routers.export.export_savedmodel", side_effect=FileNotFoundError("model.keras missing")):
+        download_resp = client.get(f"/api/v1/model/export/{job_id}?format=savedmodel")
+        assert download_resp.status_code == 404
+        assert "Model file not found" in download_resp.json()["detail"]
+
+
+def test_export_download_onnx_unsupported(client: TestClient, db_session: Session):
+    """Download endpoint returns 400 when ONNX export is unsupported."""
+    model = ModelBasic(id=14, model_name="onnx_unsupported_model", graph_ir={})
+    db_session.add(model)
+    db_session.commit()
+
+    job_id = str(uuid4())
+    job = TrainingJob(
+        id=job_id,
+        model_id=model.id,
+        status=TrainingStatus.COMPLETED,
+        hyperparams={},
+    )
+    db_session.add(job)
+    db_session.commit()
+
+    with patch(
+        "app.routers.export.export_onnx",
+        side_effect=ONNXUnsupportedError(["RNN layers with variable seq length not supported"]),
+    ):
+        download_resp = client.get(f"/api/v1/model/export/{job_id}?format=onnx")
+        assert download_resp.status_code == 400
+        data = download_resp.json()
+        assert data["detail"]["error"] == "onnx_unsupported"
+        assert "RNN layers with variable seq length not supported" in data["detail"]["issues"]
+
+
+def test_export_download_updates_timestamp(client: TestClient, db_session: Session, tmp_path):
+    """Successful download updates last_export_download_at on the training job."""
+    model = ModelBasic(id=15, model_name="timestamp_model", graph_ir={})
+    db_session.add(model)
+    db_session.commit()
+
+    job_id = str(uuid4())
+    job = TrainingJob(
+        id=job_id,
+        model_id=model.id,
+        status=TrainingStatus.COMPLETED,
+        hyperparams={},
+        last_export_download_at=None,
+    )
+    db_session.add(job)
+    db_session.commit()
+
+    dummy_zip = tmp_path / "dummy.zip"
+    dummy_zip.write_bytes(b"PK\x05\x06" + b"\x00" * 18)
+
+    with patch("app.routers.export.export_savedmodel", return_value=dummy_zip):
+        download_resp = client.get(f"/api/v1/model/export/{job_id}?format=savedmodel")
+        assert download_resp.status_code == 200
+
+    db_session.refresh(job)
+    assert job.last_export_download_at is not None

@@ -13,7 +13,7 @@ from sqlalchemy import func
 from sqlmodel import Session, select
 
 from app.config import get_settings
-from app.models import DataFile, DataProcess
+from app.models import DataFile, DataProcess, ModelBasic
 from app.shared.csv_columns import read_csv_columns
 from app.shared.logging_config import get_logger
 
@@ -551,36 +551,33 @@ def _drop_column(df: pd.DataFrame, col: str, _params: dict | None) -> pd.DataFra
     return df.drop(columns=[col])
 
 
-def _min_max_normalize(df: pd.DataFrame, col: str, _params: dict | None) -> pd.DataFrame:
+def _require_numeric(df: pd.DataFrame, col: str, transform_name: str) -> None:
     if not pd.api.types.is_numeric_dtype(df[col]):
-        raise ValueError(
-            f"Min-Max Normalization requires a numeric column, but '{col}' has dtype '{df[col].dtype}'. "
-            "Convert it to a numeric type first."
-        )
+        raise ValueError(f"Cannot apply {transform_name} to non-numeric column '{col}' (dtype: {df[col].dtype})")
+
+
+def _min_max_normalize(df: pd.DataFrame, col: str, _params: dict | None) -> pd.DataFrame:
+    _require_numeric(df, col, "Min-Max Normalization")
     col_min = df[col].min()
     col_max = df[col].max()
+    if pd.isna(col_min) or pd.isna(col_max):
+        raise ValueError(f"Cannot normalize column '{col}' because it contains only missing values.")
     df[col] = 0.0 if np.isclose(col_min, col_max) else (df[col] - col_min) / (col_max - col_min)
     return df
 
 
 def _zscore_standardize(df: pd.DataFrame, col: str, _params: dict | None) -> pd.DataFrame:
-    if not pd.api.types.is_numeric_dtype(df[col]):
-        raise ValueError(
-            f"Z-score Standardization requires a numeric column, but '{col}' has dtype '{df[col].dtype}'. "
-            "Convert it to a numeric type first."
-        )
+    _require_numeric(df, col, "Z-score Standardization")
     mean = df[col].mean()
     std = df[col].std()
+    if pd.isna(mean) or pd.isna(std):
+        raise ValueError(f"Cannot standardize column '{col}' because it contains only missing values.")
     df[col] = 0.0 if np.isclose(std, 0) else (df[col] - mean) / std
     return df
 
 
 def _log_transform(df: pd.DataFrame, col: str, _params: dict | None) -> pd.DataFrame:
-    if not pd.api.types.is_numeric_dtype(df[col]):
-        raise ValueError(
-            f"Log Transform requires a numeric column, but '{col}' has dtype '{df[col].dtype}'. "
-            "Convert it to a numeric type first."
-        )
+    _require_numeric(df, col, "Log Transform")
     s = df[col]
     # log(1+x) is non-finite for x <= -1: at x == -1 it evaluates to -inf
     # (log 0), so reject those values instead of silently corrupting the CSV.
@@ -652,10 +649,10 @@ def _drop_missing_rows(df: pd.DataFrame, col: str, _params: dict | None) -> pd.D
 
 def _fill_missing(df: pd.DataFrame, col: str, params: dict | None) -> pd.DataFrame:
     strategy = (params or {}).get("strategy", "mean")
-    if strategy in {"mean", "median"} and not pd.api.types.is_numeric_dtype(df[col]):
+    if strategy in ("mean", "median") and not pd.api.types.is_numeric_dtype(df[col]):
         raise ValueError(
-            f"Fill Missing Values with strategy='{strategy}' requires a numeric column, "
-            f"but '{col}' has dtype '{df[col].dtype}'. Use strategy='mode' for categorical columns."
+            f"Fill strategy '{strategy}' requires a numeric column, but '{col}' is {df[col].dtype}. "
+            "Use 'mode' for non-numeric columns."
         )
     if strategy == "median":
         df[col] = df[col].fillna(df[col].median())
@@ -709,9 +706,29 @@ def preprocess_data(db: Session, file_id: uuid_pkg.UUID, transformations: list) 
     try:
         df = pd.read_csv(file_path)
 
-        # Look up the active target column for this file (if set).
+        # Look up active target column protection (prevent deleting or breaking target).
+        # We track each target along with where it is referenced (dataset target or model)
+        # so the user receives a specific explanation of what blocks the operation.
+        target_sources: dict[str, list[str]] = {}
         target_record = db.exec(select(DataProcess).where(DataProcess.file_id == file_id)).first()
-        active_target: str | None = target_record.target if target_record else None
+        if target_record and getattr(target_record, "target", None):
+            target_sources.setdefault(target_record.target, []).append("dataset target setting")
+
+        with contextlib.suppress(Exception):
+            dp_records = db.exec(select(DataProcess).where(DataProcess.file_id == file_id)).all()
+            for dp in dp_records:
+                if getattr(dp, "target", None) and "dataset target setting" not in target_sources.setdefault(
+                    dp.target, []
+                ):
+                    target_sources[dp.target].append("dataset target setting")
+
+        with contextlib.suppress(Exception):
+            linked_models = db.exec(select(ModelBasic).where(ModelBasic.file_id == file_id)).all()
+            for mb in linked_models:
+                if getattr(mb, "target_field", None):
+                    source_label = f"model '{mb.model_name}'" if getattr(mb, "model_name", None) else "configured model"
+                    if source_label not in target_sources.setdefault(mb.target_field, []):
+                        target_sources[mb.target_field].append(source_label)
 
         # Validate all transformations before applying any, so the request either
         # fully succeeds or fully fails — no partial mutations.
@@ -729,14 +746,25 @@ def preprocess_data(db: Session, file_id: uuid_pkg.UUID, transformations: list) 
                     f"Column '{t.feature}' not found. Available columns: {list(df.columns)}",
                 )
             # Reject transformations that would destroy or rename the target column.
-            if active_target and t.feature == active_target and t.transformation in _TARGET_DESTRUCTIVE:
-                return _resp(
-                    422,
-                    False,
-                    f"Cannot apply '{t.transformation}' to active target column '{active_target}'. "
-                    "Reassign the target field to a different column first.",
-                )
+            if t.feature in target_sources:
+                sources_str = ", ".join(target_sources[t.feature])
+                if t.transformation == "Drop Column":
+                    return _resp(
+                        422,
+                        False,
+                        f"Cannot drop active target column '{t.feature}' (referenced by {sources_str}). "
+                        "Reassign or remove the target field before dropping it.",
+                    )
+                if t.transformation == "One Hot Encoding":
+                    return _resp(
+                        422,
+                        False,
+                        f"Cannot one-hot encode active target column '{t.feature}' (referenced by {sources_str}). "
+                        "One-hot encoding replaces the target column with binary indicator columns "
+                        "and breaks model training.",
+                    )
 
+        # Apply transformations sequentially in-memory
         for t in transformations:
             if t.feature not in df.columns:
                 return _resp(

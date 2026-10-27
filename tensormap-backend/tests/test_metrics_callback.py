@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 from sqlmodel import select
 
 from app.callbacks.cancellation_callback import CancellationCheckCallback
-from app.callbacks.metrics_callback import MetricsCallback
+from app.callbacks.metrics_callback import MetricsCallback, _as_float
 from app.models.training_job import TrainingJob, TrainingStatus
 from app.models.training_metric import TrainingMetric
 from app.services.training_service import _train_in_thread, get_job_metrics_grouped
@@ -254,3 +254,116 @@ def test_job_stores_error_on_exception(training_session_factory):
         job = session.get(TrainingJob, job_id)
         assert job.status == TrainingStatus.FAILED
         assert "boom" in job.error_message
+
+
+def test_metrics_persist_regression_and_custom_metrics(training_session_factory):
+    job_id = _seed_job(training_session_factory)
+    cb = MetricsCallback(job_id, training_session_factory, MagicMock(), loop=None)
+
+    cb.on_train_begin()
+    cb.on_epoch_end(
+        0,
+        {
+            "loss": 0.45,
+            "mae": 0.32,
+            "mse": 0.18,
+            "val_loss": 0.48,
+            "val_mae": 0.35,
+            "val_mse": 0.20,
+        },
+    )
+    cb.on_train_end()
+
+    with training_session_factory() as session:
+        rows = session.exec(select(TrainingMetric).where(TrainingMetric.job_id == job_id)).all()
+        # 6 metrics (loss, mae, mse, val_loss, val_mae, val_mse) = 6 rows
+        assert len(rows) == 6
+        names = {r.metric_name for r in rows}
+        assert names == {"loss", "mae", "mse", "val_loss", "val_mae", "val_mse"}
+
+        grouped = get_job_metrics_grouped(job_id, session)
+        assert len(grouped) == 1
+        assert grouped[0]["epoch"] == 1
+        assert grouped[0]["mae"] == 0.32
+        assert grouped[0]["mse"] == 0.18
+        assert grouped[0]["val_mae"] == 0.35
+        assert grouped[0]["val_mse"] == 0.20
+        assert "accuracy" not in grouped[0]
+
+
+def test_metrics_omits_non_finite_values(training_session_factory):
+    job_id = _seed_job(training_session_factory)
+    sio = MagicMock()
+    loop = MagicMock()
+    loop.is_running.return_value = True
+    cb = MetricsCallback(job_id, training_session_factory, sio, loop=loop)
+
+    with patch("app.callbacks.metrics_callback.asyncio.run_coroutine_threadsafe"):
+        cb.on_epoch_end(
+            0,
+            {
+                "loss": float("nan"),
+                "mae": float("inf"),
+                "mse": float("-inf"),
+                "accuracy": 0.75,
+            },
+        )
+
+    # Database: non-finite metrics must not be persisted as rows
+    with training_session_factory() as session:
+        rows = session.exec(select(TrainingMetric).where(TrainingMetric.job_id == job_id)).all()
+        assert len(rows) == 1
+        assert rows[0].metric_name == "accuracy"
+        assert rows[0].metric_value == 0.75
+
+    # Socket.IO payload: non-finite metrics must be None, not raw NaN/Inf
+    payload = sio.emit.call_args.args[1]
+    assert payload["loss"] is None
+    assert payload["mae"] is None
+    assert payload["mse"] is None
+    assert payload["accuracy"] == 0.75
+
+
+def test_regression_metrics_emitted_to_socket_room(training_session_factory):
+    job_id = _seed_job(training_session_factory)
+    sio = MagicMock()
+    loop = MagicMock()
+    loop.is_running.return_value = True
+    cb = MetricsCallback(job_id, training_session_factory, sio, loop=loop)
+
+    with patch("app.callbacks.metrics_callback.asyncio.run_coroutine_threadsafe"):
+        cb.on_epoch_end(
+            0,
+            {
+                "loss": 0.25,
+                "mae": 0.15,
+                "mse": 0.08,
+                "val_loss": 0.30,
+                "val_mae": 0.18,
+                "val_mse": 0.10,
+            },
+        )
+
+    payload = sio.emit.call_args.args[1]
+    assert payload["epoch"] == 1
+    assert payload["loss"] == 0.25
+    assert payload["mae"] == 0.15
+    assert payload["mse"] == 0.08
+    assert payload["val_loss"] == 0.30
+    assert payload["val_mae"] == 0.18
+    assert payload["val_mse"] == 0.10
+    assert payload["accuracy"] is None
+    assert payload["val_accuracy"] is None
+
+
+def test_as_float_helper():
+    assert _as_float(None) is None
+    assert _as_float(1.5) == 1.5
+    assert _as_float(10) == 10.0
+    assert _as_float("3.14") == 3.14
+    assert _as_float(float("nan")) is None
+    assert _as_float(float("inf")) is None
+    assert _as_float(float("-inf")) is None
+    assert _as_float("not_a_number") is None
+    assert _as_float([1, 2, 3]) is None
+    assert _as_float({"a": 1}) is None

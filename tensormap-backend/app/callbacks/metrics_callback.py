@@ -7,6 +7,7 @@ formatted strings to every client, it writes structured metrics to the
 
 import asyncio
 import contextlib
+import math
 from datetime import UTC, datetime
 
 import tensorflow as tf
@@ -109,6 +110,12 @@ class MetricsCallback(tf.keras.callbacks.Callback):
             ),
         }
 
+        # Normalize and dynamically record all other metrics present in logs (e.g. mae, mse, precision, recall)
+        handled_keys = {"epoch", "loss", "val_loss", "acc", "val_acc", "accuracy", "val_accuracy"}
+        for k, v in logs.items():
+            if isinstance(k, str) and k.strip() and k not in handled_keys:
+                payload[k] = _as_float(v)
+
         # 1. Persist each present metric as its own row.
         with self.session_factory() as session:
             for name, value in payload.items():
@@ -198,7 +205,13 @@ class MetricsCallback(tf.keras.callbacks.Callback):
 
 
 def _as_float(value) -> float | None:
-    """Coerce a Keras log value to float, or None if it is missing."""
+    """Coerce a Keras log value to float, or None if it is missing or non-finite."""
     if value is None:
         return None
-    return float(value)
+    try:
+        val = float(value)
+        if math.isnan(val) or math.isinf(val):
+            return None
+        return val
+    except (TypeError, ValueError):
+        return None

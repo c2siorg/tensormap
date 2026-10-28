@@ -1,6 +1,7 @@
 """Health check endpoints for Kubernetes and production monitoring."""
 
 from fastapi import APIRouter, Depends
+from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlmodel import Session
 
@@ -20,6 +21,6 @@ def readiness_check(db: Session = Depends(get_db)):
     """Readiness probe - checks database connectivity."""
     try:
         db.exec(text("SELECT 1"))
-        return {"status": "ready", "database": "connected"}
+        return JSONResponse(status_code=200, content={"status": "ready", "database": "connected"})
     except Exception:
-        return {"status": "not ready", "database": "disconnected"}
+        return JSONResponse(status_code=503, content={"status": "not ready", "database": "disconnected"})

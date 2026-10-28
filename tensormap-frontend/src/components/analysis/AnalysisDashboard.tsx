@@ -176,6 +176,8 @@ export default function AnalysisDashboard({ jobId }: AnalysisDashboardProps) {
             residuals={regressionData.residuals}
             mae={regressionData.mae}
             mse={regressionData.mse}
+            rmse={regressionData.rmse}
+            r2={regressionData.r2}
           />
 
           {/* Feature Importance for Regression */}

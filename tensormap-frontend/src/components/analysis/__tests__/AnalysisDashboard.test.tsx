@@ -65,6 +65,8 @@ describe("AnalysisDashboard", () => {
       residuals: [0.2, -0.1, 0.1],
       mae: 0.133,
       mse: 0.020,
+      rmse: 0.1414,
+      r2: 0.9857,
       analysis_type: "regression",
       cached: false,
     },

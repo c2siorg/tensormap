@@ -52,6 +52,8 @@ export interface RegressionAnalysisData {
   y_true: number[];
   mae: number;
   mse: number;
+  rmse: number;
+  r2: number | null;
   analysis_type: "regression";
   cached: boolean;
 }

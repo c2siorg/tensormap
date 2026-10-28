@@ -360,6 +360,8 @@ async def get_residuals(
             "residuals": [float, ...],
             "mae": float,
             "mse": float,
+            "rmse": float,
+            "r2": float | None,
             "analysis_type": "regression",
             "cached": bool
         }

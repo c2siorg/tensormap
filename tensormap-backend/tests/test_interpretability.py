@@ -1357,3 +1357,74 @@ def test_roc_curve_endpoint_404_for_nonexistent_job(db_session):
     """GET /model/analysis/{job_id}/roc-curve returns 404 for unknown job."""
     resp = client.get("/api/v1/model/analysis/00000000-0000-0000-0000-000000000000/roc-curve")
     assert resp.status_code == 404
+
+
+# Test 26: Regression analysis computes RMSE and R2
+# ------------------------------------------------------------------
+
+
+def test_regression_analysis_computes_rmse_and_r2(regression_job, db_session, export_dir):
+    """Regression analysis includes RMSE and R2 metrics alongside MAE and MSE."""
+    job_id = regression_job
+    service = InterpretabilityService()
+
+    y_test = np.array([2.0, 4.0, 6.0, 8.0, 10.0], dtype=np.float32)
+    X_test = np.ones((5, 2), dtype=np.float32)
+
+    mock_model = MagicMock()
+    # Predictions slightly off: [2.5, 3.5, 6.5, 7.5, 10.5] (residuals = +0.5, -0.5, +0.5, -0.5, +0.5)
+    mock_model.predict = MagicMock(return_value=np.array([[2.5], [3.5], [6.5], [7.5], [10.5]], dtype=np.float32))
+
+    with (
+        patch.object(service, "_load_test_data", return_value=(X_test, y_test, ["target"])),
+        patch("app.services.interpretability.EXPORTS_BASE", export_dir),
+        patch("tensorflow.keras.models.load_model", return_value=mock_model),
+    ):
+        result = service._compute_regression_analysis_sync(job_id, db_session)
+
+    assert "mae" in result
+    assert "mse" in result
+    assert "rmse" in result
+    assert "r2" in result
+    assert np.isclose(result["mae"], 0.5)
+    assert np.isclose(result["mse"], 0.25)
+    assert np.isclose(result["rmse"], 0.5)
+    assert np.isclose(result["r2"], 0.96875)
+
+
+def test_regression_analysis_r2_none_when_undefined(regression_job, db_session, export_dir):
+    """R2 is None when dataset has <= 1 sample or constant y_true (variance is 0)."""
+    job_id = regression_job
+    service = InterpretabilityService()
+
+    # Case 1: single sample
+    y_single = np.array([5.0], dtype=np.float32)
+    X_single = np.ones((1, 2), dtype=np.float32)
+    mock_model = MagicMock()
+    mock_model.predict = MagicMock(return_value=np.array([[5.2]], dtype=np.float32))
+
+    with (
+        patch.object(service, "_load_test_data", return_value=(X_single, y_single, ["target"])),
+        patch("app.services.interpretability.EXPORTS_BASE", export_dir),
+        patch("tensorflow.keras.models.load_model", return_value=mock_model),
+    ):
+        result_single = service._compute_regression_analysis_sync(job_id, db_session)
+
+    assert result_single["r2"] is None
+    assert np.isclose(result_single["mae"], 0.2)
+    assert np.isclose(result_single["rmse"], 0.2)
+
+    # Case 2: constant target values (variance == 0)
+    y_const = np.array([3.0, 3.0, 3.0, 3.0], dtype=np.float32)
+    X_const = np.ones((4, 2), dtype=np.float32)
+    mock_model.predict = MagicMock(return_value=np.array([[3.1], [2.9], [3.1], [2.9]], dtype=np.float32))
+
+    with (
+        patch.object(service, "_load_test_data", return_value=(X_const, y_const, ["target"])),
+        patch("app.services.interpretability.EXPORTS_BASE", export_dir),
+        patch("tensorflow.keras.models.load_model", return_value=mock_model),
+    ):
+        result_const = service._compute_regression_analysis_sync(job_id, db_session)
+
+    assert result_const["r2"] is None
+    assert np.isclose(result_const["mae"], 0.1)

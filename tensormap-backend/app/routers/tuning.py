@@ -6,6 +6,7 @@ hyperparameter combinations.  Progress is streamed via Socket.IO to a
 """
 
 import asyncio
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse, Response
@@ -17,7 +18,12 @@ from app.models.ml import ModelBasic
 from app.models.training_job import TrainingJob, TrainingStatus
 from app.models.tuning_session import TuningSession, TuningStatus, TuningStrategy
 from app.schemas.tuning import TuningStartRequest
-from app.services.tuning_service import launch_tuning_session, tuning_service
+from app.services.tuning_service import (
+    check_tuning_concurrency_limit,
+    emit_tuning_cancellation,
+    launch_tuning_session,
+    tuning_service,
+)
 from app.shared.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -60,6 +66,9 @@ async def start_tuning(
     # Validate the whole search space so malformed/misconfigured inputs return
     # a clear 400 instead of silently failing or leaving the session stuck.
     tuning_service.validate_search_space(body.search_space, strategy)
+
+    # Enforce concurrency check immediately before creating session to prevent race windows
+    check_tuning_concurrency_limit(db)
 
     # Create the tuning session.
     session_obj = TuningSession(
@@ -173,20 +182,15 @@ def get_tuning_session(tuning_id: str, db: Session = Depends(get_db)) -> JSONRes
     return JSONResponse(status_code=200, content=_envelope("Tuning session retrieved", data))
 
 
-@router.delete("/tuning/{tuning_id}", status_code=204)
-def cancel_tuning(tuning_id: str, db: Session = Depends(get_db)) -> Response:
-    """Cancel a tuning session.
-
-    Sets the session status to CANCELLED.  The tuning loop checks this at each
-    trial boundary and stops.  Running trials are also cancelled via the
-    existing training cancellation mechanism.
-    """
+def _cancel_session_in_db(tuning_id: str, db: Session) -> bool:
     ts = db.get(TuningSession, tuning_id)
     if ts is None:
         raise AppException(404, "Tuning session not found")
 
     if ts.status in (TuningStatus.PENDING, TuningStatus.RUNNING):
+        now = datetime.now(UTC)
         ts.status = TuningStatus.CANCELLED
+        ts.completed_at = now
         db.add(ts)
         db.commit()
         logger.info("Cancellation requested for tuning session %s", tuning_id)
@@ -200,9 +204,25 @@ def cancel_tuning(tuning_id: str, db: Session = Depends(get_db)) -> Response:
         ).all()
         for job in running_jobs:
             job.status = TrainingStatus.CANCELLED
+            job.completed_at = now
             db.add(job)
         if running_jobs:
             db.commit()
+        return True
+    return False
+
+
+@router.delete("/tuning/{tuning_id}", status_code=204)
+async def cancel_tuning(tuning_id: str, db: Session = Depends(get_db)) -> Response:
+    """Cancel a tuning session.
+
+    Sets the session status to CANCELLED.  The tuning loop checks this at each
+    trial boundary and stops.  Running trials are also cancelled via the
+    existing training cancellation mechanism.
+    """
+    was_cancelled = await asyncio.to_thread(_cancel_session_in_db, tuning_id, db)
+    if was_cancelled:
+        await emit_tuning_cancellation(tuning_id)
 
     return Response(status_code=204)
 

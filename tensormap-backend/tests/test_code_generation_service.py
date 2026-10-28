@@ -92,6 +92,25 @@ class TestMapTemplate:
         with pytest.raises(ValueError, match="Unknown model type: 99"):
             _map_template(99)
 
+    def test_raw_integer_maps_to_correct_template(self):
+        assert _map_template(1) == CODE_TEMPLATE_FOLDER + "multi-class-all-float-classification-csv.py"
+        assert _map_template(2) == CODE_TEMPLATE_FOLDER + "linear-regression-all-float.py"
+        assert _map_template(3) == CODE_TEMPLATE_FOLDER + "simple-image-classification.py"
+
+    def test_digit_string_maps_to_correct_template(self):
+        assert _map_template("1") == CODE_TEMPLATE_FOLDER + "multi-class-all-float-classification-csv.py"
+        assert _map_template("2") == CODE_TEMPLATE_FOLDER + "linear-regression-all-float.py"
+        assert _map_template("3") == CODE_TEMPLATE_FOLDER + "simple-image-classification.py"
+
+    def test_enum_name_string_maps_to_correct_template(self):
+        assert _map_template("classification") == CODE_TEMPLATE_FOLDER + "multi-class-all-float-classification-csv.py"
+        assert _map_template("REGRESSION") == CODE_TEMPLATE_FOLDER + "linear-regression-all-float.py"
+        assert _map_template("image_classification") == CODE_TEMPLATE_FOLDER + "simple-image-classification.py"
+
+    def test_invalid_string_raises_value_error(self):
+        with pytest.raises(ValueError, match="Unknown model type: 'invalid_type'"):
+            _map_template("invalid_type")
+
 
 # ---------------------------------------------------------------------------
 # _file_location

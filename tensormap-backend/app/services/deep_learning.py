@@ -450,7 +450,13 @@ def update_training_config_service(
         valid_metrics = ", ".join(sorted(m.value for m in Metric))
         return _resp(400, False, f"Metric {config['metric']!r} is not supported. Choose one of: {valid_metrics}.")
 
-    if LossFunction(loss) not in losses_for_problem_type(problem_type_id):
+    try:
+        loss_enum = LossFunction(loss)
+    except ValueError:
+        valid_losses = ", ".join(sorted(fn.value for fn in LossFunction))
+        return _resp(400, False, f"Loss {loss!r} is not supported. Choose one of: {valid_losses}.")
+
+    if loss_enum not in losses_for_problem_type(problem_type_id):
         # A mismatch only fails (or trains to nonsense) at run time, so refuse it here.
         kind = "classification" if losses_for_problem_type(problem_type_id) is CLASSIFICATION_LOSSES else "regression"
         allowed = ", ".join(sorted(x.value for x in losses_for_problem_type(problem_type_id)))
@@ -464,7 +470,7 @@ def update_training_config_service(
     model.metric = config["metric"]
     model.epochs = config["epochs"]
     model.batch_size = config.get("batch_size", 32)
-    model.loss = LossFunction(loss).value
+    model.loss = loss_enum.value
 
     try:
         db.add(model)

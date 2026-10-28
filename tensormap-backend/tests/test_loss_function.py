@@ -247,3 +247,12 @@ class TestTrainingConfigOptimizerMetricValidation:
         body, status = update_training_config_service(db, "my_model", _training_config(metric="fake_metric"))
         assert status == 400
         assert "Metric 'fake_metric' is not supported" in body["message"]
+
+    def test_service_rejects_unsupported_loss(self):
+        model = ModelBasic(model_name="my_model")
+        db = _db_returning(model)
+
+        body, status = update_training_config_service(db, "my_model", _training_config(loss="fake_loss"))
+        assert status == 400
+        assert body["success"] is False
+        assert "Loss 'fake_loss' is not supported" in body["message"]

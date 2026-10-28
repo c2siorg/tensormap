@@ -941,6 +941,16 @@ def test_image_classification_analysis_endpoints_guard(db_session):
     db_session.add(job)
     db_session.commit()
 
+    # Confusion matrix should reject image classification with 400
+    cm_resp = client.get(f"/api/v1/model/analysis/{job_id}/confusion-matrix")
+    assert cm_resp.status_code == 400
+    assert "image classification" in cm_resp.json()["detail"].lower()
+
+    # ROC and Precision-Recall curves should reject image classification with 400
+    roc_resp = client.get(f"/api/v1/model/analysis/{job_id}/roc-curve")
+    assert roc_resp.status_code == 400
+    assert "image classification" in roc_resp.json()["detail"].lower()
+
     # Feature importance should reject image classification with 400
     fi_resp = client.get(f"/api/v1/model/analysis/{job_id}/feature-importance")
     assert fi_resp.status_code == 400

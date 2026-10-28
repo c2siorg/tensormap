@@ -1,3 +1,5 @@
+import contextlib
+
 from jinja2 import Environment, FileSystemLoader
 from sqlmodel import Session, select
 
@@ -75,18 +77,33 @@ def generate_code(model_name: str, db: Session) -> str:
     return template.render(data=data)
 
 
-def _map_template(problem_type_id: int | None) -> str:
+def _map_template(problem_type_id: int | str | ProblemType | None) -> str:
     """Map a ProblemType enum value to its Jinja2 template path."""
     options = {
         ProblemType.CLASSIFICATION: CODE_TEMPLATE_FOLDER + "multi-class-all-float-classification-csv.py",
         ProblemType.REGRESSION: CODE_TEMPLATE_FOLDER + "linear-regression-all-float.py",
         ProblemType.IMAGE_CLASSIFICATION: CODE_TEMPLATE_FOLDER + "simple-image-classification.py",
     }
-    try:
-        return options[problem_type_id]
-    except KeyError:
-        valid = ", ".join(str(int(p)) for p in ProblemType)
-        raise ValueError(f"Unknown model type: {problem_type_id!r}. Valid: {valid}") from None
+    resolved_type: ProblemType | None = None
+    if isinstance(problem_type_id, ProblemType):
+        resolved_type = problem_type_id
+    elif isinstance(problem_type_id, int):
+        with contextlib.suppress(ValueError):
+            resolved_type = ProblemType(problem_type_id)
+    elif isinstance(problem_type_id, str):
+        cleaned = problem_type_id.strip()
+        if cleaned.isdigit():
+            with contextlib.suppress(ValueError):
+                resolved_type = ProblemType(int(cleaned))
+        else:
+            with contextlib.suppress(KeyError):
+                resolved_type = ProblemType[cleaned.upper()]
+
+    if resolved_type in options:
+        return options[resolved_type]
+
+    valid = ", ".join(f"{p.name} ({int(p)})" for p in ProblemType)
+    raise ValueError(f"Unknown model type: {problem_type_id!r}. Valid: {valid}")
 
 
 def _file_location(file: DataFile) -> str:

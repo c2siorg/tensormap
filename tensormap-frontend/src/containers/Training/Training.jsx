@@ -27,6 +27,8 @@ import logger from "../../shared/logger";
 import FeedbackDialog from "../../components/shared/FeedbackDialog";
 import Result from "../../components/ResultPanel/Result/Result";
 import TrainingMetricsChart from "@/components/training/TrainingMetricsChart";
+import DatasetQualityReport from "@/components/training/DatasetQualityReport";
+import useDatasetQualityReport from "@/hooks/useDatasetQualityReport";
 import ExportPanel from "@/components/export/ExportPanel";
 import {
   download_code,
@@ -94,6 +96,8 @@ const problemTypeOptions = [
   },
 ];
 
+const getTrainingConfigKey = (modelName, config) => JSON.stringify({ modelName, config });
+
 export default function Training() {
   const { projectId } = useParams();
   const [, setModelList] = useRecoilState(modelListAtom);
@@ -111,6 +115,8 @@ export default function Training() {
     success: false,
     message: "",
   });
+  const [isSavingConfig, setIsSavingConfig] = useState(false);
+  const isSavingConfigRef = useRef(false);
   const socketRef = useRef(null);
   const timeoutRef = useRef(null);
   const fetchModelsRef = useRef(null);
@@ -123,6 +129,7 @@ export default function Training() {
   const [fileDetails, setFileDetails] = useState([]);
   const [fieldsList, setFieldsList] = useState([]);
   const [configSaved, setConfigSaved] = useState(false);
+  const [savedConfigKey, setSavedConfigKey] = useState(null);
   const [trainingConfig, setTrainingConfig] = useState({
     file_id: "",
     target_field: "",
@@ -141,6 +148,18 @@ export default function Training() {
   const visibleLossGroups = problemLossGroup
     ? lossOptionGroups.filter((g) => g.label === problemLossGroup)
     : lossOptionGroups;
+  const currentConfigKey = getTrainingConfigKey(selectedModel, trainingConfig);
+  const isSavedConfigurationCurrent = configSaved && savedConfigKey === currentConfigKey;
+  const qualityConfig = isSavedConfigurationCurrent ? trainingConfig : null;
+  const datasetQuality = useDatasetQualityReport(
+    qualityConfig?.file_id,
+    qualityConfig?.target_field,
+    qualityConfig?.problem_type_id,
+    qualityConfig?.training_split ? Number(qualityConfig.training_split) * 100 : undefined,
+  );
+  const qualityReportLoading = isSavedConfigurationCurrent && datasetQuality.loading;
+  const qualityReportBlocksTraining =
+    isSavedConfigurationCurrent && datasetQuality.report?.can_train === false;
   // Validation state
   const [validationErrors, setValidationErrors] = useState({
     model: "",
@@ -438,6 +457,7 @@ export default function Training() {
         setFieldsList([]);
       }
       setTrainingConfig((prev) => ({ ...prev, file_id: value, target_field: "" }));
+      setConfigSaved(false);
       updateValidationErrors("file_id", value);
       updateValidationErrors("target_field", "");
     },
@@ -451,7 +471,7 @@ export default function Training() {
   };
 
   const handleSaveConfig = useCallback(() => {
-    if (!selectedModel) return;
+    if (!selectedModel || isSavingConfigRef.current) return;
 
     if (!validateAllFields()) {
       return;
@@ -470,10 +490,16 @@ export default function Training() {
       batch_size: trainingConfig.batch_size ? Number(trainingConfig.batch_size) : 32,
       project_id: projectId || null,
     };
+    const submittedConfigKey = getTrainingConfigKey(selectedModel, trainingConfig);
+    isSavingConfigRef.current = true;
+    setIsSavingConfig(true);
+    setConfigSaved(false);
 
-    updateTrainingConfig(data)
+    Promise.resolve()
+      .then(() => updateTrainingConfig(data))
       .then((resp) => {
         if (resp.success) {
+          setSavedConfigKey(submittedConfigKey);
           setConfigSaved(true);
           fetchModels();
         } else {
@@ -482,6 +508,10 @@ export default function Training() {
       })
       .catch((error) => {
         logger.error("Error saving training config:", error);
+      })
+      .finally(() => {
+        isSavingConfigRef.current = false;
+        setIsSavingConfig(false);
       });
   }, [selectedModel, trainingConfig, projectId, fetchModels, validateAllFields]);
 
@@ -506,6 +536,7 @@ export default function Training() {
 
   const handleRun = useCallback(() => {
     if (!selectedModel) return;
+    if (!isSavedConfigurationCurrent || qualityReportLoading || qualityReportBlocksTraining) return;
 
     if (!validateAllFields()) {
       return;
@@ -549,7 +580,14 @@ export default function Training() {
         setIsLoading(false);
         setActiveJobId(null);
       });
-  }, [selectedModel, projectId, validateAllFields]);
+  }, [
+    selectedModel,
+    projectId,
+    validateAllFields,
+    isSavedConfigurationCurrent,
+    qualityReportLoading,
+    qualityReportBlocksTraining,
+  ]);
 
   const handleClear = () => {
     setResultValues([]);
@@ -683,9 +721,16 @@ export default function Training() {
             </Button>
             <Button
               onClick={handleRun}
-              disabled={!selectedModel || !configSaved || isLoading || hasValidationErrors()}
+              disabled={
+                !selectedModel ||
+                !isSavedConfigurationCurrent ||
+                isLoading ||
+                hasValidationErrors() ||
+                qualityReportLoading ||
+                qualityReportBlocksTraining
+              }
             >
-              {isLoading ? "Starting..." : "Train"}
+              {qualityReportLoading ? "Checking dataset..." : isLoading ? "Starting..." : "Train"}
             </Button>
             <Button
               onClick={handleClear}
@@ -949,8 +994,34 @@ export default function Training() {
               </div>
             </div>
 
-            <Button className="mt-4" onClick={handleSaveConfig} disabled={!isConfigValid}>
-              {configSaved ? "Configuration Saved" : "Save Configuration"}
+            <section className="mt-6 space-y-2" aria-labelledby="dataset-quality-heading">
+              <h3 id="dataset-quality-heading" className="text-sm font-semibold">
+                Dataset Quality Before Training
+              </h3>
+              {isSavedConfigurationCurrent ? (
+                <DatasetQualityReport
+                  loading={qualityReportLoading}
+                  error={datasetQuality.error}
+                  report={datasetQuality.report}
+                />
+              ) : (
+                <div className="rounded-md border p-4 text-sm text-muted-foreground" role="status">
+                  Save the current training configuration to analyze the exact dataset, target, and
+                  split that will be used for training.
+                </div>
+              )}
+            </section>
+
+            <Button
+              className="mt-4"
+              onClick={handleSaveConfig}
+              disabled={!isConfigValid || isSavingConfig}
+            >
+              {isSavingConfig
+                ? "Saving Configuration..."
+                : isSavedConfigurationCurrent
+                  ? "Configuration Saved"
+                  : "Save Configuration"}
             </Button>
           </CardContent>
         </Card>

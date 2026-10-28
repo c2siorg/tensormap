@@ -12,6 +12,7 @@ jobs; there is no per-user authorization to enforce.
 import asyncio
 
 from fastapi import APIRouter, Depends, Query
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse, Response
 from sqlmodel import Session, select
 
@@ -20,6 +21,7 @@ from app.exceptions import AppException
 from app.models.ml import ModelBasic
 from app.models.training_job import TrainingJob, TrainingStatus
 from app.schemas.training import TrainingStartRequest
+from app.services.dataset_quality import analyze_dataset_quality
 from app.services.training_service import (
     check_concurrency_limit,
     create_training_job,
@@ -67,6 +69,22 @@ async def start_training(request: TrainingStartRequest, db: Session = Depends(ge
 
     # Reject early if we're already at the concurrency limit (raises 429).
     check_concurrency_limit(db)
+
+    quality_body, quality_status = await run_in_threadpool(
+        analyze_dataset_quality,
+        db,
+        file_id=model.file_id,
+        target_field=model.target_field,
+        problem_type_id=model.model_type,
+        training_split=model.training_split,
+    )
+    quality_report = quality_body.get("data")
+    if quality_status != 200 or not quality_body.get("success"):
+        raise AppException(quality_status, quality_body.get("message", "Could not analyze dataset quality."))
+    if quality_report and not quality_report.get("can_train", True):
+        blocking_messages = [issue["message"] for issue in quality_report.get("issues", []) if issue.get("blocking")]
+        message = "; ".join(blocking_messages) or "Resolve the blocking dataset quality issues before training."
+        raise AppException(400, f"Dataset quality checks prevent training: {message}")
 
     hyperparams = {
         "optimizer": request.optimizer or model.optimizer,

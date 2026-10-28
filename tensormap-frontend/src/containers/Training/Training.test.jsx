@@ -13,8 +13,11 @@ vi.mock("../../services/ModelServices", () => ({
   deleteModel: vi.fn(),
 }));
 
+const { getDatasetQualityReport } = vi.hoisted(() => ({ getDatasetQualityReport: vi.fn() }));
+
 vi.mock("../../services/FileServices", () => ({
   getAllFiles: vi.fn(),
+  getDatasetQualityReport,
 }));
 
 vi.mock("../../services/socketService", () => ({
@@ -30,7 +33,7 @@ vi.mock("../../services/socketService", () => ({
 vi.mock("@/components/training/TrainingMetricsChart", () => ({ default: () => null }));
 vi.mock("@/components/export/ExportPanel", () => ({ default: () => null }));
 
-import { getTrainingHistory, updateTrainingConfig } from "../../services/ModelServices";
+import { getTrainingHistory, runModel, updateTrainingConfig } from "../../services/ModelServices";
 import { getAllFiles } from "../../services/FileServices";
 
 const SAVED_MODEL = { id: 1, model_name: "demo", created_on: "2026-01-01T00:00:00Z" };
@@ -71,6 +74,13 @@ describe("Training page loss function", () => {
     getTrainingHistory.mockResolvedValue([SAVED_MODEL]);
     getAllFiles.mockResolvedValue([CSV_FILE]);
     updateTrainingConfig.mockResolvedValue({ success: true });
+    getDatasetQualityReport.mockResolvedValue({
+      status: "clean",
+      can_train: true,
+      summary: { rows: 3, columns: 2, missing_values: 0 },
+      issues: [],
+    });
+    runModel.mockResolvedValue({ job_id: "job-1" });
   });
 
   it("groups the loss options under Classification and Regression", async () => {
@@ -164,5 +174,143 @@ describe("Training page loss function", () => {
       loss: "huber",
       metric: "mse",
     });
+  });
+});
+
+describe("Training page dataset quality gating", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getTrainingHistory.mockResolvedValue([SAVED_MODEL]);
+    getAllFiles.mockResolvedValue([CSV_FILE]);
+    updateTrainingConfig.mockResolvedValue({ success: true });
+    runModel.mockResolvedValue({ job_id: "job-1" });
+  });
+
+  async function saveTrainingConfig(user) {
+    await selectSavedModel(user);
+    await pickOption(user, "Dataset File", "iris.csv");
+    await pickOption(user, "Problem Type", "Multi class classification");
+    await pickOption(user, "Result Metrics", "Accuracy");
+    await user.type(screen.getByPlaceholderText("Select from list or enter field name"), "sepal");
+    await user.type(screen.getByPlaceholderText("Number of epochs"), "3");
+    await user.type(screen.getByPlaceholderText("Batch size"), "16");
+    await user.type(screen.getByPlaceholderText("e.g. 0.8"), "0.8");
+    await user.click(screen.getByRole("button", { name: "Save Configuration" }));
+    await waitFor(() => expect(updateTrainingConfig).toHaveBeenCalledTimes(1));
+  }
+
+  it("keeps Train disabled while the matching saved configuration is being analyzed", async () => {
+    const user = userEvent.setup();
+    getDatasetQualityReport.mockReturnValue(new Promise(() => {}));
+    renderTraining();
+    await saveTrainingConfig(user);
+
+    expect(await screen.findByRole("status")).toHaveTextContent("Analyzing the selected dataset");
+    const trainButton = screen.getByRole("button", { name: "Checking dataset..." });
+    expect(trainButton).toBeDisabled();
+    await user.click(trainButton);
+    expect(runModel).not.toHaveBeenCalled();
+  });
+
+  it("disables Train and does not start when the current report blocks training", async () => {
+    const user = userEvent.setup();
+    getDatasetQualityReport.mockResolvedValue({
+      status: "blocked",
+      can_train: false,
+      issues: [{ code: "single_class_target", blocking: true, message: "Only one class" }],
+    });
+    renderTraining();
+    await saveTrainingConfig(user);
+
+    expect(await screen.findByText("Only one class")).toBeInTheDocument();
+    const trainButton = screen.getByRole("button", { name: "Train" });
+    expect(trainButton).toBeDisabled();
+    await user.click(trainButton);
+    expect(runModel).not.toHaveBeenCalled();
+  });
+
+  it("allows the existing training flow with a valid current report", async () => {
+    const user = userEvent.setup();
+    getDatasetQualityReport.mockResolvedValue({
+      status: "clean",
+      can_train: true,
+      summary: { rows: 3, columns: 2, missing_values: 0 },
+      issues: [],
+    });
+    renderTraining();
+    await saveTrainingConfig(user);
+
+    const trainButton = await screen.findByRole("button", { name: "Train" });
+    await waitFor(() => expect(trainButton).toBeEnabled());
+    expect(getDatasetQualityReport).toHaveBeenCalledWith(
+      "file-1",
+      "sepal",
+      "1",
+      80,
+      expect.any(AbortSignal),
+    );
+    await user.click(trainButton);
+    await waitFor(() => expect(runModel).toHaveBeenCalledWith("demo", "p1"));
+  });
+
+  it("invalidates the report and training gate when the saved configuration is edited", async () => {
+    const user = userEvent.setup();
+    getDatasetQualityReport.mockResolvedValue({
+      status: "clean",
+      can_train: true,
+      summary: { rows: 3, columns: 2, missing_values: 0 },
+      issues: [],
+    });
+    renderTraining();
+    await saveTrainingConfig(user);
+    const trainButton = await screen.findByRole("button", { name: "Train" });
+    await waitFor(() => expect(trainButton).toBeEnabled());
+
+    await user.type(screen.getByPlaceholderText("Select from list or enter field name"), "_new");
+
+    expect(trainButton).toBeDisabled();
+    expect(screen.getByRole("status")).toHaveTextContent("Save the current training configuration");
+    await user.click(trainButton);
+    expect(runModel).not.toHaveBeenCalled();
+  });
+
+  it("does not accept an in-flight save as current after the form changes", async () => {
+    const user = userEvent.setup();
+    let resolveSave;
+    updateTrainingConfig
+      .mockImplementationOnce(() => new Promise((resolve) => (resolveSave = resolve)))
+      .mockResolvedValue({ success: true });
+    getDatasetQualityReport.mockResolvedValue({
+      status: "clean",
+      can_train: true,
+      summary: { rows: 3, columns: 2, missing_values: 0 },
+      issues: [],
+    });
+    renderTraining();
+    await saveTrainingConfig(user);
+
+    expect(screen.getByRole("button", { name: "Saving Configuration..." })).toBeDisabled();
+    await user.type(screen.getByPlaceholderText("Select from list or enter field name"), "_new");
+    expect(screen.getByRole("button", { name: "Saving Configuration..." })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Train" })).toBeDisabled();
+    expect(updateTrainingConfig).toHaveBeenCalledTimes(1);
+
+    resolveSave({ success: true });
+    const saveButton = await screen.findByRole("button", { name: "Save Configuration" });
+    expect(saveButton).toBeEnabled();
+    expect(screen.getByRole("status")).toHaveTextContent("Save the current training configuration");
+    expect(screen.getByRole("button", { name: "Train" })).toBeDisabled();
+
+    await user.click(saveButton);
+    await waitFor(() => expect(updateTrainingConfig).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(getDatasetQualityReport).toHaveBeenCalledWith(
+        "file-1",
+        "sepal_new",
+        "1",
+        80,
+        expect.any(AbortSignal),
+      ),
+    );
   });
 });

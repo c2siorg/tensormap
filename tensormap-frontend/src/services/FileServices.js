@@ -161,6 +161,31 @@ export const getColumnStats = async (file_id) =>
       throw err;
     });
 
+/** Fetch a read-only quality report for a saved dataset configuration. */
+export const getDatasetQualityReport = async (
+  file_id,
+  target_field,
+  problem_type_id,
+  training_split,
+  signal,
+) => {
+  try {
+    const response = await axios.get(`${urls.BACKEND_GET_DATASET_QUALITY}${file_id}`, {
+      params: {
+        target_field: target_field || undefined,
+        problem_type_id: problem_type_id || undefined,
+        training_split: training_split ?? undefined,
+      },
+      signal,
+    });
+    if (response.data.success === true) return response.data.data;
+    throw new Error(response.data.message || "Failed to analyze dataset quality");
+  } catch (error) {
+    logger.error(error);
+    throw error;
+  }
+};
+
 /**
  * Deletes an uploaded file by ID.
  *

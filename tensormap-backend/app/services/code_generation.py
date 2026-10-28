@@ -1,7 +1,11 @@
+import json
+import os
+
 from jinja2 import Environment, FileSystemLoader
 from sqlmodel import Session, select
 
 from app.models import DataFile, ImageProperties, ModelBasic
+from app.services.model_run import _emits_logits
 from app.shared.constants import (
     BATCH_SIZE,
     CODE_TEMPLATE_FOLDER,
@@ -13,14 +17,17 @@ from app.shared.constants import (
     LABEL_MODE,
     LEARNING_MODEL,
     MODEL_EPOCHS,
+    MODEL_GENERATION_LOCATION,
     MODEL_GENERATION_TYPE,
     MODEL_JSON_FILE,
+    MODEL_LOSS,
+    MODEL_LOSS_EXPRESSION,
     MODEL_METRIC,
     MODEL_OPTIMIZER,
     MODEL_TRAINING_SPLIT,
     TEMPLATE_ROOT,
 )
-from app.shared.enums import ProblemType
+from app.shared.enums import LossFunction, ProblemType, default_loss_for_problem_type
 from app.shared.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -32,6 +39,47 @@ class CodeGenerationError(Exception):
     pass
 
 
+def _model_emits_logits(model_name: str, model_configs: ModelBasic) -> bool:
+    """Determine whether the model's output layer emits logits (True) or probabilities (False)."""
+    json_path = os.path.realpath(os.path.join(MODEL_GENERATION_LOCATION, model_name + MODEL_GENERATION_TYPE))
+    json_str: str | None = None
+    if os.path.exists(json_path):
+        try:
+            with open(json_path) as f:
+                json_str = f.read()
+        except OSError as e:
+            logger.warning("Failed to read model JSON file for %r at %s: %s", model_name, json_path, e)
+
+    if not json_str and model_configs.graph_json:
+        if isinstance(model_configs.graph_json, str):
+            json_str = model_configs.graph_json
+        elif isinstance(model_configs.graph_json, dict):
+            try:
+                json_str = json.dumps(model_configs.graph_json)
+            except (TypeError, ValueError) as e:
+                logger.warning("Failed to serialize graph_json for model %r: %s", model_name, e)
+
+    if json_str:
+        try:
+            return _emits_logits(json_str)
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError) as e:
+            logger.warning("Failed to parse model JSON or detect logits for %r: %s", model_name, e)
+
+    return True
+
+
+def _loss_expression(loss: str, from_logits: bool = True) -> str:
+    """Return the Python expression string for compiling with the specified loss."""
+    from_logits_str = "True" if from_logits else "False"
+    if loss == LossFunction.CATEGORICAL_CROSSENTROPY:
+        return f"tf.keras.losses.CategoricalCrossentropy(from_logits={from_logits_str})"
+    if loss == LossFunction.BINARY_CROSSENTROPY:
+        return f"tf.keras.losses.BinaryCrossentropy(from_logits={from_logits_str})"
+    if loss == LossFunction.SPARSE_CATEGORICAL_CROSSENTROPY:
+        return f"tf.keras.losses.SparseCategoricalCrossentropy(from_logits={from_logits_str})"
+    return f'"{loss}"'
+
+
 def generate_code(model_name: str, db: Session) -> str:
     """Generate TensorFlow Python code from a saved model configuration."""
     model_configs = db.exec(select(ModelBasic).where(ModelBasic.model_name == model_name)).first()
@@ -40,6 +88,9 @@ def generate_code(model_name: str, db: Session) -> str:
     file = db.exec(select(DataFile).where(DataFile.id == model_configs.file_id)).first()
     if file is None:
         raise CodeGenerationError(f"Dataset file not found (id={model_configs.file_id})")
+
+    loss = model_configs.loss or default_loss_for_problem_type(model_configs.model_type)
+    from_logits = _model_emits_logits(model_name, model_configs)
 
     data = {
         DATASET: {
@@ -52,6 +103,8 @@ def generate_code(model_name: str, db: Session) -> str:
             MODEL_OPTIMIZER: model_configs.optimizer,
             MODEL_METRIC: model_configs.metric,
             MODEL_EPOCHS: model_configs.epochs,
+            MODEL_LOSS: loss,
+            MODEL_LOSS_EXPRESSION: _loss_expression(loss, from_logits=from_logits),
         },
     }
 

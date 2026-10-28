@@ -4,6 +4,7 @@ Covers the name-to-Keras mapping in model_run, the request schema validation,
 and the problem-type default applied when a training config omits the loss.
 """
 
+import uuid as uuid_pkg
 from unittest.mock import MagicMock
 
 import pytest
@@ -256,3 +257,27 @@ class TestTrainingConfigOptimizerMetricValidation:
         assert status == 400
         assert body["success"] is False
         assert "Loss 'fake_loss' is not supported" in body["message"]
+
+    def test_service_rejects_missing_file_id(self):
+        model = ModelBasic(model_name="my_model")
+        db = _db_returning(model)
+        db.get.return_value = None
+
+        missing_id = uuid_pkg.uuid4()
+        body, status = update_training_config_service(db, "my_model", _training_config(file_id=missing_id))
+        assert status == 400
+        assert body["success"] is False
+        assert f"Dataset file with ID '{missing_id}' not found" in body["message"]
+
+    def test_service_rejects_file_from_different_project(self):
+        model = ModelBasic(model_name="my_model")
+        db = _db_returning(model)
+        fake_file = MagicMock()
+        fake_file.project_id = uuid_pkg.uuid4()
+        db.get.return_value = fake_file
+
+        different_proj_id = uuid_pkg.uuid4()
+        body, status = update_training_config_service(db, "my_model", _training_config(), project_id=different_proj_id)
+        assert status == 400
+        assert body["success"] is False
+        assert "Dataset file does not belong to this project" in body["message"]

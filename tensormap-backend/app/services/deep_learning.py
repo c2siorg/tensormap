@@ -15,7 +15,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 import app.shared.errors as errors
-from app.models import ModelBasic, ModelConfigs
+from app.models import DataFile, ModelBasic, ModelConfigs
 from app.services.code_generation import CodeGenerationError, generate_code
 from app.services.model_generation import model_generation
 from app.services.model_run import ModelRunError, model_run
@@ -462,7 +462,28 @@ def update_training_config_service(
         allowed = ", ".join(sorted(x.value for x in losses_for_problem_type(problem_type_id)))
         return _resp(400, False, f"Loss {loss!r} cannot be used for {kind}. Choose one of: {allowed}.")
 
-    model.file_id = config["file_id"]
+    file_id = config.get("file_id")
+    if file_id is None:
+        return _resp(400, False, "Dataset file ID is required")
+
+    if isinstance(file_id, str):
+        try:
+            file_id = uuid_pkg.UUID(file_id)
+        except (ValueError, AttributeError):
+            return _resp(400, False, f"Invalid file ID format: {file_id!r}")
+
+    data_file = db.get(DataFile, file_id)
+    if not data_file:
+        return _resp(400, False, f"Dataset file with ID '{file_id}' not found")
+
+    if (
+        project_id is not None
+        and getattr(data_file, "project_id", None) is not None
+        and data_file.project_id != project_id
+    ):
+        return _resp(400, False, "Dataset file does not belong to this project")
+
+    model.file_id = file_id
     model.model_type = problem_type_id
     model.target_field = config.get("target_field")
     model.training_split = config["training_split"]

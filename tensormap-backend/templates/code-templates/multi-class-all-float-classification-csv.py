@@ -10,6 +10,9 @@ def deep_learning_model():
     # Split Training and testing sets
     X = features.drop("{{data.dataset.target_field}}", axis=1)
     y = features["{{data.dataset.target_field}}"]
+    # CategoricalCrossentropy requires one-hot encoded targets; SparseCategoricalCrossentropy uses integer labels
+    if "{{data.dl_model.loss}}" == "categorical_crossentropy":
+        y = pd.get_dummies(y)
 
     split_index = int(len(X) * {{data.dataset.training_split}} / 100)
 
@@ -28,7 +31,7 @@ def deep_learning_model():
 
     model.compile(
         optimizer="{{data.dl_model.optimizer}}",
-        loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
+        loss={{data.dl_model.loss_expression}},
         metrics=["{{data.dl_model.metric}}"],
     )
 

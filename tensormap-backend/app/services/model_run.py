@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
 import contextvars
+import json
 import os
 from typing import Any
 
@@ -78,8 +79,43 @@ _LOGIT_LOSSES = frozenset(
 )
 
 
-def _emits_logits(model: tf.keras.Model) -> bool:
-    """True unless the model's output layer already applies softmax or sigmoid."""
+def _emits_logits(model: Any) -> bool:
+    """True unless the model's output layer already applies softmax or sigmoid.
+
+    Accepts an instantiated ``tf.keras.Model``, a serialized model JSON string,
+    or a parsed model dictionary. Single source of truth shared between training
+    and code generation.
+    """
+    if isinstance(model, (dict, str)):
+        data = json.loads(model) if isinstance(model, str) else model
+        config = data.get("config", {}) if isinstance(data, dict) else {}
+        layers = config.get("layers", [])
+        if not layers:
+            return True
+
+        output_layers = config.get("output_layers")
+        if output_layers and isinstance(output_layers, list) and output_layers[0]:
+            target_name = output_layers[0][0]
+            output_layer = next(
+                (
+                    layer
+                    for layer in layers
+                    if layer.get("config", {}).get("name") == target_name or layer.get("name") == target_name
+                ),
+                layers[-1],
+            )
+        else:
+            output_layer = layers[-1]
+
+        class_name = str(output_layer.get("class_name", "")).lower()
+        if class_name in ("softmax", "sigmoid"):
+            return False
+
+        layer_config = output_layer.get("config", {})
+        act = layer_config.get("activation")
+        act_name = str(act).lower() if act else ""
+        return act_name not in ("softmax", "sigmoid")
+
     output_layer = model.layers[-1]
     activation = getattr(output_layer, "activation", None)
     name = getattr(activation, "__name__", type(output_layer).__name__).lower()

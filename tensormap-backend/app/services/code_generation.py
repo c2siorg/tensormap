@@ -99,4 +99,6 @@ def _file_location(file: DataFile) -> str:
     """
     if file.file_type == "zip":
         return file.file_name.rsplit(".", 1)[0]
+    if file.file_type == "csv" and not file.file_name.lower().endswith(".csv"):
+        return f"{file.file_name}.csv"
     return file.file_name

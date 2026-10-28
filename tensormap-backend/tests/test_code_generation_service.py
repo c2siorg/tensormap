@@ -17,6 +17,7 @@ sys.modules.setdefault("tensorflow", _tf_stub)
 sys.modules.setdefault("flatten_json", MagicMock())
 
 from app.services.code_generation import (  # noqa: E402
+    _file_location,
     _map_template,
     generate_code,
 )
@@ -93,11 +94,48 @@ class TestMapTemplate:
 
 
 # ---------------------------------------------------------------------------
+# _file_location
+# ---------------------------------------------------------------------------
+
+
+class TestFileLocation:
+    def test_csv_file_without_extension_appends_csv(self):
+        file = _make_file(file_type="csv", file_name="iris")
+        assert _file_location(file) == "iris.csv"
+
+    def test_csv_file_with_extension_preserves_csv(self):
+        file = _make_file(file_type="csv", file_name="iris.csv")
+        assert _file_location(file) == "iris.csv"
+
+    def test_zip_file_strips_extension(self):
+        file = _make_file(file_type="zip", file_name="images.zip")
+        assert _file_location(file) == "images"
+
+
+# ---------------------------------------------------------------------------
 # generate_code — happy paths
 # ---------------------------------------------------------------------------
 
 
 class TestGenerateCodeHappyPaths:
+    @patch("app.services.code_generation.Environment")
+    @patch("app.services.code_generation.FileSystemLoader")
+    def test_classification_appends_csv_extension_when_file_name_lacks_it(self, mock_loader, mock_env, mock_db):
+        model = _make_model(ProblemType.CLASSIFICATION)
+        # Database stores CSV file_name without extension
+        file = _make_file(file_type="csv", file_name="iris")
+        mock_db.exec.return_value.first.side_effect = [model, file]
+
+        mock_template = MagicMock()
+        mock_template.render.return_value = "GENERATED_CODE"
+        mock_env.return_value.get_template.return_value = mock_template
+
+        result = generate_code("iris_model", mock_db)
+
+        assert result == "GENERATED_CODE"
+        rendered_data = mock_template.render.call_args.kwargs["data"]
+        assert rendered_data[DATASET][FILE_NAME] == "iris.csv"
+
     @patch("app.services.code_generation.Environment")
     @patch("app.services.code_generation.FileSystemLoader")
     def test_classification_renders_with_correct_dataset_context(self, mock_loader, mock_env, mock_db):

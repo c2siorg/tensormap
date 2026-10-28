@@ -4,7 +4,10 @@ Background training is patched out in HTTP tests so we deterministically test
 the request/persistence behaviour without spinning up a real Keras run.
 """
 
+import asyncio
+import threading
 from datetime import UTC, datetime, timedelta
+from unittest.mock import Mock
 
 import pytest
 from sqlmodel import Session, select
@@ -61,9 +64,20 @@ def _seed_job(
 
 
 @pytest.fixture(autouse=True)
-def _no_background_training(mocker):
+def _no_background_training(monkeypatch):
     """Stop the run endpoint from launching real training in every HTTP test."""
-    return mocker.patch("app.routers.training.launch_training_job")
+    launcher = Mock()
+    monkeypatch.setattr("app.routers.training.launch_training_job", launcher)
+    monkeypatch.setattr(
+        "app.routers.training.analyze_dataset_quality",
+        Mock(
+            return_value=(
+                {"success": True, "message": "ok", "data": {"can_train": True, "issues": []}},
+                200,
+            )
+        ),
+    )
+    return launcher
 
 
 def test_start_training_returns_202(client, db_session):
@@ -96,6 +110,61 @@ def test_start_training_launches_background(client, db_session, _no_background_t
     args = _no_background_training.call_args.args
     assert args[0] == "m1"
     assert args[1] == job_id
+
+
+def test_start_training_runs_quality_analysis_in_threadpool(client, db_session, monkeypatch):
+    _seed_model(db_session, "threaded-quality")
+    event_loop_thread = None
+    analysis_thread = None
+
+    async def tracked_threadpool(func, *args, **kwargs):
+        nonlocal event_loop_thread
+        event_loop_thread = threading.get_ident()
+        return await asyncio.to_thread(func, *args, **kwargs)
+
+    def analyze(*args, **kwargs):
+        nonlocal analysis_thread
+        analysis_thread = threading.get_ident()
+        return {"success": True, "message": "ok", "data": {"can_train": True, "issues": []}}, 200
+
+    monkeypatch.setattr("app.routers.training.run_in_threadpool", tracked_threadpool)
+    monkeypatch.setattr("app.routers.training.analyze_dataset_quality", analyze)
+
+    response = client.post(f"{BASE}/run", json={"model_name": "threaded-quality"})
+
+    assert response.status_code == 202
+    assert event_loop_thread is not None
+    assert analysis_thread is not None
+    assert analysis_thread != event_loop_thread
+
+
+def test_blocking_quality_report_prevents_training_job_creation(
+    client, db_session, monkeypatch, _no_background_training
+):
+    _seed_model(db_session, "blocked-quality")
+    monkeypatch.setattr(
+        "app.routers.training.analyze_dataset_quality",
+        Mock(
+            return_value=(
+                {
+                    "success": True,
+                    "message": "ok",
+                    "data": {
+                        "can_train": False,
+                        "issues": [{"blocking": True, "message": "single-class target"}],
+                    },
+                },
+                200,
+            )
+        ),
+    )
+
+    response = client.post(f"{BASE}/run", json={"model_name": "blocked-quality"})
+
+    assert response.status_code == 400
+    assert "single-class target" in response.json()["message"]
+    _no_background_training.assert_not_called()
+    assert db_session.exec(select(TrainingJob)).all() == []
 
 
 def test_start_training_unknown_model_404(client, db_session):

@@ -22,11 +22,31 @@ from app.services.data_process import (
     preprocess_data,
     revert_data_process_service,
 )
+from app.services.dataset_quality import analyze_dataset_quality
 from app.shared.logging_config import get_logger
 
 logger = get_logger(__name__)
 
 router = APIRouter(tags=["data-process"])
+
+
+@router.get("/data/process/quality/{file_id}")
+def get_dataset_quality(
+    file_id: uuid_pkg.UUID,
+    target_field: str | None = Query(None),
+    problem_type_id: int | None = Query(None, ge=1, le=3),
+    training_split: float | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Return a read-only quality report for a dataset and its selected target."""
+    body, status_code = analyze_dataset_quality(
+        db,
+        file_id=file_id,
+        target_field=target_field,
+        problem_type_id=problem_type_id,
+        training_split=training_split,
+    )
+    return JSONResponse(status_code=status_code, content=body)
 
 
 @router.post("/data/process/target")

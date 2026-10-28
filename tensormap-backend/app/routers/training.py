@@ -10,6 +10,7 @@ jobs; there is no per-user authorization to enforce.
 """
 
 import asyncio
+import math
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.concurrency import run_in_threadpool
@@ -209,8 +210,8 @@ def compare_jobs(
     """
     from app.models.training_metric import TrainingMetric
 
-    # Parse and validate job_ids
-    job_id_list = [jid.strip() for jid in job_ids.split(",") if jid.strip()]
+    # Parse, deduplicate (preserving order), and validate job_ids
+    job_id_list = list(dict.fromkeys(jid.strip() for jid in job_ids.split(",") if jid.strip()))
     if not job_id_list:
         raise AppException(400, "No job IDs provided")
     if len(job_id_list) > 5:
@@ -240,7 +241,10 @@ def compare_jobs(
             epoch = row.epoch
             if epoch not in metrics_by_epoch:
                 metrics_by_epoch[epoch] = {"epoch": epoch}
-            metrics_by_epoch[epoch][row.metric_name] = row.metric_value
+            val = row.metric_value
+            if val is not None and (math.isnan(val) or math.isinf(val)):
+                val = None
+            metrics_by_epoch[epoch][row.metric_name] = val
 
         metrics_list = [metrics_by_epoch[e] for e in sorted(metrics_by_epoch.keys())]
 

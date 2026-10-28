@@ -315,3 +315,60 @@ class TestCompareJobs:
         assert metrics[0]["epoch"] == 1
         assert metrics[1]["epoch"] == 2
         assert metrics[2]["epoch"] == 3
+
+    def test_compare_deduplicates_duplicate_job_ids(self, db_session, client):
+        """Duplicate job IDs in query params are deduplicated preserving order."""
+        model = _seed_model(db_session)
+        _seed_job_with_metrics(
+            db_session,
+            "job-1",
+            model.id,
+            {"optimizer": "adam"},
+            [{"epoch": 1, "loss": 0.5}],
+        )
+        _seed_job_with_metrics(
+            db_session,
+            "job-2",
+            model.id,
+            {"optimizer": "sgd"},
+            [{"epoch": 1, "loss": 0.8}],
+        )
+
+        response = client.get(f"{BASE}/compare?job_ids=job-1,job-2,job-1,job-2")
+        assert response.status_code == 200
+        jobs = response.json()["data"]["jobs"]
+        assert len(jobs) == 2
+        assert [j["job_id"] for j in jobs] == ["job-1", "job-2"]
+
+    def test_compare_sanitizes_non_finite_metric_values(self, db_session, client):
+        """Non-finite metric values (NaN/Inf) are serialized as null."""
+        from unittest.mock import MagicMock, patch
+
+        from app.models.training_job import TrainingJob
+        from app.models.training_metric import TrainingMetric
+
+        model = _seed_model(db_session)
+        _seed_job_with_metrics(
+            db_session,
+            "job-nan",
+            model.id,
+            {"optimizer": "adam"},
+            [{"epoch": 1, "loss": 0.5}],
+        )
+
+        job = db_session.get(TrainingJob, "job-nan")
+        fake_metric = MagicMock(spec=TrainingMetric)
+        fake_metric.job_id = "job-nan"
+        fake_metric.epoch = 1
+        fake_metric.metric_name = "loss"
+        fake_metric.metric_value = float("nan")
+
+        with patch.object(db_session, "exec") as mock_exec:
+            mock_exec.side_effect = [
+                MagicMock(all=lambda: [job]),
+                MagicMock(all=lambda: [fake_metric]),
+            ]
+            response = client.get(f"{BASE}/compare?job_ids=job-nan")
+            assert response.status_code == 200
+            metrics = response.json()["data"]["jobs"][0]["metrics"]
+            assert metrics[0]["loss"] is None

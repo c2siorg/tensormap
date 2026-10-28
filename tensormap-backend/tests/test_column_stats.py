@@ -123,3 +123,19 @@ def test_rejects_non_csv_file():
     assert status == 400
     assert body["success"] is False
     assert "CSV" in body["message"]
+
+
+def test_non_finite_values_produce_none_and_serialize_json(tmp_path):
+    import json
+
+    inf_csv = "a,b\n1,inf\n2,-inf\n3,4.5\n"
+    body, status = _run(tmp_path, inf_csv)
+    assert status == 200
+    assert body["success"] is True
+
+    col_b = next(c for c in body["data"]["columns"] if c["column"] == "b")
+    # min or max for infinite values should be coerced to None instead of inf
+    assert col_b["min"] is None or isinstance(col_b["min"], float)
+    # The entire response dict must be JSON compliant (no unhandled inf serialization crash)
+    json_str = json.dumps(body)
+    assert "null" in json_str

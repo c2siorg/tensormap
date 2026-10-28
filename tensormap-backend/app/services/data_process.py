@@ -1,6 +1,7 @@
 import contextlib
 import csv
 import json
+import math
 import os
 import shutil
 import uuid as uuid_pkg
@@ -217,7 +218,13 @@ def get_column_stats_service(db: Session, file_id: uuid_pkg.UUID) -> tuple:
 
     def _safe_float(v) -> float | None:
         """Return float(v) if v is a finite number, else None."""
-        return float(v) if pd.notna(v) else None
+        if pd.notna(v):
+            try:
+                fv = float(v)
+                return fv if math.isfinite(fv) else None
+            except (ValueError, TypeError):
+                return None
+        return None
 
     numeric_cols = df.select_dtypes(include="number").columns
     columns = []
@@ -274,9 +281,19 @@ def get_correlation_matrix(db: Session, file_id: uuid_pkg.UUID) -> tuple:
         return _resp(200, True, "No numeric columns found", {"columns": [], "matrix": []})
 
     corr = numeric_df.corr()
-    # Convert the DataFrame to a plain list-of-lists; NaN becomes None (JSON null)
+    # Convert the DataFrame to a plain list-of-lists; NaN and non-finite values become None (JSON null)
     columns = corr.columns.tolist()
-    matrix = [[None if pd.isna(v) else round(float(v), 6) for v in row] for row in corr.to_numpy()]
+
+    def _safe_corr_val(v) -> float | None:
+        if pd.notna(v):
+            try:
+                fv = float(v)
+                return round(fv, 6) if math.isfinite(fv) else None
+            except (ValueError, TypeError):
+                return None
+        return None
+
+    matrix = [[_safe_corr_val(v) for v in row] for row in corr.to_numpy()]
     return _resp(
         200,
         True,

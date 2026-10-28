@@ -238,6 +238,9 @@ class InterpretabilityService:
         if not data_file:
             raise ValueError(f"Data file not found for model {model.model_name}")
 
+        if data_file.file_type != "csv":
+            raise ValueError(f"Analysis is only supported for tabular CSV datasets, but got '{data_file.file_type}'")
+
         # Build file path (same logic as model_run._helper_generate_file_location)
         upload_folder = get_settings().upload_folder
         file_path = f"{upload_folder}/{data_file.disk_name}"
@@ -302,6 +305,9 @@ class InterpretabilityService:
         data_file = session.get(DataFile, model.file_id)
         if not data_file:
             raise ValueError(f"Data file not found for model {model.model_name}")
+
+        if data_file.file_type != "csv":
+            raise ValueError(f"Analysis is only supported for tabular CSV datasets, but got '{data_file.file_type}'")
 
         upload_folder = get_settings().upload_folder
         file_path = f"{upload_folder}/{data_file.disk_name}"

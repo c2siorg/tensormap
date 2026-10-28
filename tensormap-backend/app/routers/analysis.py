@@ -121,12 +121,17 @@ async def get_confusion_matrix(
     # Verify job exists and is completed
     _verify_job_completed(job_id, db)
 
-    # Task-type routing: confusion matrix not available for regression
+    # Task-type routing: confusion matrix not available for regression or image classification
     analysis_type = get_analysis_type(job_id, db)
     if analysis_type == "regression":
         raise HTTPException(
             status_code=400,
             detail="Confusion matrix not available for regression models. Use /residual-plot instead.",
+        )
+    if analysis_type == "image_classification":
+        raise HTTPException(
+            status_code=400,
+            detail="Confusion matrix not available for image classification models.",
         )
 
     # Check if result was already cached
@@ -194,6 +199,11 @@ async def get_roc_curve(
         raise HTTPException(
             status_code=400,
             detail="ROC and Precision-Recall curves are only available for classification models.",
+        )
+    if analysis_type == "image_classification":
+        raise HTTPException(
+            status_code=400,
+            detail="ROC and Precision-Recall curves are not available for image classification models.",
         )
 
     cached = _service.cache.get_cached(job_id, "roc_curve", db)

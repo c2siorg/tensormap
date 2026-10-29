@@ -239,6 +239,180 @@ def get_column_stats_service(db: Session, file_id: uuid_pkg.UUID) -> tuple:
     return _resp(200, True, "Column statistics generated successfully", data)
 
 
+def get_feature_distribution_service(db: Session, file_id: uuid_pkg.UUID) -> tuple:
+    """Compute distribution profiles, histograms, and outlier statistics for a CSV dataset."""
+    file = db.exec(select(DataFile).where(DataFile.id == file_id)).first()
+    if not file:
+        return _resp(400, False, "File doesn't exist in DB")
+
+    csv_err = _require_csv_file(file, "computing feature distributions")
+    if csv_err:
+        return csv_err
+
+    file_path = _get_file_path(file)
+    try:
+        df = pd.read_csv(file_path)
+    except FileNotFoundError:
+        return _resp(500, False, f"File not found: {file_path}")
+    except pd.errors.ParserError as e:
+        logger.exception("CSV parsing error: %s", str(e))
+        return _resp(500, False, f"Error reading CSV: {e}")
+    except Exception as e:
+        logger.exception("Error reading file: %s", str(e))
+        return _resp(500, False, f"Error reading CSV: {e}")
+
+    total_rows = len(df)
+    total_cols = len(df.columns)
+
+    def _safe_float(v: Any, ndigits: int = 4) -> float | None:
+        """Return float(v) rounded if v is a finite number, else None."""
+        if pd.isna(v) or not np.isfinite(v):
+            return None
+        return round(float(v), ndigits)
+
+    numeric_cols = df.select_dtypes(include="number").columns
+    columns = []
+
+    for col in df.columns:
+        is_numeric = col in numeric_cols
+        series = df[col]
+        null_count = int(series.isnull().sum())
+        non_null_series = series.dropna()
+        count = int(len(non_null_series))
+
+        entry: dict[str, Any] = {
+            "column": col,
+            "dtype": str(series.dtype),
+            "is_numeric": bool(is_numeric),
+            "count": count,
+            "null_count": null_count,
+        }
+
+        if is_numeric:
+            finite_series = non_null_series[np.isfinite(non_null_series)]
+            n_finite = len(finite_series)
+
+            if n_finite > 0:
+                mean_val = _safe_float(finite_series.mean())
+                std_val = _safe_float(finite_series.std()) if n_finite > 1 else 0.0
+                min_val = _safe_float(finite_series.min())
+                max_val = _safe_float(finite_series.max())
+                q25_val = _safe_float(np.percentile(finite_series, 25))
+                median_val = _safe_float(np.percentile(finite_series, 50))
+                q75_val = _safe_float(np.percentile(finite_series, 75))
+
+                iqr_val = _safe_float(q75_val - q25_val) if (q25_val is not None and q75_val is not None) else 0.0
+                skew_val = _safe_float(finite_series.skew()) if (n_finite > 2 and finite_series.std() > 0) else 0.0
+
+                lower_bound = (
+                    _safe_float(q25_val - 1.5 * iqr_val) if (q25_val is not None and iqr_val is not None) else None
+                )
+                upper_bound = (
+                    _safe_float(q75_val + 1.5 * iqr_val) if (q75_val is not None and iqr_val is not None) else None
+                )
+
+                if lower_bound is not None and upper_bound is not None:
+                    outliers = finite_series[(finite_series < lower_bound) | (finite_series > upper_bound)]
+                    outlier_count = int(len(outliers))
+                else:
+                    outlier_count = 0
+
+                outlier_pct = round((outlier_count / n_finite) * 100.0, 2)
+
+                histogram = []
+                if min_val is not None and max_val is not None:
+                    if min_val == max_val:
+                        histogram.append(
+                            {
+                                "bin_start": min_val,
+                                "bin_end": max_val,
+                                "bin_label": str(min_val),
+                                "count": n_finite,
+                            }
+                        )
+                    else:
+                        num_bins = min(12, max(5, int(np.ceil(np.sqrt(n_finite)))))
+                        counts, bin_edges = np.histogram(finite_series, bins=num_bins)
+                        for i in range(len(counts)):
+                            b_start = _safe_float(bin_edges[i])
+                            b_end = _safe_float(bin_edges[i + 1])
+                            histogram.append(
+                                {
+                                    "bin_start": b_start,
+                                    "bin_end": b_end,
+                                    "bin_label": f"{b_start} - {b_end}",
+                                    "count": int(counts[i]),
+                                }
+                            )
+
+                entry.update(
+                    {
+                        "mean": mean_val,
+                        "std": std_val,
+                        "min": min_val,
+                        "max": max_val,
+                        "q25": q25_val,
+                        "median": median_val,
+                        "q75": q75_val,
+                        "iqr": iqr_val,
+                        "skewness": skew_val,
+                        "lower_bound": lower_bound,
+                        "upper_bound": upper_bound,
+                        "outlier_count": outlier_count,
+                        "outlier_percentage": outlier_pct,
+                        "histogram": histogram,
+                    }
+                )
+            else:
+                entry.update(
+                    {
+                        "mean": None,
+                        "std": None,
+                        "min": None,
+                        "max": None,
+                        "q25": None,
+                        "median": None,
+                        "q75": None,
+                        "iqr": None,
+                        "skewness": None,
+                        "lower_bound": None,
+                        "upper_bound": None,
+                        "outlier_count": 0,
+                        "outlier_percentage": 0.0,
+                        "histogram": [],
+                    }
+                )
+        else:
+            unique_count = int(series.nunique())
+            val_counts = non_null_series.astype(str).value_counts()
+            top_categories = []
+            for cat_name, c in val_counts.head(10).items():
+                pct = round((int(c) / count) * 100.0, 2) if count > 0 else 0.0
+                top_categories.append(
+                    {
+                        "category": str(cat_name),
+                        "count": int(c),
+                        "percentage": pct,
+                    }
+                )
+
+            entry.update(
+                {
+                    "unique_count": unique_count,
+                    "top_categories": top_categories,
+                }
+            )
+
+        columns.append(entry)
+
+    data = {
+        "total_rows": total_rows,
+        "total_cols": total_cols,
+        "columns": columns,
+    }
+    return _resp(200, True, "Feature distributions generated successfully", data)
+
+
 def get_correlation_matrix(db: Session, file_id: uuid_pkg.UUID) -> tuple:
     """Compute the pairwise correlation matrix for all numeric columns in a CSV.
 

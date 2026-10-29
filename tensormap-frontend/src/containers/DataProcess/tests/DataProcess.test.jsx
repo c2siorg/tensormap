@@ -26,6 +26,12 @@ vi.mock("../../../components/Process/ColumnStatsPanel", () => ({
   default: ({ fileId }) => <div data-testid="column-stats-panel">Column Stats: {fileId}</div>,
 }));
 
+vi.mock("../../../components/Process/FeatureDistributionPanel", () => ({
+  default: ({ fileId }) => (
+    <div data-testid="feature-distribution-panel">Feature Distribution: {fileId}</div>
+  ),
+}));
+
 vi.mock("../../../components/Process/CorrelationHeatmap", () => ({
   default: ({ fileId }) => (
     <div data-testid="correlation-heatmap">Correlation Heatmap: {fileId}</div>
@@ -87,6 +93,7 @@ describe("DataProcess Container", () => {
       expect(screen.getByTestId("display-dataset")).toBeTruthy();
       expect(screen.getByTestId("preprocess-data")).toBeTruthy();
       expect(screen.getByTestId("column-stats-panel")).toBeTruthy();
+      expect(screen.getByTestId("feature-distribution-panel")).toBeTruthy();
       expect(screen.getByTestId("correlation-heatmap")).toBeTruthy();
     });
 

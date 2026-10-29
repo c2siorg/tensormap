@@ -1,4 +1,5 @@
 import contextlib
+import csv
 import os
 import shutil
 import uuid as uuid_pkg
@@ -57,6 +58,27 @@ def add_file_service(db: Session, file_wrapper: Any, project_id: uuid_pkg.UUID |
     file_name_db = secure_filename(original_name)
     file_type_db = original_ext
     logger.info("Saving file: %s (disk name: %s)", file_name_db, safe_filename)
+
+    if file_type_db == "csv":
+        try:
+            with open(file_path, encoding="utf-8-sig", newline="") as csv_file:
+                headers = next(csv.reader(csv_file), [])
+        except (OSError, UnicodeDecodeError, csv.Error):
+            os.remove(file_path)
+            return _resp(400, False, "Could not read CSV column names. Upload rejected.")
+
+        seen_headers: set[str] = set()
+        duplicate_headers: list[str] = []
+        for header in headers:
+            normalized = header.strip()
+            if normalized in seen_headers and normalized not in duplicate_headers:
+                duplicate_headers.append(normalized)
+            seen_headers.add(normalized)
+
+        if duplicate_headers:
+            os.remove(file_path)
+            names = ", ".join(repr(name) for name in duplicate_headers)
+            return _resp(400, False, f"CSV contains duplicate column names: {names}.")
 
     file_id = uuid_pkg.uuid4()
 

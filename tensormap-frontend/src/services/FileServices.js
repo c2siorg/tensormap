@@ -187,6 +187,26 @@ export const getDatasetQualityReport = async (
 };
 
 /**
+ * Fetches feature distributions, histograms, and outlier metrics for a dataset.
+ *
+ * @param {string} file_id - File UUID.
+ * @returns {Promise<Object>} Distribution data object with total_rows, total_cols, and columns.
+ */
+export const getFeatureDistribution = async (file_id) =>
+  axios
+    .get(urls.BACKEND_GET_FEATURE_DISTRIBUTION + file_id)
+    .then((resp) => {
+      if (resp.data.success === true) {
+        return resp.data.data;
+      }
+      return null;
+    })
+    .catch((err) => {
+      logger.error(err);
+      throw err;
+    });
+
+/**
  * Deletes an uploaded file by ID.
  *
  * @param {string} fileId

@@ -17,6 +17,7 @@ from app.services.data_process import (
     get_correlation_matrix,
     get_data_metrics,
     get_dataset_backup_status_service,
+    get_feature_distribution_service,
     get_file_data,
     get_one_target_by_id_service,
     preprocess_data,
@@ -94,6 +95,13 @@ def get_metrics(file_id: uuid_pkg.UUID, db: Session = Depends(get_db)):
 async def get_column_stats(file_id: uuid_pkg.UUID, db: Session = Depends(get_db)):
     """Return per-column descriptive statistics for a CSV file."""
     body, status_code = get_column_stats_service(db, file_id=file_id)
+    return JSONResponse(status_code=status_code, content=body)
+
+
+@router.get("/data/process/distribution/{file_id}")
+async def get_feature_distribution(file_id: uuid_pkg.UUID, db: Session = Depends(get_db)):
+    """Return distribution profiles, histograms, and outlier statistics for a CSV file."""
+    body, status_code = get_feature_distribution_service(db, file_id=file_id)
     return JSONResponse(status_code=status_code, content=body)
 
 

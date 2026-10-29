@@ -8,6 +8,7 @@ import DownloadCsvButton from "../../components/Process/DownloadCsvButton";
 import SelectFileModal from "../../components/Process/SelectFileModal";
 import PreprocessData from "../../components/Process/PreprocessData";
 import CorrelationHeatmap from "../../components/Process/CorrelationHeatmap";
+import FeatureDistributionPanel from "../../components/Process/FeatureDistributionPanel";
 import { getAllFiles } from "../../services/FileServices";
 import { projectFiles } from "../../shared/atoms";
 import logger from "../../shared/logger";
@@ -137,6 +138,11 @@ function DataProcess() {
                 <Card>
                   <CardContent className="pt-4">
                     <ColumnStatsPanel fileId={selectedFileId} />
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-4">
+                    <FeatureDistributionPanel fileId={selectedFileId} />
                   </CardContent>
                 </Card>
                 <Card>

@@ -54,6 +54,30 @@ export const uploadFile = async (file, projectId) => {
     });
 };
 
+/** Downloads the current saved CSV contents for a dataset. */
+export const downloadCsvFile = async (fileId) => {
+  try {
+    const response = await axios.get(`${urls.BACKEND_DOWNLOAD_FILE}${fileId}/download`, {
+      responseType: "blob",
+    });
+    const disposition = response.headers?.["content-disposition"] || "";
+    const encodedFilename = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+    const plainFilename = disposition.match(/filename\s*=\s*"?([^";]+)"?/i)?.[1];
+    let filename = encodedFilename || plainFilename || null;
+    if (encodedFilename) {
+      try {
+        filename = decodeURIComponent(encodedFilename);
+      } catch {
+        filename = encodedFilename;
+      }
+    }
+    return { blob: response.data, filename };
+  } catch (error) {
+    logger.error(error);
+    throw error;
+  }
+};
+
 /**
  * Fetches the correlation matrix, data types, and metrics for a file.
  *

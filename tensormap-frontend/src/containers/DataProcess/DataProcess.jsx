@@ -4,6 +4,7 @@ import { useParams } from "react-router-dom";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import ColumnStatsPanel from "../../components/Process/ColumnStatsPanel";
 import DisplayDataset from "../../components/Process/DisplayDataset";
+import DownloadCsvButton from "../../components/Process/DownloadCsvButton";
 import SelectFileModal from "../../components/Process/SelectFileModal";
 import PreprocessData from "../../components/Process/PreprocessData";
 import CorrelationHeatmap from "../../components/Process/CorrelationHeatmap";
@@ -112,8 +113,13 @@ function DataProcess() {
               <div className="space-y-6">
                 <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
                   <Card>
-                    <CardHeader>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0">
                       <CardTitle>Dataset Preview</CardTitle>
+                      <DownloadCsvButton
+                        fileId={selectedFileId}
+                        fileName={selectedFile?.file_name}
+                        fileType={selectedFile?.file_type}
+                      />
                     </CardHeader>
                     <CardContent>
                       <DisplayDataset fileId={selectedFileId} />

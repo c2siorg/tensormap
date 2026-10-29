@@ -169,6 +169,14 @@ export function getConnectionError(
     return "A layer cannot connect to itself";
   }
 
+  const targetNode = nodes.find((node) => node.id === target);
+  if (targetNode) {
+    const targetTypeKey = getRegistryTypeKey(targetNode.data?.layerType || targetNode.type);
+    if (targetTypeKey === "input") {
+      return "Input layers cannot have incoming connections";
+    }
+  }
+
   const sourceHandle = connection.sourceHandle ?? null;
   const targetHandle = connection.targetHandle ?? null;
   const isDuplicate = edges.some(

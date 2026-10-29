@@ -76,3 +76,39 @@ export interface PredictionsData {
   limit: number;
   predictions: Prediction[];
 }
+
+/** ROC Curve points and AUC metric for a class. */
+export interface RocCurvePoints {
+  fpr: number[];
+  tpr: number[];
+  thresholds: number[];
+  auc: number | null;
+}
+
+/** Precision-Recall Curve points and AUC metric for a class. */
+export interface PrCurvePoints {
+  precision: number[];
+  recall: number[];
+  thresholds: number[];
+  auc: number | null;
+}
+
+/** Diagnostic curves for a single class (binary or One-vs-Rest). */
+export interface ClassCurveData {
+  class_index: number;
+  class_name: string;
+  roc: RocCurvePoints;
+  pr: PrCurvePoints;
+}
+
+/** Response from GET /analysis/{job_id}/roc-curve (200). */
+export interface RocCurveData {
+  classes: ClassCurveData[];
+  macro_roc_auc: number | null;
+  macro_pr_auc: number | null;
+  is_binary: boolean;
+  class_names: string[];
+  n_samples: number;
+  analysis_type: "classification";
+  cached: boolean;
+}

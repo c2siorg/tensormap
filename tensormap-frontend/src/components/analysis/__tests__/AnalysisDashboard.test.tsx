@@ -58,6 +58,36 @@ describe("AnalysisDashboard", () => {
     },
   };
 
+  const mockRocCurveResponse = {
+    data: {
+      classes: [
+        {
+          class_index: 0,
+          class_name: "Class A",
+          roc: {
+            fpr: [0.0, 0.1, 1.0],
+            tpr: [0.0, 0.9, 1.0],
+            thresholds: [1.5, 0.5, 0.0],
+            auc: 0.95,
+          },
+          pr: {
+            precision: [1.0, 0.9, 0.5],
+            recall: [0.0, 0.9, 1.0],
+            thresholds: [0.9, 0.5, 0.0],
+            auc: 0.92,
+          },
+        },
+      ],
+      macro_roc_auc: 0.95,
+      macro_pr_auc: 0.92,
+      is_binary: true,
+      class_names: ["Class A"],
+      n_samples: 28,
+      analysis_type: "classification",
+      cached: false,
+    },
+  };
+
   const mockRegressionResponse = {
     data: {
       y_pred: [1.2, 3.4, 5.6],
@@ -75,13 +105,19 @@ describe("AnalysisDashboard", () => {
   });
 
   it("mounts correct panels for classification type", async () => {
-    (axios.get as any).mockResolvedValue(mockClassificationResponse);
+    (axios.get as any).mockImplementation((url: string) => {
+      if (url.includes("roc-curve")) {
+        return Promise.resolve(mockRocCurveResponse);
+      }
+      return Promise.resolve(mockClassificationResponse);
+    });
 
     render(<AnalysisDashboard jobId="test-job-123" />);
 
     await waitFor(() => {
       expect(screen.getByText("Confusion Matrix")).toBeInTheDocument();
       expect(screen.getByText("Classification Report")).toBeInTheDocument();
+      expect(screen.getByText("ROC & Precision-Recall Curves")).toBeInTheDocument();
     });
   });
 

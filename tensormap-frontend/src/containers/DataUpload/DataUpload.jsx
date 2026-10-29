@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useSetRecoilState } from "recoil";
 import { useParams } from "react-router-dom";
 import { Upload, FileSpreadsheet } from "lucide-react";
+import DownloadCsvButton from "../../components/Process/DownloadCsvButton";
 import { projectFiles } from "../../shared/atoms";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -37,6 +38,8 @@ function DataUpload() {
           setDataset({
             id: file.file_id,
             name: `${file.file_name}.${file.file_type}`,
+            fileName: file.file_name,
+            fileType: file.file_type,
             columns: file.fields?.length ?? 0,
             rows: file.row_count ?? 0,
           });
@@ -158,6 +161,11 @@ function DataUpload() {
                   <span>Rows: {dataset.rows.toLocaleString()}</span>
                 </div>
                 <div className="flex gap-3">
+                  <DownloadCsvButton
+                    fileId={dataset.id}
+                    fileName={dataset.fileName}
+                    fileType={dataset.fileType}
+                  />
                   <Button
                     variant="outline"
                     disabled={uploading}

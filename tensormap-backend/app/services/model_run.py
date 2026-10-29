@@ -263,23 +263,77 @@ def _helper_generate_json_model_file_location(model_name: str) -> str:
     return path
 
 
-def _build_training_callbacks(job_id: str | None) -> list[tf.keras.callbacks.Callback]:
+def _build_training_callbacks(
+    job_id: str | None,
+    hyperparams: dict | None = None,
+    has_validation: bool = True,
+) -> list[tf.keras.callbacks.Callback]:
     """Return the Keras callbacks for a run.
 
     Without a job_id (legacy/direct calls) we keep the text-based
     ``CustomProgressBar``. With a job_id we use the persistent ``MetricsCallback``
-    (DB + room-scoped Socket.IO) plus ``CancellationCheckCallback``.
+    (DB + room-scoped Socket.IO) plus ``CancellationCheckCallback``, along with
+    optional adaptive training callbacks (EarlyStopping, ReduceLROnPlateau).
     """
     if job_id is None:
         return [CustomProgressBar()]
 
+    from app.callbacks.early_stopping import (
+        EarlyStoppingNotificationCallback,
+        ReduceLROnPlateauNotificationCallback,
+    )
     from app.services.training_service import make_session
 
     loop = _training_loop_ctx.get()
-    return [
+    cbs: list[tf.keras.callbacks.Callback] = [
         MetricsCallback(job_id, make_session, sio, loop),
         CancellationCheckCallback(job_id, make_session),
     ]
+
+    hyperparams = hyperparams or {}
+    monitor_metric = "val_loss" if has_validation else "loss"
+
+    if hyperparams.get("early_stopping"):
+        raw_patience = hyperparams.get("early_stopping_patience")
+        patience = int(raw_patience) if raw_patience is not None else 5
+        raw_delta = hyperparams.get("early_stopping_min_delta")
+        min_delta = float(raw_delta) if raw_delta is not None else 0.001
+        raw_restore = hyperparams.get("early_stopping_restore_best_weights")
+        restore_best_weights = bool(raw_restore) if raw_restore is not None else True
+        cbs.append(
+            EarlyStoppingNotificationCallback(
+                job_id,
+                sio,
+                loop,
+                monitor=monitor_metric,
+                patience=patience,
+                min_delta=min_delta,
+                restore_best_weights=restore_best_weights,
+                verbose=0,
+            )
+        )
+
+    if hyperparams.get("reduce_lr_on_plateau"):
+        raw_patience = hyperparams.get("reduce_lr_patience")
+        patience = int(raw_patience) if raw_patience is not None else 3
+        raw_factor = hyperparams.get("reduce_lr_factor")
+        factor = float(raw_factor) if raw_factor is not None else 0.2
+        raw_min_lr = hyperparams.get("reduce_lr_min_lr")
+        min_lr = float(raw_min_lr) if raw_min_lr is not None else 1e-6
+        cbs.append(
+            ReduceLROnPlateauNotificationCallback(
+                job_id,
+                sio,
+                loop,
+                monitor=monitor_metric,
+                factor=factor,
+                patience=patience,
+                min_lr=min_lr,
+                verbose=0,
+            )
+        )
+
+    return cbs
 
 
 def model_run(
@@ -373,11 +427,16 @@ def _should_skip_evaluation(callbacks: list[tf.keras.callbacks.Callback], model:
     for cb in callbacks:
         if isinstance(cb, CancellationCheckCallback) and (getattr(cb, "cancelled", False) or cb.check_cancelled()):
             return True
+
+    # If stopped early by EarlyStopping, training converged naturally so evaluation should proceed
+    for cb in callbacks:
+        if isinstance(cb, tf.keras.callbacks.EarlyStopping) and getattr(cb, "stopped_epoch", 0) > 0:
+            return False
+
     return bool(getattr(model, "stop_training", False))
 
 
 def _run(model_name: str, db: Session, job_id: str | None = None) -> None:
-    callbacks = _build_training_callbacks(job_id)
     model_configs = db.exec(select(ModelBasic).where(ModelBasic.model_name == model_name)).first()
     if model_configs is None:
         raise ModelRunError(f"Model configuration not found: {model_name}")
@@ -439,6 +498,7 @@ def _run(model_name: str, db: Session, job_id: str | None = None) -> None:
             color_mode=color_mode,
             label_mode=label_mode,
         )
+        has_validation = test_data is not None and (float(training_split) < 100)
     else:
         file_location = _helper_generate_file_location(db, file_id=model_configs.file_id)
         features = pd.read_csv(file_location)
@@ -449,6 +509,18 @@ def _run(model_name: str, db: Session, job_id: str | None = None) -> None:
         )
 
         effective_batch_size = batch_size if batch_size is not None else 32
+        validation_data = (
+            (x_testing, y_testing)
+            if (
+                x_testing is not None
+                and y_testing is not None
+                and (not hasattr(x_testing, "__len__") or len(x_testing) > 0)
+            )
+            else None
+        )
+        has_validation = validation_data is not None
+
+    callbacks = _build_training_callbacks(job_id, hyperparams=hyperparams, has_validation=has_validation)
 
     with open(_helper_generate_json_model_file_location(model_name=model_name)) as f:
         json_string = f.read()
@@ -478,15 +550,6 @@ def _run(model_name: str, db: Session, job_id: str | None = None) -> None:
         else:
             model.evaluate(test_data, callbacks=callbacks, verbose=0)
     else:
-        validation_data = (
-            (x_testing, y_testing)
-            if (
-                x_testing is not None
-                and y_testing is not None
-                and (not hasattr(x_testing, "__len__") or len(x_testing) > 0)
-            )
-            else None
-        )
         model.fit(
             x_training,
             y_training,

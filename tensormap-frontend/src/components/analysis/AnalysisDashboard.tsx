@@ -7,10 +7,7 @@
 import { useState, useEffect } from "react";
 import axios from "@/shared/Axios";
 import { BACKEND_MODEL_ANALYSIS } from "@/constants/Urls";
-import {
-  ConfusionMatrixData,
-  RegressionAnalysisData,
-} from "@/types/analysis";
+import { ConfusionMatrixData, RegressionAnalysisData } from "@/types/analysis";
 import ConfusionMatrixPanel from "./ConfusionMatrixPanel";
 import ClassificationReportTable from "./ClassificationReportTable";
 import FeatureImportanceChart from "./FeatureImportanceChart";
@@ -26,6 +23,9 @@ interface AnalysisDashboardProps {
 type AnalysisType = "classification" | "regression" | "image_classification" | null;
 
 export default function AnalysisDashboard({ jobId }: AnalysisDashboardProps) {
+  const [exportFormat, setExportFormat] = useState<"json" | "csv">("json");
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
   const [analysisType, setAnalysisType] = useState<AnalysisType>(null);
   const [confusionData, setConfusionData] = useState<ConfusionMatrixData | null>(null);
   const [regressionData, setRegressionData] = useState<RegressionAnalysisData | null>(null);
@@ -38,6 +38,40 @@ export default function AnalysisDashboard({ jobId }: AnalysisDashboardProps) {
     isLoading: isLoadingFeatureImportance,
     error: featureImportanceError,
   } = useFeatureImportancePoller(jobId);
+
+  const exportResults = async () => {
+    if (isExporting) return;
+    setIsExporting(true);
+    setExportError(null);
+    let objectUrl: string | undefined;
+    try {
+      const response = await axios.get(`${BACKEND_MODEL_ANALYSIS}/${jobId}/export`, {
+        params: { format: exportFormat },
+        responseType: "blob",
+      });
+      objectUrl = URL.createObjectURL(response.data);
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = `analysis-${jobId}.${exportFormat}`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch (err: any) {
+      const responseData = err.response?.data;
+      let detail = responseData?.detail;
+      if (!detail && responseData instanceof Blob) {
+        try {
+          detail = JSON.parse(await responseData.text()).detail;
+        } catch {
+          // Fall back to the request error when the server response is not JSON.
+        }
+      }
+      setExportError(detail || err.message || "Failed to export analysis results");
+    } finally {
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      setIsExporting(false);
+    }
+  };
 
   // Determine analysis type by attempting to fetch confusion matrix
   useEffect(() => {
@@ -101,6 +135,35 @@ export default function AnalysisDashboard({ jobId }: AnalysisDashboardProps) {
 
   return (
     <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-end gap-3">
+        <label htmlFor="analysis-export-format" className="text-sm text-gray-700">
+          Export format
+        </label>
+        <select
+          id="analysis-export-format"
+          aria-label="Export format"
+          value={exportFormat}
+          onChange={(event) => setExportFormat(event.target.value as "json" | "csv")}
+          disabled={isExporting}
+          className="rounded-md border border-gray-300 px-3 py-2 text-sm"
+        >
+          <option value="json">JSON</option>
+          <option value="csv">CSV</option>
+        </select>
+        <button
+          type="button"
+          onClick={exportResults}
+          disabled={isExporting}
+          className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {isExporting ? "Exporting…" : "Export analysis"}
+        </button>
+        {exportError && (
+          <p role="alert" className="w-full text-right text-sm text-red-700">
+            {exportError}
+          </p>
+        )}
+      </div>
       {/* Classification Analysis */}
       {analysisType === "classification" && confusionData && (
         <>
@@ -122,7 +185,9 @@ export default function AnalysisDashboard({ jobId }: AnalysisDashboardProps) {
               <div className="flex items-center gap-3">
                 <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
                 <div>
-                  <p className="text-sm text-blue-800 font-medium">Computing feature importance...</p>
+                  <p className="text-sm text-blue-800 font-medium">
+                    Computing feature importance...
+                  </p>
                   <p className="text-xs text-blue-600">This may take up to 30 seconds</p>
                 </div>
               </div>
@@ -184,7 +249,9 @@ export default function AnalysisDashboard({ jobId }: AnalysisDashboardProps) {
               <div className="flex items-center gap-3">
                 <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
                 <div>
-                  <p className="text-sm text-blue-800 font-medium">Computing feature importance...</p>
+                  <p className="text-sm text-blue-800 font-medium">
+                    Computing feature importance...
+                  </p>
                   <p className="text-xs text-blue-600">This may take up to 30 seconds</p>
                 </div>
               </div>

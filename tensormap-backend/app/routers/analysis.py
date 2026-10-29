@@ -11,8 +11,15 @@ Routes to different analysis types based on model_basic.model_type:
 - image_classification (3): confusion matrix, classification report, per-class grid
 """
 
+import csv
+import io
+import json
+import math
+import re
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from sqlmodel import Session
 
 from app.database import get_db
@@ -27,6 +34,38 @@ router = APIRouter(prefix="/model/analysis", tags=["analysis"])
 
 # Singleton service instance — stateless, safe to share across requests.
 _service = InterpretabilityService()
+
+_EXPORT_KEYS_BY_TYPE = {
+    "classification": ("confusion_matrix", "roc_curve", "feature_importance", "predictions"),
+    "regression": ("regression_analysis", "feature_importance"),
+    "image_classification": ("confusion_matrix", "roc_curve"),
+}
+
+
+def _flatten_export_value(value, path=""):
+    """Yield JSON Pointer paths, node types, and JSON-encoded values."""
+    if isinstance(value, dict):
+        yield path, "object", "{}" if not value else ""
+        for key in sorted(value):
+            segment = str(key).replace("~", "~0").replace("/", "~1")
+            yield from _flatten_export_value(value[key], f"{path}/{segment}")
+    elif isinstance(value, (list, tuple)):
+        yield path, "array", "[]" if not value else ""
+        for index, item in enumerate(value):
+            yield from _flatten_export_value(item, f"{path}/{index}")
+    else:
+        yield path, "scalar", json.dumps(_json_safe(value), ensure_ascii=False, allow_nan=False)
+
+
+def _json_safe(value):
+    """Convert non-finite cached numbers to JSON null instead of invalid JSON."""
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    return value
 
 
 def _verify_job_completed(job_id: str, session: Session) -> TrainingJob:
@@ -393,3 +432,52 @@ async def get_residuals(
         raise HTTPException(status_code=500, detail=f"Analysis computation failed: {exc}") from exc
 
     return JSONResponse(status_code=200, content={**result, "cached": False})
+
+
+@router.get("/{job_id}/export")
+def export_analysis(
+    job_id: str,
+    format: Literal["json", "csv"] = Query("json"),
+    db: Session = Depends(get_db),
+):
+    """Download available cached analysis results as JSON or flattened CSV.
+
+    CSV uses ``analysis``, ``field``, ``type``, and ``value`` columns. Field
+    paths use JSON Pointer escaping; the empty path identifies the root.
+    Container rows declare object/array types, scalar values are JSON encoded,
+    and empty containers carry their JSON value. Analysis is never recomputed.
+    """
+    job = _verify_job_completed(job_id, db)
+    analysis_type = get_analysis_type(job_id, db)
+    cache = job.analysis_cache or {}
+    keys = _EXPORT_KEYS_BY_TYPE[analysis_type]
+    results = {key: cache[key] for key in keys if key in cache and cache[key] is not None}
+    if not results:
+        raise HTTPException(status_code=409, detail="Analysis results are not available for export yet.")
+
+    unavailable = [key for key in keys if key not in results]
+    safe_job_id = re.sub(r"[^A-Za-z0-9_-]", "_", job_id)
+    if format == "json":
+        payload = {
+            "job_id": job_id,
+            "analysis_type": analysis_type,
+            "results": _json_safe(results),
+            "unavailable_results": unavailable,
+        }
+        return Response(
+            content=json.dumps(payload, allow_nan=False),
+            media_type="application/json",
+            headers={"Content-Disposition": f'attachment; filename="analysis-{safe_job_id}.json"'},
+        )
+
+    output = io.StringIO(newline="")
+    writer = csv.writer(output)
+    writer.writerow(("analysis", "field", "type", "value"))
+    for result_name, result in results.items():
+        for field, node_type, value in _flatten_export_value(result):
+            writer.writerow((result_name, field, node_type, value))
+    return Response(
+        content=output.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="analysis-{safe_job_id}.csv"'},
+    )

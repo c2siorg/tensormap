@@ -45,6 +45,14 @@
 | POST | /api/v1/model/code | Generate training code |
 | POST | /api/v1/model/run | Run model training |
 
+### Model analysis exports
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | /api/v1/model/analysis/{job_id}/export?format=json | Download available cached analysis results as JSON (default) |
+| GET | /api/v1/model/analysis/{job_id}/export?format=csv | Download available cached analysis results as flattened CSV |
+
+Exports require a completed training job. Only cached analysis output for that job and task type is included; this endpoint does not start or repeat analysis. JSON has `job_id`, `analysis_type`, `results` (keyed by analysis cache result name), and `unavailable_results` (supported outputs not yet cached). CSV columns are `analysis,field,type,value`. `field` is a JSON Pointer path: the empty string identifies the root; other paths start with `/`, `/` separates segments, `~1` encodes `/`, and `~0` encodes `~`. Array indexes are decimal path segments, interpreted as indexes when the parent row has type `array`; this parent `type` marker also distinguishes arrays from objects with numeric keys. Each object/array has a row with type `object` or `array`; non-empty containers have an empty `value`, while empty containers have JSON values `{}` or `[]`. Scalar rows have type `scalar` and a JSON-encoded value (`null`, `""`, strings, numbers, or booleans). Thus missing fields have no row, while null and empty strings remain distinct. Decode path escapes in the order `~1` to `/`, then `~0` to `~`. A completed job with no available cached results returns 409; missing jobs return 404, incomplete jobs return 400, and unsupported format values return 422. Image-classification exports omit outputs that are not supported for that task; regression exports omit classification-only outputs.
+
 ### Layers and graph analysis
 | Method | Endpoint | Description |
 |--------|----------|-------------|

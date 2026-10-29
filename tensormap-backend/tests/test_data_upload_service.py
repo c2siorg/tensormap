@@ -195,6 +195,11 @@ class TestDeleteOneFileById:
 
 
 class TestAddFileService:
+    @staticmethod
+    def _write_file(path, contents):
+        with open(path, "w", encoding="utf-8") as uploaded_file:
+            uploaded_file.write(contents)
+
     def _make_fw(self, filename: str, size: int = 100) -> MagicMock:
         fw = MagicMock()
         fw.filename = filename
@@ -229,7 +234,7 @@ class TestAddFileService:
         fw.filename = "iris.csv"
         fw.file.seek = MagicMock()
         fw.file.tell = MagicMock(return_value=100)
-        fw.save = MagicMock(side_effect=lambda p: None)
+        fw.save = MagicMock(side_effect=lambda path: self._write_file(path, "a,b\n1,2\n"))
 
         with (
             patch("app.services.data_upload.get_settings") as ms,
@@ -251,6 +256,70 @@ class TestAddFileService:
         db.add.assert_called_once()
         db.commit.assert_called_once()
 
+    @pytest.mark.parametrize("contents", ["a,a\n1,2\n", "a, a \n1,2\n"])
+    def test_rejects_duplicate_csv_headers_and_removes_saved_file(self, tmp_path, contents):
+        db = MagicMock()
+        fw = MagicMock()
+        fw.filename = "duplicate.csv"
+        fw.file.seek = MagicMock()
+        fw.file.tell = MagicMock(return_value=len(contents))
+        fw.save = MagicMock(side_effect=lambda path: self._write_file(path, contents))
+
+        with patch("app.services.data_upload.get_settings") as ms:
+            ms.return_value.max_content_length = 200 * 1024 * 1024
+            ms.return_value.upload_folder = str(tmp_path)
+            body, status = add_file_service(db, fw)
+
+        assert status == 400
+        assert body["success"] is False
+        assert "duplicate column" in body["message"].lower()
+        assert "a" in body["message"]
+        assert list(tmp_path.iterdir()) == []
+        db.add.assert_not_called()
+        db.commit.assert_not_called()
+
+    def test_rejects_csv_when_header_cannot_be_read_and_removes_saved_file(self, tmp_path):
+        db = MagicMock()
+        fw = MagicMock()
+        fw.filename = "unreadable.csv"
+        fw.file.seek = MagicMock()
+        fw.file.tell = MagicMock(return_value=10)
+        fw.save = MagicMock(side_effect=lambda path: self._write_file(path, "a,b\n1,2\n"))
+
+        with (
+            patch("app.services.data_upload.get_settings") as ms,
+            patch("app.services.data_upload.csv.reader", side_effect=OSError("read failed")),
+        ):
+            ms.return_value.max_content_length = 200 * 1024 * 1024
+            ms.return_value.upload_folder = str(tmp_path)
+            body, status = add_file_service(db, fw)
+
+        assert status == 400
+        assert body["success"] is False
+        assert "could not read csv column names" in body["message"].lower()
+        assert list(tmp_path.iterdir()) == []
+        db.add.assert_not_called()
+        db.commit.assert_not_called()
+
+    def test_valid_csv_is_saved_and_recorded(self, tmp_path):
+        db = MagicMock()
+        fw = MagicMock()
+        fw.filename = "valid.csv"
+        fw.file.seek = MagicMock()
+        fw.file.tell = MagicMock(return_value=20)
+        fw.save = MagicMock(side_effect=lambda path: self._write_file(path, "a,b\n1,2\n"))
+
+        with patch("app.services.data_upload.get_settings") as ms:
+            ms.return_value.max_content_length = 200 * 1024 * 1024
+            ms.return_value.upload_folder = str(tmp_path)
+            body, status = add_file_service(db, fw)
+
+        assert status == 201
+        assert body["success"] is True
+        assert len(list(tmp_path.iterdir())) == 1
+        db.add.assert_called_once()
+        db.commit.assert_called_once()
+
     def test_filename_with_path_is_saved_inside_upload_folder(self, tmp_path):
         db = MagicMock()
         fw = MagicMock()
@@ -258,7 +327,12 @@ class TestAddFileService:
         fw.file.seek = MagicMock()
         fw.file.tell = MagicMock(return_value=100)
         saved = []
-        fw.save = MagicMock(side_effect=saved.append)
+
+        def save(path):
+            saved.append(path)
+            self._write_file(path, "a,b\n1,2\n")
+
+        fw.save = MagicMock(side_effect=save)
 
         with (
             patch("app.services.data_upload.get_settings") as ms,

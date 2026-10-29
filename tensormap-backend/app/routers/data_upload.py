@@ -1,11 +1,14 @@
 import uuid as uuid_pkg
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, Form, Query, UploadFile
-from fastapi.responses import JSONResponse
-from sqlmodel import Session
+from fastapi.responses import FileResponse, JSONResponse
+from sqlmodel import Session, select
+from werkzeug.utils import secure_filename
 
 from app.config import get_settings
 from app.database import get_db
+from app.models import DataFile
 from app.services.data_upload import (
     add_file_service,
     delete_one_file_by_id_service,
@@ -101,6 +104,37 @@ def get_all_files(
     """List uploaded files, optionally filtered by project."""
     body, status_code = get_all_files_service(db, project_id=project_id, offset=offset, limit=limit)
     return JSONResponse(status_code=status_code, content=body)
+
+
+@router.get("/data/upload/file/{file_id}/download")
+def download_file(file_id: uuid_pkg.UUID, db: Session = Depends(get_db)):
+    """Download the current saved CSV contents for a dataset."""
+    file = db.exec(select(DataFile).where(DataFile.id == file_id)).first()
+    if file is None:
+        return JSONResponse(
+            status_code=404,
+            content={"success": False, "message": "Dataset was not found.", "data": None},
+        )
+    if file.file_type.lower() != "csv":
+        return JSONResponse(
+            status_code=400,
+            content={"success": False, "message": "Only CSV datasets can be downloaded as CSV.", "data": None},
+        )
+
+    upload_folder = Path(get_settings().upload_folder).resolve()
+    file_path = (upload_folder / file.disk_name).resolve()
+    if file_path == upload_folder or upload_folder not in file_path.parents or not file_path.is_file():
+        logger.warning("CSV download file unavailable for dataset id=%s", file_id)
+        return JSONResponse(
+            status_code=404,
+            content={"success": False, "message": "The dataset file is unavailable.", "data": None},
+        )
+
+    safe_name = secure_filename(Path(file.file_name).name)
+    if safe_name.lower().endswith(".csv"):
+        safe_name = safe_name[:-4]
+    download_name = f"{safe_name or 'dataset'}.csv"
+    return FileResponse(file_path, media_type="text/csv", filename=download_name)
 
 
 @router.delete("/data/upload/file/{file_id}")

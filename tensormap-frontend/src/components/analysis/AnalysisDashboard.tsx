@@ -10,12 +10,14 @@ import { BACKEND_MODEL_ANALYSIS } from "@/constants/Urls";
 import {
   ConfusionMatrixData,
   RegressionAnalysisData,
+  RocCurveData,
 } from "@/types/analysis";
 import ConfusionMatrixPanel from "./ConfusionMatrixPanel";
 import ClassificationReportTable from "./ClassificationReportTable";
 import FeatureImportanceChart from "./FeatureImportanceChart";
 import PredictionExplorer from "./PredictionExplorer";
 import ResidualPlotPanel from "./ResidualPlotPanel";
+import RocPrCurvePanel from "./RocPrCurvePanel";
 import { useFeatureImportancePoller } from "@/hooks/useFeatureImportancePoller";
 import logger from "@/shared/logger";
 
@@ -29,6 +31,9 @@ export default function AnalysisDashboard({ jobId }: AnalysisDashboardProps) {
   const [analysisType, setAnalysisType] = useState<AnalysisType>(null);
   const [confusionData, setConfusionData] = useState<ConfusionMatrixData | null>(null);
   const [regressionData, setRegressionData] = useState<RegressionAnalysisData | null>(null);
+  const [rocData, setRocData] = useState<RocCurveData | null>(null);
+  const [isLoadingRoc, setIsLoadingRoc] = useState<boolean>(false);
+  const [rocError, setRocError] = useState<string | null>(null);
   const [isLoadingType, setIsLoadingType] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -78,6 +83,27 @@ export default function AnalysisDashboard({ jobId }: AnalysisDashboardProps) {
     determineAnalysisType();
   }, [jobId]);
 
+  // Fetch ROC & Precision-Recall curves for tabular classification models
+  useEffect(() => {
+    if (analysisType !== "classification") return;
+
+    const fetchRocData = async () => {
+      setIsLoadingRoc(true);
+      setRocError(null);
+      try {
+        const response = await axios.get(`${BACKEND_MODEL_ANALYSIS}/${jobId}/roc-curve`);
+        setRocData(response.data as RocCurveData);
+      } catch (err: any) {
+        logger.error("Failed to fetch ROC curve analysis:", err);
+        setRocError(err.response?.data?.detail || err.message || "Failed to load ROC curves");
+      } finally {
+        setIsLoadingRoc(false);
+      }
+    };
+
+    fetchRocData();
+  }, [jobId, analysisType]);
+
   if (isLoadingType) {
     return (
       <div className="flex justify-center items-center py-12">
@@ -115,6 +141,13 @@ export default function AnalysisDashboard({ jobId }: AnalysisDashboardProps) {
               classNames={confusionData.class_names}
             />
           </div>
+
+          {/* ROC & Precision-Recall Diagnostic Curves */}
+          <RocPrCurvePanel
+            data={rocData}
+            isLoading={isLoadingRoc}
+            error={rocError}
+          />
 
           {/* Feature Importance */}
           {isLoadingFeatureImportance && (

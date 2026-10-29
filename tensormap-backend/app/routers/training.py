@@ -92,6 +92,24 @@ async def start_training(request: TrainingStartRequest, db: Session = Depends(ge
         "epochs": request.epochs or model.epochs,
         "batch_size": request.batch_size or model.batch_size,
     }
+    if request.early_stopping:
+        hyperparams.update(
+            {
+                "early_stopping": True,
+                "early_stopping_patience": request.early_stopping_patience,
+                "early_stopping_min_delta": request.early_stopping_min_delta,
+                "early_stopping_restore_best_weights": request.early_stopping_restore_best_weights,
+            }
+        )
+    if request.reduce_lr_on_plateau:
+        hyperparams.update(
+            {
+                "reduce_lr_on_plateau": True,
+                "reduce_lr_patience": request.reduce_lr_patience,
+                "reduce_lr_factor": request.reduce_lr_factor,
+                "reduce_lr_min_lr": request.reduce_lr_min_lr,
+            }
+        )
     job = create_training_job(
         model_id=model.id,
         project_id=model.project_id,

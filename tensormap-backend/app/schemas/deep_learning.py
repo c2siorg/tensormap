@@ -111,4 +111,12 @@ class TrainingConfigRequest(BaseModel):
     # Optional so clients that predate the field keep working; the service
     # falls back to the problem-type default when it is omitted.
     loss: LossFunction | None = None
+    early_stopping: bool | None = False
+    early_stopping_patience: int | None = Field(default=5, ge=1)
+    early_stopping_min_delta: float | None = Field(default=0.001, ge=0.0)
+    early_stopping_restore_best_weights: bool | None = True
+    reduce_lr_on_plateau: bool | None = False
+    reduce_lr_patience: int | None = Field(default=3, ge=1)
+    reduce_lr_factor: float | None = Field(default=0.2, gt=0.0, lt=1.0)
+    reduce_lr_min_lr: float | None = Field(default=1e-6, ge=0.0)
     project_id: uuid_pkg.UUID | None = None

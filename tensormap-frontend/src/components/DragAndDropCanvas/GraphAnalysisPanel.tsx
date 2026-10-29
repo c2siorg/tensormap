@@ -70,7 +70,7 @@ export default function GraphAnalysisPanel({
 
       {!collapsed && analysis && (
         <CardContent className="space-y-2 pt-0 text-xs">
-          {analysis.total_params > 0 && (
+          {(analysis.nodes.length > 0 || analysis.total_params > 0) && (
             <div className="flex flex-wrap gap-x-4 gap-y-1 text-muted-foreground">
               <span>
                 Parameters:{" "}
@@ -88,10 +88,23 @@ export default function GraphAnalysisPanel({
                 Size:{" "}
                 <strong className="text-foreground">{formatBytes(analysis.size_bytes)}</strong>
               </span>
+              {analysis.activation_bytes !== undefined && analysis.activation_bytes > 0 && (
+                <span>
+                  Act. memory:{" "}
+                  <strong className="text-foreground">
+                    {formatBytes(analysis.activation_bytes)}
+                  </strong>
+                </span>
+              )}
               <span>
                 MACs per sample:{" "}
                 <strong className="text-foreground">{formatCount(analysis.macs)}</strong>
               </span>
+              {analysis.flops !== undefined && analysis.flops > 0 && (
+                <span>
+                  FLOPs: <strong className="text-foreground">{formatCount(analysis.flops)}</strong>
+                </span>
+              )}
               {analysis.output_node_ids.length > 0 && (
                 <span>
                   Outputs:{" "}

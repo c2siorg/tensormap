@@ -315,6 +315,37 @@ class TestDiagnostics:
         assert a.macs == d1.macs
         assert a.flops == a.macs * 2
 
+    def test_activation_bytes_computed_property(self):
+        a = analyze_graph(
+            chain(
+                inp(10),
+                ("d1", {"layer_type": "dense", "units": 20, "activation": "relu"}),
+            )
+        )
+        assert a.ok
+        inp_node = a.node("in")
+        d1 = a.node("d1")
+        assert inp_node is not None and d1 is not None
+        assert inp_node.activation_bytes == 10 * 4
+        assert d1.activation_bytes == 20 * 4
+        assert a.activation_bytes == (10 + 20) * 4
+
+    def test_activation_bytes_zero_when_output_shape_none(self):
+        a = analyze_graph(
+            chain(
+                inp(10),
+                ("c1", {"layer_type": "conv2d", "filters": 16}),
+            )
+        )
+        assert not a.ok
+        c1 = a.node("c1")
+        assert c1 is not None
+        assert c1.output_shape is None
+        assert c1.activation_bytes == 0
+        inp_node = a.node("in")
+        assert inp_node is not None
+        assert a.activation_bytes == inp_node.activation_bytes
+
     def test_concatenate_dimension_mismatch_names_both_branches(self):
         graph = make_graph(
             [
@@ -702,6 +733,8 @@ class TestAnalyzeGraphEndpoint:
         assert body["total_params"] == (3 * 3 * 8 + 8) + (13 * 13 * 8 * 10 + 10)
         cnn = next(n for n in body["nodes"] if n["node_id"] == "c1")
         assert cnn["output_shape"] == [26, 26, 8]
+        assert body["activation_bytes"] > 0
+        assert cnn["activation_bytes"] == 26 * 26 * 8 * 4
 
     def test_canvas_payload_with_a_problem_is_still_a_200(self, client):
         canvas = {

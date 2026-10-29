@@ -8,6 +8,7 @@ import { projectFiles } from "../../../shared/atoms";
 
 vi.mock("../../../services/FileServices", () => ({
   getAllFiles: vi.fn(),
+  downloadCsvFile: vi.fn(),
 }));
 
 vi.mock("../../../components/Process/SelectFileModal", () => ({
@@ -92,6 +93,7 @@ describe("DataProcess Container", () => {
 
     expect(screen.getByText("Display Dataset: csv-1")).toBeTruthy();
     expect(screen.getByText("Preprocess Data: csv-1")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Download CSV" })).toBeTruthy();
 
     const select = screen.getByLabelText("Select Dataset:");
     expect(select.value).toBe("csv-1");
@@ -119,6 +121,7 @@ describe("DataProcess Container", () => {
     // Verify tabular panels are not mounted for the zip file
     expect(screen.queryByTestId("display-dataset")).toBeNull();
     expect(screen.queryByTestId("column-stats-panel")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Download CSV" })).toBeNull();
   });
 
   it("allows switching between multiple CSV datasets", async () => {

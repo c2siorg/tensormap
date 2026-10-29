@@ -124,7 +124,11 @@ function DataProcess() {
                       <CardTitle>Preprocessing</CardTitle>
                     </CardHeader>
                     <CardContent>
-                      <PreprocessData fileId={selectedFileId} updateFileList={refreshFiles} />
+                      <PreprocessData
+                        fileId={selectedFileId}
+                        fileName={selectedFile?.file_name}
+                        updateFileList={refreshFiles}
+                      />
                     </CardContent>
                   </Card>
                 </div>

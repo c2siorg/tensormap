@@ -13,6 +13,7 @@
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | /api/v1/data/process/file/{file_id} | Get file preview (paginated) |
+| GET | /api/v1/data/process/download/{file_id} | Download a CSV dataset |
 | GET | /api/v1/data/process/file/{file_id}/columns | Get column names |
 | GET | /api/v1/data/process/stats/{file_id} | Column statistics |
 | GET | /api/v1/data/process/correlation/{file_id} | Correlation matrix |

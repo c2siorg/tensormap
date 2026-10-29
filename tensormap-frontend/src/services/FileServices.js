@@ -115,6 +115,21 @@ export const getFileData = async (file_id, page = 1, pageSize = 50, signal) => {
 };
 
 /**
+ * Downloads the current CSV contents of a dataset.
+ *
+ * @param {string} file_id - ID of the uploaded file.
+ * @returns {Promise<import("axios").AxiosResponse<Blob>>} CSV response and download headers.
+ */
+export const downloadDataset = async (file_id) => {
+  try {
+    return await axios.get(urls.BACKEND_DOWNLOAD_DATASET + file_id, { responseType: "blob" });
+  } catch (error) {
+    logger.error(error);
+    throw error;
+  }
+};
+
+/**
  * Applies column transformations to a dataset and creates a new file.
  *
  * @param {string} file_id - ID of the source file.

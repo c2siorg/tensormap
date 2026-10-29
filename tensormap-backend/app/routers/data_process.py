@@ -1,10 +1,13 @@
 import uuid as uuid_pkg
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, Query
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import FileResponse, JSONResponse
 from sqlmodel import Session
 
+from app.config import get_settings
 from app.database import get_db
+from app.models import DataFile
 from app.schemas.data_process import (
     PreprocessRequest,
     TargetAddRequest,
@@ -114,6 +117,41 @@ async def get_file(
     """Return a paginated slice of a CSV file's contents with pagination metadata."""
     body, status_code = get_file_data(db, file_id=file_id, page=page, page_size=page_size)
     return JSONResponse(status_code=status_code, content=body)
+
+
+@router.get("/data/process/download/{file_id}", response_class=FileResponse)
+def download_dataset(file_id: uuid_pkg.UUID, db: Session = Depends(get_db)) -> FileResponse:
+    """Download a CSV dataset exactly as stored, without modifying it."""
+    data_file = db.get(DataFile, file_id)
+    if data_file is None:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+    if data_file.file_type != "csv":
+        raise HTTPException(status_code=400, detail="Only CSV datasets can be downloaded as CSV")
+
+    upload_folder = Path(get_settings().upload_folder).resolve()
+    file_path = (upload_folder / data_file.disk_name).resolve()
+    if not file_path.is_relative_to(upload_folder):
+        logger.warning("Dataset download path outside upload folder for file_id=%s", file_id)
+        raise HTTPException(status_code=404, detail="Dataset file not found")
+
+    try:
+        with file_path.open("rb"):
+            pass
+    except FileNotFoundError as error:
+        raise HTTPException(status_code=404, detail="Dataset file not found") from error
+    except OSError as error:
+        logger.exception("Dataset file unavailable for download, file_id=%s", file_id)
+        raise HTTPException(status_code=500, detail="Dataset file is unavailable for download") from error
+
+    filename = Path(data_file.file_name.replace("\\", "/")).name or "dataset"
+    if Path(filename).suffix.lower() != ".csv":
+        filename += ".csv"
+
+    return FileResponse(
+        path=file_path,
+        filename=filename,
+        media_type="text/csv",
+    )
 
 
 @router.post("/data/process/preprocess/{file_id}")

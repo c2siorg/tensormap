@@ -25,6 +25,7 @@ export interface NodeAnalysis {
   non_trainable_params: number;
   macs: number;
   flops?: number;
+  activation_bytes?: number;
 }
 
 export interface GraphAnalysis {
@@ -39,6 +40,7 @@ export interface GraphAnalysis {
   macs: number;
   flops?: number;
   size_bytes: number;
+  activation_bytes?: number;
 }
 
 /** What the canvas attaches to a ReactFlow node's data for rendering. */

@@ -155,6 +155,7 @@ const GenericLayerNode = memo(({ data, selected }: NodeProps<GenericLayerNodeDat
   const category = layerSpec.category;
   const displayName = layerSpec.display_name;
   const isMergeLayer = layerSpec.merge;
+  const isInputLayer = layerType === "input";
 
   const categoryColor = getCategoryColor(category);
   const borderColor = getBorderColor(category);
@@ -186,7 +187,7 @@ const GenericLayerNode = memo(({ data, selected }: NodeProps<GenericLayerNodeDat
       <NodeShapeBadge analysis={data.analysis} />
 
       {/* Input Handles */}
-      {isMergeLayer ? (
+      {isInputLayer ? null : isMergeLayer ? (
         // Merge layers (Concatenate) have multiple named input handles
         <>
           <Handle

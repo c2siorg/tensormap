@@ -4,11 +4,13 @@ All database interactions use MagicMock — no running DB required.
 CSV-based tests use pytest's tmp_path fixture for realistic temp files.
 """
 
+import json
 import uuid
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
+from starlette.responses import JSONResponse
 
 from app.models.data import DataFile, DataProcess
 from app.services.data_process import (
@@ -345,6 +347,31 @@ class TestGetDataMetrics:
         assert status == 200
         assert "size" in body["data"]["correlation_matrix"]
         assert "price" in body["data"]["metric"]
+
+    @patch("app.services.data_process.get_settings")
+    def test_metrics_handles_infinite_values_json_compliant(self, mock_settings, mock_db, file_id, tmp_path):
+        """Verify that get_data_metrics sanitizes non-finite floats for JSON compliance."""
+        inf_csv_path = tmp_path / "inf_dataset.csv"
+        inf_csv_path.write_text("x,y\n1.0,2.0\ninf,4.0\n3.0,6.0\n", encoding="utf-8")
+
+        reg_file = MagicMock(spec=DataFile)
+        reg_file.id = file_id
+        reg_file.file_name = "inf_dataset"
+        reg_file.file_type = "csv"
+        reg_file.disk_name = "inf_dataset.csv"
+
+        mock_settings.return_value.upload_folder = str(tmp_path)
+        mock_db.exec.return_value.first.return_value = reg_file
+
+        body, status = get_data_metrics(mock_db, file_id)
+        assert status == 200
+        assert body["success"] is True
+
+        # Check JSON compliance
+        dumped = json.dumps(body, allow_nan=False)
+        assert isinstance(dumped, str)
+        rendered = JSONResponse(content=body).render(body)
+        assert isinstance(rendered, bytes)
 
     def test_file_not_in_db(self, mock_db, file_id):
         mock_db.exec.return_value.first.return_value = None

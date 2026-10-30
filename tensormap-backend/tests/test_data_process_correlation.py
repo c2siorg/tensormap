@@ -10,12 +10,14 @@ Strategy
   ``@lru_cache`` complication and the need for a valid ``.env`` file.
 """
 
+import json
 import uuid
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
+from starlette.responses import JSONResponse
 
 from app.services.data_process import get_correlation_matrix
 
@@ -195,3 +197,37 @@ class TestGetCorrelationMatrix:
                 if vi is None and vj is None:
                     continue
                 assert vi == pytest.approx(vj)
+
+    @patch(_FILE_PATH_PATCH, return_value=_FAKE_PATH)
+    @patch("app.services.data_process.pd.read_csv")
+    def test_non_finite_values_serialised_as_none_and_json_compliant(self, mock_read_csv, _mock_path):
+        """Infinite or non-finite correlation values are coerced to None and pass strict JSON serialization."""
+        fake_df = MagicMock()
+        fake_corr = pd.DataFrame(
+            {
+                "a": [1.0, float("inf")],
+                "b": [float("-inf"), 1.0],
+            },
+            index=["a", "b"],
+        )
+        fake_df.select_dtypes.return_value = fake_df
+        fake_df.empty = False
+        fake_df.corr.return_value = fake_corr
+
+        mock_read_csv.return_value = fake_df
+        db = _make_db(_fake_file())
+
+        body, status = get_correlation_matrix(db, file_id=FILE_ID)
+        assert status == 200
+        assert body["success"] is True
+        matrix = body["data"]["matrix"]
+        assert matrix[0][0] == 1.0
+        assert matrix[0][1] is None
+        assert matrix[1][0] is None
+        assert matrix[1][1] == 1.0
+
+        # Must not raise ValueError when serialized with allow_nan=False
+        dumped = json.dumps(body, allow_nan=False)
+        assert "null" in dumped
+        rendered = JSONResponse(content=body).render(body)
+        assert isinstance(rendered, bytes)

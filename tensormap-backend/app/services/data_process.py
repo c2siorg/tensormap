@@ -1,6 +1,7 @@
 import contextlib
 import csv
 import json
+import math
 import os
 import shutil
 import uuid as uuid_pkg
@@ -40,6 +41,22 @@ def _get_file_path(file: DataFile) -> str:
     """Resolve the on-disk path for a DataFile record."""
     settings = get_settings()
     return f"{settings.upload_folder}/{file.disk_name}"
+
+
+def _safe_float(v: Any) -> float | None:
+    """Return float(v) if v is a finite number, else None.
+
+    Coerces NaN, inf, and -inf to None so the response can be safely
+    serialized to standard JSON (JSON null) without raising ValueError
+    under allow_nan=False or FastAPI's JSONResponse.
+    """
+    if v is None:
+        return None
+    try:
+        val = float(v)
+        return val if math.isfinite(val) else None
+    except (TypeError, ValueError):
+        return None
 
 
 def _require_csv_file(file: DataFile, operation: str = "tabular data processing") -> tuple | None:
@@ -178,9 +195,18 @@ def get_data_metrics(db: Session, file_id: uuid_pkg.UUID) -> tuple:
         return _resp(500, False, f"Error reading CSV: {e}")
 
     def _clean_str_dict(df_in: pd.DataFrame) -> dict:
-        return {
-            col: {k: None if pd.isna(v) else str(v) for k, v in row.items()} for col, row in df_in.to_dict().items()
-        }
+        def _clean_val(v: Any) -> str | None:
+            if pd.isna(v):
+                return None
+            try:
+                f_val = float(v)
+                if not math.isfinite(f_val):
+                    return None
+            except (TypeError, ValueError):
+                pass
+            return str(v)
+
+        return {col: {k: _clean_val(v) for k, v in row.items()} for col, row in df_in.to_dict().items()}
 
     metrics = {
         "data_types": df.dtypes.apply(str).to_dict(),
@@ -214,10 +240,6 @@ def get_column_stats_service(db: Session, file_id: uuid_pkg.UUID) -> tuple:
 
     total_rows = len(df)
     total_cols = len(df.columns)
-
-    def _safe_float(v) -> float | None:
-        """Return float(v) if v is a finite number, else None."""
-        return float(v) if pd.notna(v) else None
 
     numeric_cols = df.select_dtypes(include="number").columns
     columns = []
@@ -274,9 +296,9 @@ def get_correlation_matrix(db: Session, file_id: uuid_pkg.UUID) -> tuple:
         return _resp(200, True, "No numeric columns found", {"columns": [], "matrix": []})
 
     corr = numeric_df.corr()
-    # Convert the DataFrame to a plain list-of-lists; NaN becomes None (JSON null)
+    # Convert the DataFrame to a plain list-of-lists; NaN and non-finite values become None (JSON null)
     columns = corr.columns.tolist()
-    matrix = [[None if pd.isna(v) else round(float(v), 6) for v in row] for row in corr.to_numpy()]
+    matrix = [[round(val, 6) if (val := _safe_float(v)) is not None else None for v in row] for row in corr.to_numpy()]
     return _resp(
         200,
         True,

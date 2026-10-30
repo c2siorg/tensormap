@@ -23,6 +23,8 @@ interface ResidualPlotPanelProps {
   residuals: number[];
   mae: number;
   mse: number;
+  rmse?: number;
+  r2?: number | null;
 }
 
 export default function ResidualPlotPanel({
@@ -31,6 +33,8 @@ export default function ResidualPlotPanel({
   residuals,
   mae,
   mse,
+  rmse,
+  r2,
 }: ResidualPlotPanelProps) {
   // Prepare data for scatter plot (predicted vs actual)
   const scatterData = yPred.map((pred, idx) => ({
@@ -56,6 +60,16 @@ export default function ResidualPlotPanel({
             <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-200">
               MSE: {mse.toFixed(4)}
             </Badge>
+            {typeof rmse === "number" && (
+              <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200">
+                RMSE: {rmse.toFixed(4)}
+              </Badge>
+            )}
+            {typeof r2 === "number" && (
+              <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
+                R²: {r2.toFixed(4)}
+              </Badge>
+            )}
           </div>
         </div>
       </CardHeader>

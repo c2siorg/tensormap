@@ -157,7 +157,8 @@ def analyze_dataset_quality(
                 distinct_count=distinct_count,
             )
 
-    usable_rows = int((~frame.isna().any(axis=1)).sum()) if columns else 0
+    usable_mask = ~frame.isna().any(axis=1) if columns else None
+    usable_rows = int(usable_mask.sum()) if usable_mask is not None else 0
     if rows and usable_rows == 0:
         add_issue(
             "no_usable_rows",
@@ -201,18 +202,34 @@ def analyze_dataset_quality(
                 [selected_target],
                 blocking=True,
             )
-        elif problem_type_id == int(ProblemType.CLASSIFICATION) and target_distinct == 1:
-            add_issue(
-                "single_class_target",
-                "error",
-                (
-                    f"Classification target '{selected_target}' has only one distinct non-missing class. "
-                    "Provide at least two classes before training."
-                ),
-                [selected_target],
-                blocking=True,
-                distinct_count=target_distinct,
-            )
+        elif problem_type_id == int(ProblemType.CLASSIFICATION):
+            if target_distinct == 1:
+                add_issue(
+                    "single_class_target",
+                    "error",
+                    (
+                        f"Classification target '{selected_target}' has only one distinct non-missing class. "
+                        "Provide at least two classes before training."
+                    ),
+                    [selected_target],
+                    blocking=True,
+                    distinct_count=target_distinct,
+                )
+            elif usable_rows > 0 and usable_mask is not None:
+                usable_target_distinct = int(frame.loc[usable_mask, selected_target].nunique(dropna=True))
+                if usable_target_distinct <= 1:
+                    add_issue(
+                        "single_class_target",
+                        "error",
+                        (
+                            f"Classification target '{selected_target}' has only {usable_target_distinct} distinct "
+                            "class remaining after dropping rows with missing feature values. "
+                            "Provide at least two classes in complete rows before training."
+                        ),
+                        [selected_target],
+                        blocking=True,
+                        distinct_count=usable_target_distinct,
+                    )
         if columns <= 1:
             add_issue(
                 "no_feature_columns",

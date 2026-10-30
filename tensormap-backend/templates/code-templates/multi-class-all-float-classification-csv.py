@@ -28,7 +28,7 @@ def deep_learning_model():
 
     model.compile(
         optimizer="{{data.dl_model.optimizer}}",
-        loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
+        loss={{data.dl_model.loss_expression | default('"sparse_categorical_crossentropy"', true)}},
         metrics=["{{data.dl_model.metric}}"],
     )
 

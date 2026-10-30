@@ -250,7 +250,12 @@ async def get_feature_importance(
             detail="Feature importance not available for image classification models.",
         )
 
-    result = await _service.compute_feature_importance_async(job_id, db)
+    try:
+        result = await _service.compute_feature_importance_async(job_id, db)
+    except RuntimeError as exc:
+        logger.exception("Feature importance computation failed for job %s: %s", job_id, exc)
+        raise HTTPException(status_code=500, detail="Feature importance computation failed") from exc
+
     if result is None:
         return JSONResponse(status_code=202, content={"status": "computing"})
     return JSONResponse(status_code=200, content={**result, "cached": True})

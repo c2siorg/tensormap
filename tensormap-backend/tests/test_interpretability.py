@@ -1042,6 +1042,57 @@ def test_feature_importance_regression_uses_mse_scoring(regression_job, db_sessi
     # Check that importances are computed and finite
     for val in result["importances_mean"]:
         assert isinstance(val, float)
+    # Check that informative features rank higher than the uninformative noise feature
+    assert result["importances_mean"][0] > result["importances_mean"][2]
+    assert result["importances_mean"][1] > result["importances_mean"][2]
+
+
+def test_feature_importance_with_real_keras_model_more_than_20_features(db_session, export_dir):
+    """Real Keras model with 25 features evaluates without shape mismatch and returns 20 features."""
+    job_id, X_test, y_test, feature_names, model = create_test_training_job(
+        session=db_session,
+        export_dir=export_dir,
+        model_name=f"test_real_25feat_{uuid4().hex[:8]}",
+        num_features=25,
+        num_classes=3,
+        epochs=2,
+    )
+
+    service = InterpretabilityService()
+
+    with (
+        patch.object(
+            service,
+            "_load_test_data_with_features",
+            return_value=(X_test, y_test, feature_names),
+        ),
+        patch(
+            "app.services.interpretability.EXPORTS_BASE",
+            export_dir,
+        ),
+    ):
+        result = service._compute_feature_importance_sync(job_id, db_session)
+
+    assert result["analysis_type"] == "feature_importance"
+    assert len(result["features"]) == 20
+    assert len(result["importances_mean"]) == 20
+    assert len(result["importances_std"]) == 20
+
+
+@pytest.mark.asyncio
+async def test_feature_importance_failed_sentinel_raises_and_resets(trained_job, db_session):
+    """When status is failed, compute_feature_importance_async raises RuntimeError and clears sentinel for retry."""
+    job_id = trained_job["job_id"]
+    service = InterpretabilityService()
+
+    service.cache.set_cached(job_id, "feature_importance_status", {"status": "failed"}, db_session)
+
+    with pytest.raises(RuntimeError, match="Feature importance computation failed"):
+        await service.compute_feature_importance_async(job_id, db_session)
+
+    # Sentinel should now be cleared
+    status = service.cache.get_cached(job_id, "feature_importance_status", db_session)
+    assert status is None
 
 
 # ------------------------------------------------------------------

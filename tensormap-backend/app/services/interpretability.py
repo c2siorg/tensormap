@@ -188,6 +188,28 @@ class AnalysisCache:
         session.commit()
         logger.info(f"Cached {analysis_type} analysis for job {job_id}")
 
+    def clear_cached(self, job_id: str, analysis_type: str, session: Session) -> None:
+        """Removes an analysis entry from training_job.analysis_cache.
+
+        Args:
+            job_id: Training job ID
+            analysis_type: Type of analysis to remove
+            session: Database session
+        """
+        from sqlalchemy.orm import attributes
+
+        from app.models.training_job import TrainingJob
+
+        job = session.get(TrainingJob, job_id)
+        if not job or not job.analysis_cache or analysis_type not in job.analysis_cache:
+            return
+
+        del job.analysis_cache[analysis_type]
+        attributes.flag_modified(job, "analysis_cache")
+        session.add(job)
+        session.commit()
+        logger.info(f"Cleared {analysis_type} from analysis cache for job {job_id}")
+
 
 class InterpretabilityService:
     """Computes interpretability analyses for trained models.
@@ -671,7 +693,9 @@ class InterpretabilityService:
     # Permutation feature importance (202 polling pattern)
     # ------------------------------------------------------------------
 
-    async def compute_feature_importance_async(self, job_id: str, session: Session) -> dict | None:
+    async def compute_feature_importance_async(
+        self, job_id: str, session: Session, session_factory=None
+    ) -> dict | None:
         """Returns None if computation is in progress (202 case).
 
         Returns dict if cached.
@@ -688,8 +712,13 @@ class InterpretabilityService:
         if cache:
             return cache
 
-        # Check if already computing (use a "computing" sentinel in cache)
+        # Check if already computing or failed
         sentinel = self.cache.get_cached(job_id, "feature_importance_status", session)
+        if sentinel and sentinel.get("status") == "failed":
+            # Clear failed sentinel so retry is possible, but surface 500
+            self.cache.clear_cached(job_id, "feature_importance_status", session)
+            raise RuntimeError("Feature importance computation failed")
+
         if sentinel and sentinel.get("status") == "computing":
             return None  # Still computing → 202
 
@@ -697,22 +726,24 @@ class InterpretabilityService:
         self.cache.set_cached(job_id, "feature_importance_status", {"status": "computing"}, session)
 
         # Fire background computation with task tracking
-        task = asyncio.create_task(self._compute_and_cache_feature_importance(job_id))
+        task = asyncio.create_task(self._compute_and_cache_feature_importance(job_id, session_factory=session_factory))
         _feature_importance_tasks.add(task)
         task.add_done_callback(_feature_importance_tasks.discard)
         return None  # Will be 202
 
-    async def _compute_and_cache_feature_importance(self, job_id: str) -> None:
+    async def _compute_and_cache_feature_importance(self, job_id: str, session_factory=None) -> None:
         """Background task that computes feature importance and caches the result.
 
-        Uses its own isolated database sessions to ensure safety after the HTTP
+        Uses session_factory (defaulting to get_session) to ensure safety after the HTTP
         request completes and closes the request-scoped session.
         """
         from app.database import get_session
 
+        factory = session_factory or get_session
+
         try:
-            result = await asyncio.to_thread(self._run_feature_importance_sync, job_id)
-            with get_session() as session:
+            result = await asyncio.to_thread(self._run_feature_importance_sync, job_id, factory)
+            with factory() as session:
                 self.cache.set_cached(job_id, "feature_importance", result, session)
                 # Clear the computing sentinel
                 self.cache.set_cached(job_id, "feature_importance_status", {"status": "completed"}, session)
@@ -720,16 +751,17 @@ class InterpretabilityService:
         except Exception:
             logger.exception("Feature importance computation failed for job %s", job_id)
             try:
-                with get_session() as session:
+                with factory() as session:
                     self.cache.set_cached(job_id, "feature_importance_status", {"status": "failed"}, session)
             except Exception:
                 logger.exception("Failed to mark feature importance status as failed for job %s", job_id)
 
-    def _run_feature_importance_sync(self, job_id: str) -> dict:
+    def _run_feature_importance_sync(self, job_id: str, factory=None) -> dict:
         """Thread helper to execute feature importance with a dedicated session."""
         from app.database import get_session
 
-        with get_session() as session:
+        f = factory or get_session
+        with f() as session:
             return self._compute_feature_importance_sync(job_id, session)
 
     def _compute_feature_importance_sync(self, job_id: str, session: Session) -> dict:
@@ -780,16 +812,13 @@ class InterpretabilityService:
         n_samples = min(MAX_SAMPLES, len(X_test))
         X_sample = X_test[:n_samples]
 
-        if X_sample.shape[1] > MAX_FEATURES:
-            # Select top 20 features by variance
-            variances = np.var(X_sample, axis=0)
-            top_indices = np.argsort(variances)[-MAX_FEATURES:]
-            top_indices = np.sort(top_indices)  # Keep original order
-            X_sample = X_sample[:, top_indices]
-            feature_names = [feature_names[i] for i in top_indices]
-
+        # NOTE: Do NOT slice X_sample columns before evaluating the Keras model!
+        # The neural network expects its full input tensor shape.
+        # Feature capping is applied to the output importances.
         if is_regression:
             y_sample = y_test[:n_samples].astype(float)
+            if y_sample.ndim > 1:
+                y_sample = y_sample.ravel()
 
             class _KerasRegressorWrapper(BaseEstimator, RegressorMixin):
                 """Minimal sklearn wrapper around a trained Keras regression model."""
@@ -842,10 +871,25 @@ class InterpretabilityService:
             scoring=scoring,
         )
 
+        importances_mean = np.nan_to_num(result.importances_mean)
+        importances_std = np.nan_to_num(result.importances_std)
+
+        if len(feature_names) > MAX_FEATURES:
+            # Select top MAX_FEATURES by importance while preserving original feature order
+            top_indices = np.argsort(importances_mean)[-MAX_FEATURES:]
+            top_indices = np.sort(top_indices)  # Keep original order
+            selected_features = [feature_names[i] for i in top_indices]
+            selected_means = importances_mean[top_indices].tolist()
+            selected_stds = importances_std[top_indices].tolist()
+        else:
+            selected_features = feature_names
+            selected_means = importances_mean.tolist()
+            selected_stds = importances_std.tolist()
+
         return {
-            "features": feature_names,
-            "importances_mean": result.importances_mean.tolist(),
-            "importances_std": result.importances_std.tolist(),
+            "features": selected_features,
+            "importances_mean": selected_means,
+            "importances_std": selected_stds,
             "analysis_type": "feature_importance",
             "n_samples_used": n_samples,
             "n_repeats": 10,

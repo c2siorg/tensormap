@@ -1,11 +1,13 @@
 """Tests for get_column_stats_service and GET /data/process/stats/{file_id}."""
 
+import json
 import uuid
 from unittest.mock import MagicMock, patch
 
 import pytest
+from starlette.responses import JSONResponse
 
-from app.services.data_process import get_column_stats_service
+from app.services.data_process import _safe_float, get_column_stats_service
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -123,3 +125,35 @@ def test_rejects_non_csv_file():
     assert status == 400
     assert body["success"] is False
     assert "CSV" in body["message"]
+
+
+def test_safe_float_helper():
+    """Verify that _safe_float properly converts numbers and returns None for non-finite values."""
+    assert _safe_float(None) is None
+    assert _safe_float(float("nan")) is None
+    assert _safe_float(float("inf")) is None
+    assert _safe_float(float("-inf")) is None
+    assert _safe_float("not_a_number") is None
+    assert _safe_float(10) == 10.0
+    assert _safe_float(3.14) == 3.14
+    assert _safe_float("42.5") == 42.5
+
+
+def test_column_stats_handles_infinite_values_json_compliant(tmp_path):
+    """Verify that infinite values in dataset columns are converted to None and pass strict JSON serialization."""
+    inf_csv = "a,b\n1,10\ninf,20\n3,30\n"
+    body, status = _run(tmp_path, inf_csv)
+    assert status == 200
+    assert body["success"] is True
+
+    rows = {r["column"]: r for r in body["data"]["columns"]}
+    assert rows["a"]["mean"] is None
+    assert rows["a"]["max"] is None
+    assert rows["a"]["min"] == pytest.approx(1.0)
+    assert rows["b"]["mean"] == pytest.approx(20.0)
+
+    # Must be strictly JSON compliant under allow_nan=False and FastAPI/Starlette JSONResponse
+    dumped = json.dumps(body, allow_nan=False)
+    assert "null" in dumped
+    rendered = JSONResponse(content=body).render(body)
+    assert isinstance(rendered, bytes)

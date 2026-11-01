@@ -16,7 +16,10 @@ from app.models.project import Project
 from app.models.training_job import TrainingJob, TrainingStatus
 from app.models.tuning_session import TuningSession, TuningStrategy
 from app.models.tuning_session import TuningStatus as TuningSessionStatus
-from app.services.tuning_service import TuningService
+from app.services.tuning_service import (
+    TuningService,
+    check_tuning_concurrency_limit,
+)
 
 BASE = "/api/v1/model"
 
@@ -789,3 +792,78 @@ class TestRunTuningLoopHardeness:
         job = db_session.get(TrainingJob, job_id)
         assert job is not None
         assert job.hyperparams == trial_hyperparams
+
+
+class TestTuningConcurrencyLimit:
+    """Tests for tuning session concurrency limits."""
+
+    def test_check_concurrency_limit_passes_when_under_limit(self, db_session):
+        """When active tuning sessions are below the limit, the check passes without raising."""
+        model = _seed_model(db_session, "model_under_limit")
+        # 1 active session when limit is 2 (default)
+        _seed_tuning_session(db_session, model.id, status=TuningSessionStatus.RUNNING)
+        # Should not raise
+        check_tuning_concurrency_limit(db_session)
+
+    def test_check_concurrency_limit_raises_429_when_max_reached(self, db_session):
+        """When active tuning sessions reach MAX_CONCURRENT_TUNING_SESSIONS, 429 is raised."""
+        from app.exceptions import AppException
+
+        model = _seed_model(db_session, "model_at_limit")
+        # Default limit is 2; create 1 PENDING and 1 RUNNING
+        _seed_tuning_session(db_session, model.id, status=TuningSessionStatus.PENDING)
+        _seed_tuning_session(db_session, model.id, status=TuningSessionStatus.RUNNING)
+
+        with pytest.raises(AppException) as exc_info:
+            check_tuning_concurrency_limit(db_session)
+
+        assert exc_info.value.status_code == 429
+        assert "Max concurrent tuning sessions reached" in str(exc_info.value.detail)
+
+    def test_completed_failed_cancelled_sessions_do_not_count_towards_limit(self, db_session):
+        """Completed, failed, and cancelled sessions are excluded from active concurrency count."""
+        model = _seed_model(db_session, "model_inactive_sessions")
+        _seed_tuning_session(db_session, model.id, status=TuningSessionStatus.COMPLETED)
+        _seed_tuning_session(db_session, model.id, status=TuningSessionStatus.CANCELLED)
+        _seed_tuning_session(db_session, model.id, status=TuningSessionStatus.FAILED)
+
+        # 3 inactive sessions, 0 active -> check must pass
+        check_tuning_concurrency_limit(db_session)
+
+    def test_start_tuning_endpoint_returns_429_when_max_reached(self, client, db_session, monkeypatch):
+        """POST /model/tuning/{model_name} returns HTTP 429 when concurrency limit is reached."""
+        model = _seed_model(db_session, "model_endpoint_429")
+        _seed_tuning_session(db_session, model.id, status=TuningSessionStatus.RUNNING)
+        _seed_tuning_session(db_session, model.id, status=TuningSessionStatus.RUNNING)
+
+        # Monkeypatch launch_tuning_session so no background thread is started if called
+        monkeypatch.setattr("app.routers.tuning.launch_tuning_session", lambda *a, **k: None)
+
+        payload = {
+            "model_name": model.model_name,
+            "strategy": "grid",
+            "search_space": {"optimizer": ["adam", "sgd"]},
+            "max_trials": 2,
+            "metric": "val_accuracy",
+            "direction": "maximize",
+        }
+        resp = client.post(f"{BASE}/tuning/{model.model_name}", json=payload)
+        assert resp.status_code == 429
+        data = resp.json()
+        assert data["success"] is False
+        assert "Max concurrent tuning sessions reached" in data["message"]
+
+    def test_concurrency_limit_configurable_via_env_var(self, db_session, monkeypatch):
+        """Concurrency limit threshold respects MAX_CONCURRENT_TUNING_SESSIONS."""
+        from app.exceptions import AppException
+
+        monkeypatch.setattr("app.services.tuning_service.MAX_CONCURRENT_TUNING_SESSIONS", 1)
+
+        model = _seed_model(db_session, "model_env_limit")
+        _seed_tuning_session(db_session, model.id, status=TuningSessionStatus.RUNNING)
+
+        with pytest.raises(AppException) as exc_info:
+            check_tuning_concurrency_limit(db_session)
+
+        assert exc_info.value.status_code == 429
+        assert "Max concurrent tuning sessions reached (1)" in str(exc_info.value.detail)

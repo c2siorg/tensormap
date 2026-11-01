@@ -66,6 +66,39 @@ def test_e2e_training_completes_and_persists_metrics(training_session_factory):
     assert "accuracy" in grouped[0]
 
 
+def test_e2e_training_with_validation_data_persists_validation_metrics(training_session_factory):
+    job_id = _seed_job(training_session_factory)
+    callback = MetricsCallback(job_id, training_session_factory, MagicMock(), loop=None)
+
+    x, y = _binary_dataset()
+    x_train, y_train = x[:80], y[:80]
+    x_val, y_val = x[80:], y[80:]
+
+    _tiny_model().fit(
+        x_train,
+        y_train,
+        validation_data=(x_val, y_val),
+        epochs=3,
+        batch_size=16,
+        verbose=0,
+        callbacks=[callback],
+    )
+
+    with training_session_factory() as session:
+        job = session.get(TrainingJob, job_id)
+        assert job.status == TrainingStatus.COMPLETED
+        grouped = get_job_metrics_grouped(job_id, session)
+
+    assert len(grouped) == 3
+    for epoch_data in grouped:
+        assert "loss" in epoch_data
+        assert "accuracy" in epoch_data
+        assert "val_loss" in epoch_data
+        assert "val_accuracy" in epoch_data
+        assert isinstance(epoch_data["val_loss"], float)
+        assert isinstance(epoch_data["val_accuracy"], float)
+
+
 def test_e2e_cancellation_stops_training(training_session_factory):
     job_id = _seed_job(training_session_factory, status=TrainingStatus.RUNNING)
     metrics_cb = MetricsCallback(job_id, training_session_factory, MagicMock(), loop=None)

@@ -133,6 +133,15 @@ class CustomProgressBar(tf.keras.callbacks.Callback):
 
     def __init__(self) -> None:
         super().__init__()
+        self._is_training = False
+
+    def on_train_begin(self, logs: dict = None) -> None:
+        """Mark start of training so epoch validation does not trigger terminal evaluation emits."""
+        self._is_training = True
+
+    def on_train_end(self, logs: dict = None) -> None:
+        """Mark end of training so post-training model evaluation is processed."""
+        self._is_training = False
 
     def on_epoch_begin(self, epoch: int, logs: dict = None) -> None:
         """Emit the start of a new epoch."""
@@ -159,10 +168,14 @@ class CustomProgressBar(tf.keras.callbacks.Callback):
 
     def on_test_begin(self, logs: dict = None) -> None:
         """Emit the start of model evaluation."""
+        if self._is_training:
+            return
         _model_result("Evaluating...", 2)
 
     def on_test_end(self, logs: dict = None) -> None:
         """Emit final evaluation metrics."""
+        if self._is_training:
+            return
         if "mse" in logs:
             metric = f"MSE Loss- {logs['mse']:.4f}"
         elif "accuracy" in logs:
@@ -429,9 +442,19 @@ def _run(model_name: str, db: Session, job_id: str | None = None) -> None:
         else:
             model.evaluate(test_data, callbacks=callbacks, verbose=0)
     else:
+        validation_data = (
+            (x_testing, y_testing)
+            if (
+                x_testing is not None
+                and y_testing is not None
+                and (not hasattr(x_testing, "__len__") or len(x_testing) > 0)
+            )
+            else None
+        )
         model.fit(
             x_training,
             y_training,
+            validation_data=validation_data,
             epochs=epochs,
             batch_size=effective_batch_size,
             callbacks=callbacks,
@@ -444,4 +467,5 @@ def _run(model_name: str, db: Session, job_id: str | None = None) -> None:
                 job_id,
             )
         else:
-            model.evaluate(x_testing, y_testing, callbacks=callbacks, verbose=0)
+            if validation_data is not None or not hasattr(x_testing, "__len__") or len(x_testing) > 0:
+                model.evaluate(x_testing, y_testing, callbacks=callbacks, verbose=0)

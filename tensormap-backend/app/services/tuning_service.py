@@ -16,6 +16,7 @@ import threading
 from datetime import UTC, datetime
 
 import numpy as np
+from sqlalchemy import func
 from sqlmodel import Session, select
 
 from app.database import engine
@@ -33,6 +34,7 @@ logger = get_logger(__name__)
 MAX_GRID_COMBINATIONS = int(os.getenv("MAX_GRID_COMBINATIONS", "50"))
 TRIAL_TIMEOUT_SECONDS = int(os.getenv("TRIAL_TIMEOUT_SECONDS", "600"))
 DEFAULT_TRIAL_ESTIMATE_SECONDS = int(os.getenv("DEFAULT_TRIAL_ESTIMATE_SECONDS", "120"))
+MAX_CONCURRENT_TUNING_SESSIONS = int(os.getenv("MAX_CONCURRENT_TUNING_SESSIONS", "2"))
 
 # Strong references to in-flight tuning tasks so asyncio doesn't GC them.
 _tuning_tasks: set[asyncio.Task] = set()
@@ -48,6 +50,25 @@ def make_session() -> Session:
     Used by the tuning loop running in a background thread.
     """
     return Session(engine)
+
+
+def check_tuning_concurrency_limit(session: Session) -> None:
+    """Raise HTTP 429 if the active tuning session limit is already reached.
+
+    Counted across PENDING and RUNNING to guard against race windows where
+    bursts of requests arrive before background loops flip the status to RUNNING.
+    Uses func.count() on the database rather than loading rows into memory.
+    """
+    active_count = session.exec(
+        select(func.count())
+        .select_from(TuningSession)
+        .where(TuningSession.status.in_((TuningStatus.PENDING, TuningStatus.RUNNING)))
+    ).one()
+    if active_count >= MAX_CONCURRENT_TUNING_SESSIONS:
+        raise AppException(
+            429,
+            f"Max concurrent tuning sessions reached ({MAX_CONCURRENT_TUNING_SESSIONS}). Try again shortly.",
+        )
 
 
 class TuningService:

@@ -5,7 +5,10 @@ from sqlmodel import Session, select
 
 from app.models.ml import ModelBasic
 from app.models.training_job import TrainingJob, TrainingStatus
+from app.models.tuning_session import TuningSession, TuningStrategy
+from app.models.tuning_session import TuningStatus as TuningSessionStatus
 from app.services.training_service import orphan_recovery
+from app.services.tuning_service import orphan_recovery_tuning
 
 
 @pytest.fixture
@@ -64,3 +67,54 @@ def test_recovery_is_idempotent(db_session, model_id):
     assert orphan_recovery(db_session) == 1
     # Second pass finds nothing left to recover.
     assert orphan_recovery(db_session) == 0
+
+
+def _seed_tuning_session(session: Session, model_id: int, status: TuningSessionStatus) -> TuningSession:
+    ts = TuningSession(
+        model_id=model_id,
+        strategy=TuningStrategy.RANDOM,
+        search_space={"learning_rate": [0.01, 0.001]},
+        max_trials=2,
+        metric="accuracy",
+        direction="maximize",
+        status=status,
+    )
+    session.add(ts)
+    session.commit()
+    session.refresh(ts)
+    return ts
+
+
+def test_recovers_running_and_pending_tuning_sessions(db_session, model_id):
+    _seed_tuning_session(db_session, model_id, TuningSessionStatus.RUNNING)
+    _seed_tuning_session(db_session, model_id, TuningSessionStatus.PENDING)
+
+    recovered = orphan_recovery_tuning(db_session)
+    assert recovered == 2
+
+    sessions = db_session.exec(select(TuningSession)).all()
+    assert all(s.status == TuningSessionStatus.FAILED for s in sessions)
+    assert all(s.completed_at is not None for s in sessions)
+
+
+def test_tuning_recovery_does_not_touch_finished_sessions(db_session, model_id):
+    completed = _seed_tuning_session(db_session, model_id, TuningSessionStatus.COMPLETED)
+    cancelled = _seed_tuning_session(db_session, model_id, TuningSessionStatus.CANCELLED)
+    failed = _seed_tuning_session(db_session, model_id, TuningSessionStatus.FAILED)
+
+    recovered = orphan_recovery_tuning(db_session)
+    assert recovered == 0
+
+    db_session.refresh(completed)
+    db_session.refresh(cancelled)
+    db_session.refresh(failed)
+    assert completed.status == TuningSessionStatus.COMPLETED
+    assert cancelled.status == TuningSessionStatus.CANCELLED
+    assert failed.status == TuningSessionStatus.FAILED
+
+
+def test_tuning_recovery_is_idempotent(db_session, model_id):
+    _seed_tuning_session(db_session, model_id, TuningSessionStatus.RUNNING)
+    assert orphan_recovery_tuning(db_session) == 1
+    # Second pass finds nothing left to recover.
+    assert orphan_recovery_tuning(db_session) == 0

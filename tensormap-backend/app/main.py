@@ -80,13 +80,15 @@ async def lifespan(app: FastAPI):
             command.upgrade(alembic_cfg, "head")
             logger.info("Alembic migrations complete")
 
-        # Recover jobs left RUNNING/PENDING by a previous crash so the DB never
-        # shows a job as active when no process is training it. Best-effort:
-        # a failure here must not prevent the app from starting.
+        # Recover jobs and tuning sessions left RUNNING/PENDING by a previous crash so
+        # the DB never shows a job or session as active when no process is running it.
+        # Best-effort: a failure here must not prevent the app from starting.
         try:
             from app.services.training_service import orphan_recovery
+            from app.services.tuning_service import orphan_recovery_tuning
 
             orphan_recovery()
+            orphan_recovery_tuning()
         except Exception as e:
             logger.error(f"Orphan recovery error: {e}")
 

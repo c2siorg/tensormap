@@ -6,6 +6,7 @@ hyperparameter combinations.  Progress is streamed via Socket.IO to a
 """
 
 import asyncio
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse, Response
@@ -17,6 +18,7 @@ from app.models.ml import ModelBasic
 from app.models.training_job import TrainingJob, TrainingStatus
 from app.models.tuning_session import TuningSession, TuningStatus, TuningStrategy
 from app.schemas.tuning import TuningStartRequest
+from app.services.training_service import update_job_status
 from app.services.tuning_service import launch_tuning_session, tuning_service
 from app.shared.logging_config import get_logger
 
@@ -177,16 +179,18 @@ def get_tuning_session(tuning_id: str, db: Session = Depends(get_db)) -> JSONRes
 def cancel_tuning(tuning_id: str, db: Session = Depends(get_db)) -> Response:
     """Cancel a tuning session.
 
-    Sets the session status to CANCELLED.  The tuning loop checks this at each
-    trial boundary and stops.  Running trials are also cancelled via the
-    existing training cancellation mechanism.
+    Sets the session status to CANCELLED and stamps completion timestamp.
+    Running trials are also cancelled via the training cancellation mechanism
+    with completed_at timestamps.
     """
     ts = db.get(TuningSession, tuning_id)
     if ts is None:
         raise AppException(404, "Tuning session not found")
 
     if ts.status in (TuningStatus.PENDING, TuningStatus.RUNNING):
+        now = datetime.now(UTC)
         ts.status = TuningStatus.CANCELLED
+        ts.completed_at = now
         db.add(ts)
         db.commit()
         logger.info("Cancellation requested for tuning session %s", tuning_id)
@@ -199,10 +203,7 @@ def cancel_tuning(tuning_id: str, db: Session = Depends(get_db)) -> Response:
             )
         ).all()
         for job in running_jobs:
-            job.status = TrainingStatus.CANCELLED
-            db.add(job)
-        if running_jobs:
-            db.commit()
+            update_job_status(job.id, TrainingStatus.CANCELLED, db, error_message="Tuning session cancelled by user")
 
     return Response(status_code=204)
 

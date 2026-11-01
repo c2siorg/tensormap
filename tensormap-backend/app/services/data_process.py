@@ -13,7 +13,7 @@ from sqlalchemy import func
 from sqlmodel import Session, select
 
 from app.config import get_settings
-from app.models import DataFile, DataProcess
+from app.models import DataFile, DataProcess, ModelBasic
 from app.shared.csv_columns import read_csv_columns
 from app.shared.logging_config import get_logger
 
@@ -343,9 +343,11 @@ def _one_hot_encode(df: pd.DataFrame, col: str, _params: dict | None) -> pd.Data
 
 
 def _categorical_to_numerical(df: pd.DataFrame, col: str, _params: dict | None) -> pd.DataFrame:
-    # Preserve integer dtype so downstream consumers see a proper int column.
-    # pd.Categorical.codes returns int with -1 for NaNs — keep that convention
-    # rather than promoting to float just to hold NaN.
+    if df[col].isna().any():
+        raise ValueError(
+            f"Cannot apply Categorical to Numerical to column '{col}' because it contains missing values. "
+            "Please fill missing values before encoding."
+        )
     df[col] = pd.Categorical(df[col]).codes
     return df
 
@@ -354,21 +356,33 @@ def _drop_column(df: pd.DataFrame, col: str, _params: dict | None) -> pd.DataFra
     return df.drop(columns=[col])
 
 
+def _require_numeric(df: pd.DataFrame, col: str, transform_name: str) -> None:
+    if not pd.api.types.is_numeric_dtype(df[col]):
+        raise ValueError(f"Cannot apply {transform_name} to non-numeric column '{col}' (dtype: {df[col].dtype})")
+
+
 def _min_max_normalize(df: pd.DataFrame, col: str, _params: dict | None) -> pd.DataFrame:
+    _require_numeric(df, col, "Min-Max Normalization")
     col_min = df[col].min()
     col_max = df[col].max()
+    if pd.isna(col_min) or pd.isna(col_max):
+        raise ValueError(f"Cannot normalize column '{col}' because it contains only missing values.")
     df[col] = 0.0 if np.isclose(col_min, col_max) else (df[col] - col_min) / (col_max - col_min)
     return df
 
 
 def _zscore_standardize(df: pd.DataFrame, col: str, _params: dict | None) -> pd.DataFrame:
+    _require_numeric(df, col, "Z-score Standardization")
     mean = df[col].mean()
     std = df[col].std()
+    if pd.isna(mean) or pd.isna(std):
+        raise ValueError(f"Cannot standardize column '{col}' because it contains only missing values.")
     df[col] = 0.0 if np.isclose(std, 0) else (df[col] - mean) / std
     return df
 
 
 def _log_transform(df: pd.DataFrame, col: str, _params: dict | None) -> pd.DataFrame:
+    _require_numeric(df, col, "Log Transform")
     s = df[col]
     # log(1+x) is non-finite for x <= -1: at x == -1 it evaluates to -inf
     # (log 0), so reject those values instead of silently corrupting the CSV.
@@ -384,6 +398,11 @@ def _log_transform(df: pd.DataFrame, col: str, _params: dict | None) -> pd.DataF
 
 def _fill_missing(df: pd.DataFrame, col: str, params: dict | None) -> pd.DataFrame:
     strategy = (params or {}).get("strategy", "mean")
+    if strategy in ("mean", "median") and not pd.api.types.is_numeric_dtype(df[col]):
+        raise ValueError(
+            f"Fill strategy '{strategy}' requires a numeric column, but '{col}' is {df[col].dtype}. "
+            "Use 'mode' for non-numeric columns."
+        )
     if strategy == "median":
         df[col] = df[col].fillna(df[col].median())
     elif strategy == "mode":
@@ -442,6 +461,47 @@ def preprocess_data(db: Session, file_id: uuid_pkg.UUID, transformations: list) 
                     f"Column '{t.feature}' not found. Available columns: {list(df.columns)}",
                 )
 
+        # Check for active target column protection (prevent deleting or breaking target).
+        # We track each target along with where it is referenced (dataset target or model)
+        # so the user receives a specific explanation of what blocks the operation.
+        # Note: Non-destructive label transforms ('Categorical to Numerical') on targets
+        # are permitted to allow encoding categorical targets into integer labels for ML,
+        # but destructive transforms ('Drop Column', 'One Hot Encoding') that delete or
+        # expand the column are blocked.
+        target_sources: dict[str, list[str]] = {}
+        dp_records = db.exec(select(DataProcess).where(DataProcess.file_id == file_id)).all()
+        for dp in dp_records:
+            if dp.target:
+                target_sources.setdefault(dp.target, []).append("dataset target setting")
+
+        linked_models = db.exec(select(ModelBasic).where(ModelBasic.file_id == file_id)).all()
+        for mb in linked_models:
+            if mb.target_field:
+                source_label = (
+                    f"model '{mb.model_name}'" if hasattr(mb, "model_name") and mb.model_name else "configured model"
+                )
+                target_sources.setdefault(mb.target_field, []).append(source_label)
+
+        for t in transformations:
+            if t.feature in target_sources:
+                sources_str = ", ".join(target_sources[t.feature])
+                if t.transformation == "Drop Column":
+                    return _resp(
+                        422,
+                        False,
+                        f"Cannot drop active target column '{t.feature}' (referenced by {sources_str}). "
+                        "Reassign or remove the target field before dropping it.",
+                    )
+                if t.transformation == "One Hot Encoding":
+                    return _resp(
+                        422,
+                        False,
+                        f"Cannot one-hot encode active target column '{t.feature}' (referenced by {sources_str}). "
+                        "One-hot encoding replaces the target column with binary indicator columns "
+                        "and breaks model training.",
+                    )
+
+        # Apply transformations sequentially in-memory
         for t in transformations:
             if t.feature not in df.columns:
                 return _resp(

@@ -19,7 +19,7 @@ from app.models.training_job import TrainingJob, TrainingStatus
 from app.models.tuning_session import TuningSession, TuningStatus, TuningStrategy
 from app.schemas.tuning import TuningStartRequest
 from app.services.training_service import update_job_status
-from app.services.tuning_service import launch_tuning_session, tuning_service
+from app.services.tuning_service import check_tuning_concurrency_limit, launch_tuning_session, tuning_service
 from app.shared.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -50,6 +50,9 @@ async def start_tuning(
             400,
             "Training configuration not set. Please configure training parameters first.",
         )
+
+    # Reject early if we're already at the concurrency limit (raises 429).
+    check_tuning_concurrency_limit(db)
 
     # Validate grid search size upfront.
     strategy = TuningStrategy(body.strategy)

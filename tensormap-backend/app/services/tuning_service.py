@@ -514,10 +514,10 @@ class TuningService:
                 .limit(1)
             ).first()
             if last_job and last_job.started_at and last_job.completed_at:
-                per_trial = (last_job.completed_at - last_job.started_at).total_seconds()
+                per_trial = max(1.0, (last_job.completed_at - last_job.started_at).total_seconds())
             else:
                 per_trial = DEFAULT_TRIAL_ESTIMATE_SECONDS
-        return int(per_trial * n_trials)
+        return max(1, int(per_trial * n_trials))
 
     # ------------------------------------------------------------------
     # Apply best
@@ -570,3 +570,30 @@ def launch_tuning_session(session_id: str, model_name: str, loop: asyncio.Abstra
     task = asyncio.create_task(asyncio.to_thread(tuning_service.run_tuning_loop, session_id, model_name, loop))
     _tuning_tasks.add(task)
     task.add_done_callback(_tuning_tasks.discard)
+
+
+def orphan_recovery_tuning(session: Session | None = None) -> int:
+    """Mark tuning sessions left PENDING/RUNNING by a crash as FAILED.
+
+    Called on startup: any session still active in the DB cannot actually be
+    running (the process that owned it is gone), so it is failed with a clear
+    status and completed_at timestamp. Returns the number of sessions recovered.
+    """
+    own_session = session is None
+    session = session or make_session()
+    try:
+        orphans = session.exec(
+            select(TuningSession).where(TuningSession.status.in_((TuningStatus.PENDING, TuningStatus.RUNNING)))
+        ).all()
+        now = _utcnow()
+        for ts in orphans:
+            ts.status = TuningStatus.FAILED
+            ts.completed_at = now
+            session.add(ts)
+        if orphans:
+            session.commit()
+            logger.info("Tuning orphan recovery: marked %d stale session(s) as failed", len(orphans))
+        return len(orphans)
+    finally:
+        if own_session:
+            session.close()

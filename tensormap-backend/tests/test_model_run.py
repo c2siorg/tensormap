@@ -264,6 +264,7 @@ class TestRunHyperparameterOverrides:
         db.get.return_value = job
 
         mock_model = MagicMock()
+        mock_model.stop_training = False
         with (
             patch("app.services.model_run._build_training_callbacks", return_value=[]),
             patch("app.services.model_run._helper_generate_file_location", return_value="/fake/data.csv"),
@@ -290,3 +291,102 @@ class TestRunHyperparameterOverrides:
         fit_kwargs = mock_model.fit.call_args.kwargs
         assert fit_kwargs["epochs"] == 12
         assert fit_kwargs["batch_size"] == 64
+
+
+class TestTabularValidationData:
+    def test_tabular_model_run_passes_validation_data_to_fit(self):
+        import pandas as pd
+
+        cfg = _make_model_config(ProblemType.CLASSIFICATION)
+        cfg.epochs = 3
+        cfg.batch_size = 16
+
+        mock_x_train = pd.DataFrame({"f1": [1.0, 2.0], "f2": [3.0, 4.0]})
+        mock_y_train = pd.Series([0, 1])
+        mock_x_test = pd.DataFrame({"f1": [5.0], "f2": [6.0]})
+        mock_y_test = pd.Series([0])
+
+        db = MagicMock()
+        db.exec.return_value.first.return_value = cfg
+        db.get.return_value = None
+
+        mock_model = MagicMock()
+        mock_model.stop_training = False
+        with (
+            patch("app.services.model_run._build_training_callbacks", return_value=[]),
+            patch("app.services.model_run._helper_generate_file_location", return_value="/fake/data.csv"),
+            patch("app.services.model_run.pd.read_csv", return_value=MagicMock()),
+            patch(
+                "app.services.model_run._prepare_training_data",
+                return_value=(mock_x_train, mock_y_train, mock_x_test, mock_y_test),
+            ),
+            patch("builtins.open", MagicMock()),
+            patch("app.services.model_run.tf.keras.models.model_from_json", return_value=mock_model),
+            patch("app.services.model_run._emits_logits", return_value=False),
+        ):
+            _run("tabular_model", db, job_id=None)
+
+        mock_model.fit.assert_called_once()
+        fit_kwargs = mock_model.fit.call_args.kwargs
+        assert fit_kwargs["validation_data"] == (mock_x_test, mock_y_test)
+        mock_model.evaluate.assert_called_once_with(mock_x_test, mock_y_test, callbacks=[], verbose=0)
+
+    def test_tabular_model_run_omits_validation_data_when_testing_data_is_empty(self):
+        import pandas as pd
+
+        cfg = _make_model_config(ProblemType.REGRESSION)
+        cfg.epochs = 2
+
+        mock_x_train = pd.DataFrame({"f1": [1.0, 2.0]})
+        mock_y_train = pd.Series([10.0, 20.0])
+        mock_x_test = pd.DataFrame({"f1": []})
+        mock_y_test = pd.Series([], dtype="float64")
+
+        db = MagicMock()
+        db.exec.return_value.first.return_value = cfg
+        db.get.return_value = None
+
+        mock_model = MagicMock()
+        mock_model.stop_training = False
+        with (
+            patch("app.services.model_run._build_training_callbacks", return_value=[]),
+            patch("app.services.model_run._helper_generate_file_location", return_value="/fake/data.csv"),
+            patch("app.services.model_run.pd.read_csv", return_value=MagicMock()),
+            patch(
+                "app.services.model_run._prepare_training_data",
+                return_value=(mock_x_train, mock_y_train, mock_x_test, mock_y_test),
+            ),
+            patch("builtins.open", MagicMock()),
+            patch("app.services.model_run.tf.keras.models.model_from_json", return_value=mock_model),
+            patch("app.services.model_run._emits_logits", return_value=False),
+        ):
+            _run("tabular_empty_test", db, job_id=None)
+
+        mock_model.fit.assert_called_once()
+        fit_kwargs = mock_model.fit.call_args.kwargs
+        assert fit_kwargs["validation_data"] is None
+        mock_model.evaluate.assert_not_called()
+
+    def test_custom_progress_bar_ignores_epoch_validation_events(self):
+        from app.services.model_run import CustomProgressBar
+
+        cb = CustomProgressBar()
+        with patch("app.services.model_run._model_result") as mock_emit:
+            cb.on_train_begin()
+            # In-training validation callback events triggered by Keras during fit
+            cb.on_test_begin()
+            cb.on_test_end({"loss": 0.25, "accuracy": 0.9})
+            assert mock_emit.call_count == 0
+
+            # Training finishes
+            cb.on_train_end()
+
+            # Post-training evaluation triggered by model.evaluate()
+            cb.on_test_begin()
+            cb.on_test_end({"loss": 0.25, "accuracy": 0.9})
+
+            calls = mock_emit.call_args_list
+            assert len(calls) == 3
+            assert calls[0].args == ("Evaluating...", 2)
+            assert "Evaluation Results: Accuracy- 0.9000 Loss - 0.2500" in calls[1].args[0]
+            assert calls[2].args == ("Finish", 4)

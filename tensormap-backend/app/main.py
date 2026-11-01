@@ -27,6 +27,7 @@ from app.routers import (
     data_process,
     data_upload,
     deep_learning,
+    evaluation,
     export,
     health,
     layers,
@@ -166,6 +167,7 @@ app.include_router(layers.router, prefix=settings.api_base)
 app.include_router(training.router, prefix=settings.api_base)
 app.include_router(export.router, prefix=settings.api_base)
 app.include_router(analysis.router, prefix=settings.api_base)
+app.include_router(evaluation.router, prefix=settings.api_base)
 app.include_router(tuning.router, prefix=settings.api_base)
 
 # Wrap FastAPI with SocketIO so socket.io requests are handled,

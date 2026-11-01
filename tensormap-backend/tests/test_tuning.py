@@ -492,7 +492,7 @@ class TestCancelTuning:
     """Tests for DELETE /model/tuning/{tuning_id}."""
 
     def test_cancel_tuning_sets_status(self, client, db_session):
-        """DELETE sets status=cancelled."""
+        """DELETE sets status=cancelled and records completed_at timestamp."""
         model = _seed_model(db_session, "tuning_model")
         ts = _seed_tuning_session(db_session, model.id, status=TuningSessionStatus.RUNNING)
 
@@ -501,9 +501,10 @@ class TestCancelTuning:
 
         db_session.refresh(ts)
         assert ts.status == TuningSessionStatus.CANCELLED
+        assert ts.completed_at is not None
 
     def test_cancel_tuning_cancels_running_jobs(self, client, db_session):
-        """DELETE also cancels any running trial jobs."""
+        """DELETE also cancels any running trial jobs and records their completed_at timestamp."""
         model = _seed_model(db_session, "tuning_model")
         ts = _seed_tuning_session(db_session, model.id, status=TuningSessionStatus.RUNNING)
         job = _seed_job(
@@ -518,6 +519,8 @@ class TestCancelTuning:
 
         db_session.refresh(job)
         assert job.status == TrainingStatus.CANCELLED
+        assert job.completed_at is not None
+        assert job.error_message == "Tuning session cancelled by user"
 
     def test_cancel_404(self, client, db_session):
         """DELETE for non-existent session returns 404."""
@@ -710,6 +713,30 @@ class TestEstimateDuration:
         estimate = svc.estimate_session_duration(model.id, 10)
         # DEFAULT_TRIAL_ESTIMATE_SECONDS = 120, so 120 * 10 = 1200.
         assert estimate == 1200
+
+    def test_estimate_duration_guards_clock_skew(self, db_session, monkeypatch):
+        """Negative elapsed duration due to clock skew is clamped to positive duration."""
+        model = _seed_model(db_session, "tuning_model")
+        now = datetime.now(UTC)
+        _seed_job(
+            db_session,
+            model.id,
+            TrainingStatus.COMPLETED,
+            started_at=now,
+            completed_at=now - timedelta(seconds=10),
+        )
+
+        from contextlib import contextmanager
+
+        @contextmanager
+        def _mock_session_cm():
+            yield db_session
+
+        monkeypatch.setattr("app.services.tuning_service.make_session", _mock_session_cm)
+
+        svc = TuningService()
+        estimate = svc.estimate_session_duration(model.id, 5)
+        assert estimate >= 5
 
 
 class TestRunTuningLoopHardeness:

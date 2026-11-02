@@ -80,6 +80,11 @@ class MetricsCallback(tf.keras.callbacks.Callback):
         with self.session_factory() as session:
             job = session.get(TrainingJob, self.job_id)
             if job is not None:
+                if job.status in (TrainingStatus.CANCELLED, TrainingStatus.FAILED):
+                    logger.info("Job %s is already %s at train begin; halting", self.job_id, job.status.value)
+                    if self.model is not None:
+                        self.model.stop_training = True
+                    return
                 job.status = TrainingStatus.RUNNING
                 job.started_at = self.start_time
                 session.add(job)

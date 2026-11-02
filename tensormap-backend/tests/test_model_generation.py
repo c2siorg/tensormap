@@ -1261,3 +1261,68 @@ class TestTensorFlowGeneratorAddAndDanglingInput:
         )
         with pytest.raises(TensorFlowGeneratorError, match="Model has no output layer"):
             TensorFlowGenerator().build_model(graph)
+
+    def test_orphan_layer_raises_generator_error(self):
+        from app.generators.tensorflow_generator import TensorFlowGenerator, TensorFlowGeneratorError
+        from app.ir.schema import DenseParams, InputParams, IREdge, IRGraph, IRNode
+
+        graph = IRGraph(
+            nodes=[
+                IRNode(id="in1", node_params=InputParams(layer_type="input", shape=8)),
+                IRNode(id="d1", node_params=DenseParams(layer_type="dense", units=4)),
+                IRNode(id="orphan_d", node_params=DenseParams(layer_type="dense", units=4)),
+            ],
+            edges=[
+                IREdge(id="e1", source_id="in1", target_id="d1"),
+            ],
+        )
+        with pytest.raises(
+            TensorFlowGeneratorError,
+            match="Model contains layers that are not connected to any input layer: orphan_d",
+        ):
+            TensorFlowGenerator().build_model(graph)
+
+    def test_disconnected_subgraph_raises_generator_error(self):
+        from app.generators.tensorflow_generator import TensorFlowGenerator, TensorFlowGeneratorError
+        from app.ir.schema import DenseParams, InputParams, IREdge, IRGraph, IRNode
+
+        graph = IRGraph(
+            nodes=[
+                IRNode(id="in1", node_params=InputParams(layer_type="input", shape=8)),
+                IRNode(id="d1", node_params=DenseParams(layer_type="dense", units=4)),
+                IRNode(id="orphan_a", node_params=DenseParams(layer_type="dense", units=4)),
+                IRNode(id="orphan_b", node_params=DenseParams(layer_type="dense", units=2)),
+            ],
+            edges=[
+                IREdge(id="e1", source_id="in1", target_id="d1"),
+                IREdge(id="e2", source_id="orphan_a", target_id="orphan_b"),
+            ],
+        )
+        with pytest.raises(
+            TensorFlowGeneratorError,
+            match=r"Model contains layers that are not connected to any input layer: orphan_a, orphan_b",
+        ):
+            TensorFlowGenerator().build_model(graph)
+
+    def test_disconnected_cycle_raises_generator_error(self):
+        from app.generators.tensorflow_generator import TensorFlowGenerator, TensorFlowGeneratorError
+        from app.ir.schema import DenseParams, InputParams, IREdge, IRGraph, IRNode
+
+        graph = IRGraph(
+            nodes=[
+                IRNode(id="in1", node_params=InputParams(layer_type="input", shape=8)),
+                IRNode(id="d1", node_params=DenseParams(layer_type="dense", units=4)),
+                IRNode(id="c1", node_params=DenseParams(layer_type="dense", units=4)),
+                IRNode(id="c2", node_params=DenseParams(layer_type="dense", units=4)),
+            ],
+            edges=[
+                IREdge(id="e1", source_id="in1", target_id="d1"),
+                IREdge(id="e2", source_id="c1", target_id="c2"),
+                IREdge(id="e3", source_id="c2", target_id="c1"),
+            ],
+        )
+        with pytest.raises(
+            TensorFlowGeneratorError,
+            match=r"Model contains layers that are not connected to any input layer: c1, c2",
+        ):
+            TensorFlowGenerator().build_model(graph)

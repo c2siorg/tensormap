@@ -224,3 +224,88 @@ def test_successful_job_saves_model_artifact(training_session_factory, tmp_path)
     event = mock_emit.call_args[0][3]
     assert event["type"] == "status"
     assert event["status"] == "completed"
+
+
+def test_cancellation_halt_on_train_begin(training_session_factory):
+    """CancellationCheckCallback detects cancellation before training batches start."""
+    job_id = _seed_job(training_session_factory, status=TrainingStatus.CANCELLED)
+    cb = CancellationCheckCallback(job_id, training_session_factory)
+    model = MagicMock()
+    model.stop_training = False
+    cb.set_model(model)
+
+    cb.on_train_begin()
+    assert cb.cancelled is True
+    assert model.stop_training is True
+
+
+def test_cancelled_job_not_overwritten_to_running_at_train_begin(training_session_factory):
+    """MetricsCallback.on_train_begin preserves CANCELLED status and stops training."""
+    job_id = _seed_job(training_session_factory, status=TrainingStatus.CANCELLED)
+    sio = MagicMock()
+    cb = MetricsCallback(job_id, training_session_factory, sio, loop=None)
+    model = MagicMock()
+    model.stop_training = False
+    cb.set_model(model)
+
+    cb.on_train_begin()
+
+    with training_session_factory() as session:
+        job = session.get(TrainingJob, job_id)
+        assert job.status == TrainingStatus.CANCELLED
+    assert model.stop_training is True
+
+
+def test_train_in_thread_skips_when_job_already_cancelled(training_session_factory):
+    """_train_in_thread skips model_run and emits cancellation event if job is CANCELLED."""
+    from app.services.training_service import _train_in_thread
+
+    job_id = _seed_job(training_session_factory, status=TrainingStatus.CANCELLED)
+
+    with (
+        patch("app.services.training_service.make_session", training_session_factory),
+        patch("app.services.model_run.model_run") as mock_run,
+        patch("app.callbacks.metrics_callback.schedule_room_emit") as mock_emit,
+    ):
+        _train_in_thread("test_model", job_id, loop=None)
+
+    mock_run.assert_not_called()
+    mock_emit.assert_called_once()
+    event = mock_emit.call_args[0][3]
+    assert event["type"] == "status"
+    assert event["status"] == "cancelled"
+
+
+def test_cancel_training_job_endpoint_emits_room_event(client, db_session):
+    """DELETE /model/training-job/{id} transitions status and emits socket event to room."""
+    from unittest.mock import AsyncMock
+
+    from app.models.ml import ModelBasic
+
+    model = ModelBasic(model_name="test_cancel_emit_model")
+    db_session.add(model)
+    db_session.commit()
+
+    job = TrainingJob(
+        id=str(uuid4()),
+        model_id=model.id,
+        status=TrainingStatus.PENDING,
+        hyperparams={"epochs": 5},
+    )
+    db_session.add(job)
+    db_session.commit()
+
+    with patch("app.socketio_instance.sio.emit", new_callable=AsyncMock) as mock_sio_emit:
+        resp = client.delete(f"/api/v1/model/training-job/{job.id}")
+
+    assert resp.status_code == 204
+    db_session.refresh(job)
+    assert job.status == TrainingStatus.CANCELLED
+    assert job.completed_at is not None
+
+    mock_sio_emit.assert_awaited_once()
+    call_kwargs = mock_sio_emit.call_args.kwargs
+    assert call_kwargs["room"] == job.id
+    event_payload = mock_sio_emit.call_args[0][1]
+    assert event_payload["type"] == "status"
+    assert event_payload["status"] == "cancelled"

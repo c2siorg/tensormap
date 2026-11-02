@@ -7,6 +7,7 @@ import pytest
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.models.data import DataFile, ImageProperties
+from app.models.project import Project
 from app.services.data_upload import (
     add_file_service,
     delete_one_file_by_id_service,
@@ -339,6 +340,99 @@ class TestAddFileService:
         assert body["success"] is False
         assert "traversal" in body["message"].lower()
 
+    def test_rejects_when_project_id_not_found(self):
+        db = MagicMock()
+        db.get.return_value = None
+        fw = self._make_fw("data.csv")
+        non_existent_id = uuid.uuid4()
+
+        body, status = add_file_service(db, fw, project_id=non_existent_id)
+
+        assert status == 404
+        assert body["success"] is False
+        assert body["message"] == "Project not found"
+        db.get.assert_called_once_with(Project, non_existent_id)
+        fw.file.tell.assert_not_called()
+
+    def test_valid_project_id_persisted_to_data_file(self, tmp_path):
+        db = MagicMock()
+        project_id = uuid.uuid4()
+        db.get.return_value = MagicMock(spec=Project, id=project_id)
+        fw = self._make_fw("iris.csv", size=100)
+        fw.save = MagicMock()
+
+        with (
+            patch("app.services.data_upload.get_settings") as ms,
+            patch("app.services.data_upload.os.makedirs"),
+            patch("app.services.data_upload.read_csv_columns", return_value=["a", "b"]),
+            patch("app.services.data_upload.pd.read_csv", return_value=[pd.DataFrame({"a": [1], "b": [2]})]),
+        ):
+            ms.return_value.max_content_length = 200 * 1024 * 1024
+            ms.return_value.upload_folder = str(tmp_path)
+            body, status = add_file_service(db, fw, project_id=project_id)
+
+        assert status == 201
+        assert body["success"] is True
+        record = db.add.call_args.args[0]
+        assert record.project_id == project_id
+
+    def test_csv_db_commit_failure_cleans_up_disk_file_and_rolls_back(self, tmp_path):
+        db = MagicMock()
+        db.commit.side_effect = SQLAlchemyError("DB commit failed")
+        fw = self._make_fw("sample.csv", size=100)
+        fw.save = MagicMock()
+
+        with (
+            patch("app.services.data_upload.get_settings") as ms,
+            patch("app.services.data_upload.os.makedirs"),
+            patch("app.services.data_upload.os.remove") as mock_remove,
+            patch("app.services.data_upload.read_csv_columns", return_value=["col1"]),
+            patch("app.services.data_upload.pd.read_csv", return_value=[pd.DataFrame({"col1": [1]})]),
+        ):
+            ms.return_value.max_content_length = 200 * 1024 * 1024
+            ms.return_value.upload_folder = str(tmp_path)
+            body, status = add_file_service(db, fw)
+
+        assert status == 500
+        assert body["success"] is False
+        assert "database error" in body["message"].lower()
+        db.rollback.assert_called_once()
+        mock_remove.assert_called_once()
+
+    def test_zip_db_commit_failure_cleans_up_disk_file_and_extracted_folder(self, tmp_path):
+        db = MagicMock()
+        db.commit.side_effect = SQLAlchemyError("DB commit failed")
+        fw = self._make_fw("dataset.zip", size=500)
+        fw.save = MagicMock()
+
+        with (
+            patch("app.services.data_upload.get_settings") as ms,
+            patch("app.services.data_upload.os.makedirs"),
+            patch("app.services.data_upload.os.remove") as mock_remove,
+            patch("app.services.data_upload.shutil.rmtree") as mock_rmtree,
+            patch("app.services.data_upload.zipfile.ZipFile") as mzf,
+        ):
+            ms.return_value.max_content_length = 200 * 1024 * 1024
+            ms.return_value.upload_folder = str(tmp_path)
+
+            mock_zf = MagicMock()
+            mock_zf.__enter__ = MagicMock(return_value=mock_zf)
+            mock_zf.__exit__ = MagicMock(return_value=False)
+            mock_zf.namelist.return_value = ["img/cat.png"]
+            mock_info = MagicMock()
+            mock_info.file_size = 500
+            mock_zf.getinfo.return_value = mock_info
+            mzf.return_value = mock_zf
+
+            body, status = add_file_service(db, fw)
+
+        assert status == 500
+        assert body["success"] is False
+        assert "database error" in body["message"].lower()
+        db.rollback.assert_called_once()
+        mock_remove.assert_called_once()
+        mock_rmtree.assert_called_once()
+
 
 class TestGetAllFilesService:
     def test_returns_paginated_files(self):
@@ -432,3 +526,15 @@ class TestGetAllFilesService:
         assert status == 200
         assert body["data"] == []
         assert body["pagination"]["total"] == 0
+
+    def test_returns_404_when_project_not_found(self):
+        db = MagicMock()
+        db.get.return_value = None
+        non_existent_id = uuid.uuid4()
+
+        body, status = get_all_files_service(db, project_id=non_existent_id)
+
+        assert status == 404
+        assert body["success"] is False
+        assert body["message"] == "Project not found"
+        db.get.assert_called_once_with(Project, non_existent_id)

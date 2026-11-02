@@ -13,6 +13,7 @@ from werkzeug.utils import secure_filename
 
 from app.config import get_settings
 from app.models import DataFile, ImageProperties, ModelBasic
+from app.models.project import Project
 from app.shared.csv_columns import read_csv_columns
 from app.shared.logging_config import get_logger
 
@@ -29,6 +30,12 @@ def add_file_service(db: Session, file_wrapper: Any, project_id: uuid_pkg.UUID |
     settings = get_settings()
     upload_folder = settings.upload_folder
     os.makedirs(upload_folder, exist_ok=True)
+
+    # Reject early if the referenced project does not exist
+    if project_id is not None:
+        project = db.get(Project, project_id)
+        if not project:
+            return _resp(404, False, "Project not found")
 
     # Enforce max upload size before saving to disk
     file_size = 0
@@ -98,20 +105,28 @@ def add_file_service(db: Session, file_wrapper: Any, project_id: uuid_pkg.UUID |
             columns=None,
             row_count=None,
         )
-        db.add(record)
-        db.flush()
+        try:
+            db.add(record)
+            db.flush()
 
-        db.add(
-            ImageProperties(
-                id=file_id,
-                image_size=224,
-                batch_size=32,
-                color_mode="rgb",
-                label_mode="int",
+            db.add(
+                ImageProperties(
+                    id=file_id,
+                    image_size=224,
+                    batch_size=32,
+                    color_mode="rgb",
+                    label_mode="int",
+                )
             )
-        )
-        db.commit()
-        return _resp(201, True, "File saved successfully")
+            db.commit()
+            return _resp(201, True, "File saved successfully")
+        except SQLAlchemyError:
+            db.rollback()
+            logger.exception("Database error saving ZIP file record")
+            with contextlib.suppress(OSError):
+                os.remove(file_path)
+            shutil.rmtree(extract_path, ignore_errors=True)
+            return _resp(500, False, "Database error occurred while saving the file")
 
     # Cache column names and row count at upload time (CSV only)
     columns_list: list[str] | None = None
@@ -135,15 +150,27 @@ def add_file_service(db: Session, file_wrapper: Any, project_id: uuid_pkg.UUID |
         columns=columns_list,
         row_count=row_count,
     )
-    db.add(record)
-    db.commit()
-    return _resp(201, True, "File saved successfully")
+    try:
+        db.add(record)
+        db.commit()
+        return _resp(201, True, "File saved successfully")
+    except SQLAlchemyError:
+        db.rollback()
+        logger.exception("Database error saving CSV file record")
+        with contextlib.suppress(OSError):
+            os.remove(file_path)
+        return _resp(500, False, "Database error occurred while saving the file")
 
 
 def get_all_files_service(
     db: Session, project_id: uuid_pkg.UUID | None = None, offset: int = 0, limit: int = 50
 ) -> tuple:
     """Return a paginated list of uploaded files with their CSV column names."""
+    if project_id is not None:
+        project = db.get(Project, project_id)
+        if not project:
+            return _resp(404, False, "Project not found")
+
     settings = get_settings()
     upload_folder = settings.upload_folder
 

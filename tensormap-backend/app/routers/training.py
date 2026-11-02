@@ -161,7 +161,7 @@ def get_job_metrics(job: TrainingJob = Depends(get_job_or_404), db: Session = De
 
 
 @router.delete("/training-job/{job_id}", status_code=204)
-def cancel_training_job(job: TrainingJob = Depends(get_job_or_404), db: Session = Depends(get_db)) -> Response:
+async def cancel_training_job(job: TrainingJob = Depends(get_job_or_404), db: Session = Depends(get_db)) -> Response:
     """Request cancellation of a job.
 
     Only sets status=CANCELLED; the running training loop stops itself at the
@@ -171,6 +171,19 @@ def cancel_training_job(job: TrainingJob = Depends(get_job_or_404), db: Session 
     if job.status in (TrainingStatus.PENDING, TrainingStatus.RUNNING):
         update_job_status(job.id, TrainingStatus.CANCELLED, db)
         logger.info("Cancellation requested for job %s", job.id)
+        from app.shared.constants import SOCKETIO_DL_NAMESPACE, SOCKETIO_LISTENER
+        from app.shared.training_events import training_event
+        from app.socketio_instance import sio
+
+        try:
+            await sio.emit(
+                SOCKETIO_LISTENER,
+                training_event(job.id, "status", status="cancelled"),
+                room=job.id,
+                namespace=SOCKETIO_DL_NAMESPACE,
+            )
+        except Exception:
+            logger.warning("Failed to emit cancellation event to room for job %s", job.id)
     return Response(status_code=204)
 
 

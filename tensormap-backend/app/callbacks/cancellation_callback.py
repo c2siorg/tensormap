@@ -47,6 +47,11 @@ class CancellationCheckCallback(tf.keras.callbacks.Callback):
                 return True
         return False
 
+    def on_train_begin(self, logs: dict = None) -> None:
+        """Halt immediately if job was already cancelled before training started."""
+        if self.check_cancelled():
+            logger.info("Cancellation detected for job %s before training started", self.job_id)
+
     def on_train_batch_begin(self, batch: int, logs: dict = None) -> None:
         """Check for cancellation during epoch execution every check_interval_batches."""
         self._batch_counter += 1

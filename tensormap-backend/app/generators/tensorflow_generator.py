@@ -182,6 +182,14 @@ class TensorFlowGenerator:
                 "Model has no output layer. Connect at least one layer downstream of an input node before training."
             )
 
+        # Check for layers that are not connected to any input layer (orphans or disconnected components)
+        unreachable = sorted(nid for nid in nodes_by_id if nid not in visited)
+        if unreachable:
+            raise TensorFlowGeneratorError(
+                f"Model contains layers that are not connected to any input layer: {', '.join(unreachable)}. "
+                "Connect them to the graph or remove them from the canvas."
+            )
+
         outputs = [keras_tensors[oid] for oid in output_node_ids if oid in keras_tensors]
 
         if not outputs:

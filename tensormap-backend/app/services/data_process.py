@@ -1,5 +1,4 @@
 import contextlib
-import csv
 import json
 import os
 import shutil
@@ -297,15 +296,25 @@ def get_file_data(db: Session, file_id: uuid_pkg.UUID, page: int = 1, page_size:
 
     file_path = _get_file_path(file)
 
+    total_rows = 0
+    df_page = None
     try:
-        # Count CSV records, not lines: a quoted value can span several lines, and pandas skips blank lines.
-        with open(file_path, newline="", encoding="utf-8", errors="replace") as f:
-            total_rows = sum(1 for row in csv.reader(f) if row) - 1
-        total_rows = max(total_rows, 0)
+        # pandas chunks are record-aware, including quoted fields with embedded newlines.
+        for chunk_number, chunk in enumerate(pd.read_csv(file_path, chunksize=page_size)):
+            total_rows += len(chunk)
+            if chunk_number == page - 1:
+                df_page = chunk
     except FileNotFoundError:
         return _resp(500, False, f"File not found: {file_path}")
+    except pd.errors.EmptyDataError:
+        # An empty file has no header or data rows; preserve the empty-preview response.
+        return _paginated_resp([], {"page": page, "page_size": page_size, "total_rows": 0, "total_pages": 0})
+    except pd.errors.ParserError as e:
+        logger.exception("CSV parsing error: %s", str(e))
+        return _resp(500, False, f"Error reading CSV: {e}")
     except Exception as e:
-        return _resp(500, False, f"Error reading file count: {e}")
+        logger.exception("Error reading file: %s", str(e))
+        return _resp(500, False, f"Error reading CSV: {e}")
 
     total_pages = (total_rows + page_size - 1) // page_size if page_size > 0 else 0
 
@@ -315,19 +324,8 @@ def get_file_data(db: Session, file_id: uuid_pkg.UUID, page: int = 1, page_size:
     if total_rows == 0:
         return _paginated_resp([], {"page": page, "page_size": page_size, "total_rows": 0, "total_pages": 0})
 
-    start_idx = (page - 1) * page_size
-    skip = list(range(1, start_idx + 1)) if start_idx > 0 else None
-
-    try:
-        df_page = pd.read_csv(file_path, skiprows=skip, nrows=page_size)
-    except FileNotFoundError:
-        return _resp(500, False, f"File not found: {file_path}")
-    except pd.errors.ParserError as e:
-        logger.exception("CSV parsing error: %s", str(e))
-        return _resp(500, False, f"Error reading CSV: {e}")
-    except Exception as e:
-        logger.exception("Error reading file: %s", str(e))
-        return _resp(500, False, f"Error reading CSV: {e}")
+    if df_page is None:
+        return _resp(500, False, f"Error reading CSV: Page {page} could not be loaded")
 
     # For empty or any dataframe slice, to_dict will convert to list of plain dict elements avoiding json strings
     json_str = df_page.to_json(orient="records")

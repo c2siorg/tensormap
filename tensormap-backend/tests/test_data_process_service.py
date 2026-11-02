@@ -410,6 +410,188 @@ class TestGetDataMetrics:
 
 
 class TestGetFileData:
+    @patch("app.services.data_process.get_settings")
+    def test_page_two_after_multiline_record(self, mock_settings, mock_db, file_id, tmp_path):
+        content = 'a,b\n1,"line one\nline two"\n2,x\n3,y\n4,z\n'
+        (tmp_path / "rows.csv").write_text(content)
+        rows_file = MagicMock(spec=DataFile)
+        rows_file.file_name = "rows"
+        rows_file.file_type = "csv"
+        rows_file.disk_name = "rows.csv"
+
+        mock_settings.return_value.upload_folder = str(tmp_path)
+        mock_db.exec.return_value.first.return_value = rows_file
+
+        body, status = get_file_data(mock_db, file_id, page=2, page_size=2)
+
+        assert status == 200
+        assert body["pagination"]["total_rows"] == 4
+        assert body["pagination"]["total_pages"] == 2
+        assert len(body["data"]) == 2
+        assert [row["a"] for row in body["data"]] == [3, 4]
+        assert [row["b"] for row in body["data"]] == ["y", "z"]
+
+    @patch("app.services.data_process.get_settings")
+    def test_multiline_record_on_page_two(self, mock_settings, mock_db, file_id, tmp_path):
+        (tmp_path / "rows.csv").write_text('a,b\n1,x\n2,y\n3,"hello\nworld"\n4,z\n')
+        rows_file = MagicMock(spec=DataFile)
+        rows_file.file_name = "rows"
+        rows_file.file_type = "csv"
+        rows_file.disk_name = "rows.csv"
+        mock_settings.return_value.upload_folder = str(tmp_path)
+        mock_db.exec.return_value.first.return_value = rows_file
+
+        body, status = get_file_data(mock_db, file_id, page=2, page_size=2)
+
+        assert status == 200
+        assert [row["a"] for row in body["data"]] == [3, 4]
+        assert [row["b"] for row in body["data"]] == ["hello\nworld", "z"]
+        assert body["pagination"]["total_rows"] == 4
+        assert body["pagination"]["total_pages"] == 2
+
+    @pytest.mark.parametrize(
+        ("content", "page", "page_size", "expected_a", "expected_b", "total_rows", "total_pages"),
+        [
+            (
+                'a,b\n1,"line one\nline two"\n2,x\n3,y\n4,z\n',
+                1,
+                2,
+                [1, 2],
+                ["line one\nline two", "x"],
+                4,
+                2,
+            ),
+            (
+                'a,b\n1,x\n2,"first\nsecond\nthird"\n3,y\n4,z\n',
+                2,
+                2,
+                [3, 4],
+                ["y", "z"],
+                4,
+                2,
+            ),
+            ("a,b\n1,x\n2,y\n3,z\n", 1, 2, [1, 2], ["x", "y"], 3, 2),
+            ("a,b\n1,x\n2,y\n3,z\n", 2, 2, [3], ["z"], 3, 2),
+            ("a,b\n1,x\n2,y\n\n3,z\n", 2, 2, [3], ["z"], 3, 2),
+        ],
+        ids=["page1-multiline", "multiline-before-boundary", "ordinary", "partial-last-page", "blank-line"],
+    )
+    @patch("app.services.data_process.get_settings")
+    def test_pages_return_logical_records_and_metadata(
+        self,
+        mock_settings,
+        mock_db,
+        file_id,
+        tmp_path,
+        content,
+        page,
+        page_size,
+        expected_a,
+        expected_b,
+        total_rows,
+        total_pages,
+    ):
+        (tmp_path / "rows.csv").write_text(content)
+        rows_file = MagicMock(spec=DataFile)
+        rows_file.file_name = "rows"
+        rows_file.file_type = "csv"
+        rows_file.disk_name = "rows.csv"
+        mock_settings.return_value.upload_folder = str(tmp_path)
+        mock_db.exec.return_value.first.return_value = rows_file
+
+        body, status = get_file_data(mock_db, file_id, page=page, page_size=page_size)
+
+        assert status == 200
+        assert body["pagination"] == {
+            "page": page,
+            "page_size": page_size,
+            "total_rows": total_rows,
+            "total_pages": total_pages,
+        }
+        assert [row["a"] for row in body["data"]] == expected_a
+        assert [row["b"] for row in body["data"]] == expected_b
+
+    @patch("app.services.data_process.get_settings")
+    def test_header_only_csv_returns_empty_page(self, mock_settings, mock_db, file_id, tmp_path):
+        (tmp_path / "header.csv").write_text("a,b\n")
+        header_file = MagicMock(spec=DataFile)
+        header_file.file_name = "header"
+        header_file.file_type = "csv"
+        header_file.disk_name = "header.csv"
+        mock_settings.return_value.upload_folder = str(tmp_path)
+        mock_db.exec.return_value.first.return_value = header_file
+
+        body, status = get_file_data(mock_db, file_id, page=1, page_size=2)
+
+        assert status == 200
+        assert body["data"] == []
+        assert body["pagination"]["total_rows"] == 0
+        assert body["pagination"]["total_pages"] == 0
+
+    @patch("app.services.data_process.get_settings")
+    def test_header_only_csv_out_of_range_page_keeps_empty_response(self, mock_settings, mock_db, file_id, tmp_path):
+        (tmp_path / "header.csv").write_text("a,b\n")
+        header_file = MagicMock(spec=DataFile)
+        header_file.file_name = "header"
+        header_file.file_type = "csv"
+        header_file.disk_name = "header.csv"
+        mock_settings.return_value.upload_folder = str(tmp_path)
+        mock_db.exec.return_value.first.return_value = header_file
+
+        body, status = get_file_data(mock_db, file_id, page=3, page_size=2)
+
+        assert status == 200
+        assert body["data"] == []
+        assert body["pagination"] == {"page": 3, "page_size": 2, "total_rows": 0, "total_pages": 0}
+
+    @patch("app.services.data_process.get_settings")
+    def test_zero_byte_csv_returns_empty_page(self, mock_settings, mock_db, file_id, tmp_path):
+        (tmp_path / "empty.csv").write_text("")
+        empty_file = MagicMock(spec=DataFile)
+        empty_file.file_name = "empty"
+        empty_file.file_type = "csv"
+        empty_file.disk_name = "empty.csv"
+        mock_settings.return_value.upload_folder = str(tmp_path)
+        mock_db.exec.return_value.first.return_value = empty_file
+
+        body, status = get_file_data(mock_db, file_id, page=1, page_size=2)
+
+        assert status == 200
+        assert body["data"] == []
+        assert body["pagination"]["total_rows"] == 0
+        assert body["pagination"]["total_pages"] == 0
+
+    @patch("app.services.data_process.get_settings")
+    def test_malformed_csv_returns_parser_error_response(self, mock_settings, mock_db, file_id, tmp_path):
+        (tmp_path / "malformed.csv").write_text("a,b\n1,x\n2,y,z\n")
+        malformed_file = MagicMock(spec=DataFile)
+        malformed_file.file_name = "malformed"
+        malformed_file.file_type = "csv"
+        malformed_file.disk_name = "malformed.csv"
+        mock_settings.return_value.upload_folder = str(tmp_path)
+        mock_db.exec.return_value.first.return_value = malformed_file
+
+        body, status = get_file_data(mock_db, file_id, page=1, page_size=2)
+
+        assert status == 500
+        assert body["success"] is False
+        assert body["message"].startswith("Error reading CSV:")
+
+    @patch("app.services.data_process.get_settings")
+    def test_duplicate_headers_keep_pandas_names_and_missing_values(self, mock_settings, mock_db, file_id, tmp_path):
+        (tmp_path / "duplicates.csv").write_text("a,a\n1,\n2,3\n")
+        duplicate_file = MagicMock(spec=DataFile)
+        duplicate_file.file_name = "duplicates"
+        duplicate_file.file_type = "csv"
+        duplicate_file.disk_name = "duplicates.csv"
+        mock_settings.return_value.upload_folder = str(tmp_path)
+        mock_db.exec.return_value.first.return_value = duplicate_file
+
+        body, status = get_file_data(mock_db, file_id, page=1, page_size=2)
+
+        assert status == 200
+        assert body["data"] == [{"a": 1, "a.1": None}, {"a": 2, "a.1": 3}]
+
     def test_rejects_non_csv_file(self, mock_db, file_id):
         zip_file = MagicMock(spec=DataFile)
         zip_file.id = file_id
@@ -459,6 +641,22 @@ class TestGetFileData:
         assert status == 400
         assert body["success"] is False
         assert "exceeds total pages" in body["message"]
+
+    @patch("app.services.data_process.get_settings")
+    def test_page_beyond_last_available_page(self, mock_settings, mock_db, file_id, tmp_path):
+        pd.DataFrame({"a": [1, 2, 3], "b": ["x", "y", "z"]}).to_csv(tmp_path / "rows.csv", index=False)
+        rows_file = MagicMock(spec=DataFile)
+        rows_file.file_name = "rows"
+        rows_file.file_type = "csv"
+        rows_file.disk_name = "rows.csv"
+        mock_settings.return_value.upload_folder = str(tmp_path)
+        mock_db.exec.return_value.first.return_value = rows_file
+
+        body, status = get_file_data(mock_db, file_id, page=3, page_size=2)
+
+        assert status == 400
+        assert body["success"] is False
+        assert body["message"] == "Page 3 exceeds total pages (2)"
 
     @patch("app.services.data_process.get_settings")
     def test_get_file_data_empty_file(self, mock_settings, mock_db, file_id, tmp_path):

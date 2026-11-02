@@ -128,6 +128,49 @@ def test_upload_valid_csv(client: TestClient):
     assert body["success"] is True
 
 
+def test_upload_csv_with_non_existent_project_id_returns_404(client: TestClient):
+    random_project_id = str(uuid.uuid4())
+    resp = client.post(
+        "/api/v1/data/upload/file",
+        data={"project_id": random_project_id},
+        files={"data": ("test_missing_proj.csv", io.BytesIO(CSV_BYTES), "text/csv")},
+    )
+    assert resp.status_code == 404
+    body = resp.json()
+    assert body["success"] is False
+    assert body["message"] == "Project not found"
+
+
+def test_upload_csv_with_valid_project_id_associates_project(client: TestClient):
+    created = _create_project(client, name="UploadProj")
+    project_id = created["data"]["id"]
+
+    resp = client.post(
+        "/api/v1/data/upload/file",
+        data={"project_id": project_id},
+        files={"data": ("test_valid_proj.csv", io.BytesIO(CSV_BYTES), "text/csv")},
+    )
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["success"] is True
+
+    # List files scoped to project
+    list_resp = client.get(f"/api/v1/data/upload/file?project_id={project_id}")
+    assert list_resp.status_code == 200
+    list_body = list_resp.json()
+    assert list_body["success"] is True
+    assert list_body["pagination"]["total"] >= 1
+
+
+def test_list_files_with_non_existent_project_id_returns_404(client: TestClient):
+    random_project_id = str(uuid.uuid4())
+    resp = client.get(f"/api/v1/data/upload/file?project_id={random_project_id}")
+    assert resp.status_code == 404
+    body = resp.json()
+    assert body["success"] is False
+    assert body["message"] == "Project not found"
+
+
 def test_upload_non_csv_extension(client: TestClient):
     resp = client.post(
         "/api/v1/data/upload/file",

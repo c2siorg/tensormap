@@ -154,7 +154,22 @@ def _train_in_thread(model_name: str, job_id: str, loop: asyncio.AbstractEventLo
     FAILED if training raises before/around the callbacks.
     """
     # Imported lazily to avoid importing TensorFlow at app startup.
+    from app.callbacks.metrics_callback import schedule_room_emit
     from app.services.model_run import model_run
+    from app.shared.training_events import training_event
+    from app.socketio_instance import sio
+
+    with make_session() as session:
+        job = session.get(TrainingJob, job_id)
+        if job is not None and job.status == TrainingStatus.CANCELLED:
+            logger.info("Training job %s was cancelled before worker execution; skipping model_run", job_id)
+            schedule_room_emit(
+                sio,
+                loop,
+                job_id,
+                training_event(job_id, "status", status="cancelled"),
+            )
+            return
 
     with make_session() as session:
         try:

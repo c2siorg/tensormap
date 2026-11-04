@@ -13,7 +13,7 @@ from werkzeug.utils import secure_filename
 
 from app.config import get_settings
 from app.models import DataFile, ImageProperties, ModelBasic
-from app.shared.csv_columns import read_csv_columns
+from app.shared.csv_columns import find_duplicate_columns, read_csv_columns
 from app.shared.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -117,6 +117,18 @@ def add_file_service(db: Session, file_wrapper: Any, project_id: uuid_pkg.UUID |
     columns_list: list[str] | None = None
     row_count: int | None = None
     if file_type_db == "csv":
+        duplicate_columns = find_duplicate_columns(file_path)
+        if duplicate_columns:
+            logger.warning("Duplicate columns detected in %s: %s", file_path, duplicate_columns)
+            if os.path.exists(file_path):
+                os.remove(file_path)
+            dup_str = ", ".join(repr(c) for c in duplicate_columns)
+            return _resp(
+                400,
+                False,
+                f"Duplicate column names detected: {dup_str}. Please ensure all column names are unique.",
+            )
+
         columns_list = read_csv_columns(file_path)
         if columns_list is None:
             logger.warning("Could not extract columns from %s", file_path)

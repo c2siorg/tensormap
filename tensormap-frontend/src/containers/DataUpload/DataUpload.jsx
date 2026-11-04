@@ -66,7 +66,7 @@ function DataUpload() {
     } catch (error) {
       logger.error("Upload error:", error);
       setFeedbackSuccess(false);
-      setFeedbackMessage(error.message || "Failed to upload file");
+      setFeedbackMessage(error.response?.data?.message || error.message || "Failed to upload file");
     } finally {
       setUploading(false);
       setFeedbackOpen(true);
@@ -86,7 +86,9 @@ function DataUpload() {
     } catch (error) {
       logger.error("Replace error:", error);
       setFeedbackSuccess(false);
-      setFeedbackMessage(error.message || "Failed to replace dataset");
+      setFeedbackMessage(
+        error.response?.data?.message || error.message || "Failed to replace dataset",
+      );
       fetchDataset();
     } finally {
       setUploading(false);

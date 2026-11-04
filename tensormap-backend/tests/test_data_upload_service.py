@@ -12,6 +12,7 @@ from app.services.data_upload import (
     delete_one_file_by_id_service,
     get_all_files_service,
 )
+from app.shared.csv_columns import find_duplicate_columns
 
 
 @pytest.fixture()
@@ -432,3 +433,132 @@ class TestGetAllFilesService:
         assert status == 200
         assert body["data"] == []
         assert body["pagination"]["total"] == 0
+
+
+class TestFindDuplicateColumns:
+    def test_detects_duplicate_column_names(self, tmp_path):
+        csv_file = tmp_path / "dup.csv"
+        csv_file.write_text("age,score,score\n20,85,90\n21,78,82\n", encoding="utf-8")
+        assert find_duplicate_columns(str(csv_file)) == ["score"]
+
+    def test_whitespace_duplicates_detected(self, tmp_path):
+        csv_file = tmp_path / "whitespace.csv"
+        csv_file.write_text(" age , score , score \n20,85,90\n", encoding="utf-8")
+        assert find_duplicate_columns(str(csv_file)) == ["score"]
+
+    def test_multiple_duplicate_columns(self, tmp_path):
+        csv_file = tmp_path / "multi.csv"
+        csv_file.write_text("a,b,a,c,b,a\n1,2,3,4,5,6\n", encoding="utf-8")
+        assert find_duplicate_columns(str(csv_file)) == ["a", "b"]
+
+    def test_unique_columns_returns_empty_list(self, tmp_path):
+        csv_file = tmp_path / "unique.csv"
+        csv_file.write_text("id,name,age\n1,Alice,30\n", encoding="utf-8")
+        assert find_duplicate_columns(str(csv_file)) == []
+
+    def test_empty_file_returns_empty_list(self, tmp_path):
+        csv_file = tmp_path / "empty.csv"
+        csv_file.write_text("", encoding="utf-8")
+        assert find_duplicate_columns(str(csv_file)) == []
+
+    def test_nonexistent_file_returns_empty_list(self, tmp_path):
+        missing = tmp_path / "missing.csv"
+        assert find_duplicate_columns(str(missing)) == []
+
+    def test_empty_column_names_detected_as_duplicate(self, tmp_path):
+        csv_file = tmp_path / "empty_cols.csv"
+        csv_file.write_text("col1,,col2,\n1,2,3,4\n", encoding="utf-8")
+        assert find_duplicate_columns(str(csv_file)) == ["(empty)"]
+
+
+class TestDuplicateColumnUpload:
+    def test_rejects_csv_with_duplicate_columns_and_cleans_up(self, tmp_path):
+        upload_folder = tmp_path / "uploads"
+        upload_folder.mkdir()
+        db = MagicMock()
+        fw = MagicMock()
+        fw.filename = "dup.csv"
+        fw.file.seek = MagicMock()
+        fw.file.tell = MagicMock(return_value=100)
+
+        def do_save(target_path):
+            with open(target_path, "w", encoding="utf-8") as f:
+                f.write("age,score,score\n20,85,90\n")
+
+        fw.save = MagicMock(side_effect=do_save)
+
+        with patch("app.services.data_upload.get_settings") as ms:
+            ms.return_value.max_content_length = 200 * 1024 * 1024
+            ms.return_value.upload_folder = str(upload_folder)
+            body, status = add_file_service(db, fw)
+
+        assert status == 400
+        assert body["success"] is False
+        assert "Duplicate column names detected" in body["message"]
+        assert "'score'" in body["message"]
+        db.add.assert_not_called()
+        assert len(list(upload_folder.glob("*.csv"))) == 0
+
+    def test_rejects_csv_with_whitespace_duplicate_columns(self, tmp_path):
+        upload_folder = tmp_path / "uploads"
+        upload_folder.mkdir()
+        db = MagicMock()
+        fw = MagicMock()
+        fw.filename = "whitespace.csv"
+        fw.file.seek = MagicMock()
+        fw.file.tell = MagicMock(return_value=100)
+
+        def do_save(target_path):
+            with open(target_path, "w", encoding="utf-8") as f:
+                f.write("age, score , score \n20,85,90\n")
+
+        fw.save = MagicMock(side_effect=do_save)
+
+        with patch("app.services.data_upload.get_settings") as ms:
+            ms.return_value.max_content_length = 200 * 1024 * 1024
+            ms.return_value.upload_folder = str(upload_folder)
+            body, status = add_file_service(db, fw)
+
+        assert status == 400
+        assert body["success"] is False
+        assert "Duplicate column names detected" in body["message"]
+        assert "'score'" in body["message"]
+        db.add.assert_not_called()
+        assert len(list(upload_folder.glob("*.csv"))) == 0
+
+    def test_upload_endpoint_rejects_duplicate_columns(self, client, tmp_path):
+        with patch("app.services.data_upload.get_settings") as ms:
+            upload_dir = tmp_path / "uploads"
+            upload_dir.mkdir()
+            ms.return_value.upload_folder = str(upload_dir)
+            ms.return_value.max_content_length = 200 * 1024 * 1024
+
+            csv_content = b"age,score,score\n20,85,90\n"
+            response = client.post(
+                "/api/v1/data/upload/file",
+                files={"data": ("test_dup.csv", csv_content, "text/csv")},
+            )
+
+            assert response.status_code == 400
+            data = response.json()
+            assert data["success"] is False
+            assert "Duplicate column names detected" in data["message"]
+            assert "'score'" in data["message"]
+            assert len(list(upload_dir.glob("*.csv"))) == 0
+
+    def test_upload_endpoint_accepts_valid_csv(self, client, tmp_path):
+        with patch("app.services.data_upload.get_settings") as ms:
+            upload_dir = tmp_path / "uploads"
+            upload_dir.mkdir()
+            ms.return_value.upload_folder = str(upload_dir)
+            ms.return_value.max_content_length = 200 * 1024 * 1024
+
+            csv_content = b"col_a,col_b,col_c\n1,2,3\n4,5,6\n"
+            response = client.post(
+                "/api/v1/data/upload/file",
+                files={"data": ("test_valid.csv", csv_content, "text/csv")},
+            )
+
+            assert response.status_code == 201
+            data = response.json()
+            assert data["success"] is True

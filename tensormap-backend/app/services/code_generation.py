@@ -15,12 +15,13 @@ from app.shared.constants import (
     MODEL_EPOCHS,
     MODEL_GENERATION_TYPE,
     MODEL_JSON_FILE,
+    MODEL_LOSS,
     MODEL_METRIC,
     MODEL_OPTIMIZER,
     MODEL_TRAINING_SPLIT,
     TEMPLATE_ROOT,
 )
-from app.shared.enums import ProblemType
+from app.shared.enums import LossFunction, ProblemType, default_loss_for_problem_type
 from app.shared.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -32,6 +33,48 @@ class CodeGenerationError(Exception):
     pass
 
 
+def _determine_from_logits(model_configs: ModelBasic) -> bool:
+    """Determine whether the model outputs logits or probabilities."""
+    graph_json = model_configs.graph_json
+    if graph_json and isinstance(graph_json, dict):
+        config = graph_json.get("config", {})
+        layers = config.get("layers", [])
+        if layers and isinstance(layers, list):
+            last_layer = layers[-1]
+            if isinstance(last_layer, dict):
+                act = last_layer.get("config", {}).get("activation")
+                if isinstance(act, str) and act.lower() in ("softmax", "sigmoid"):
+                    return False
+    return True
+
+
+def _loss_expression(loss_name: str | None, problem_type_id: int | None, from_logits: bool = True) -> str:
+    """Resolve Python expression string for Keras loss function compilation."""
+    if not loss_name:
+        loss_enum = default_loss_for_problem_type(problem_type_id)
+    else:
+        try:
+            loss_enum = LossFunction(loss_name)
+        except ValueError:
+            valid = ", ".join(sorted(x.value for x in LossFunction))
+            raise ValueError(f"Unknown loss function: {loss_name!r}. Valid: {valid}") from None
+
+    if loss_enum == LossFunction.SPARSE_CATEGORICAL_CROSSENTROPY:
+        return f"tf.keras.losses.SparseCategoricalCrossentropy(from_logits={from_logits})"
+    elif loss_enum == LossFunction.CATEGORICAL_CROSSENTROPY:
+        return f"tf.keras.losses.CategoricalCrossentropy(from_logits={from_logits})"
+    elif loss_enum == LossFunction.BINARY_CROSSENTROPY:
+        return f"tf.keras.losses.BinaryCrossentropy(from_logits={from_logits})"
+    elif loss_enum == LossFunction.MEAN_SQUARED_ERROR:
+        return "tf.keras.losses.MeanSquaredError()"
+    elif loss_enum == LossFunction.MEAN_ABSOLUTE_ERROR:
+        return "tf.keras.losses.MeanAbsoluteError()"
+    elif loss_enum == LossFunction.HUBER:
+        return "tf.keras.losses.Huber()"
+    else:
+        return f"tf.keras.losses.get({loss_name!r})"
+
+
 def generate_code(model_name: str, db: Session) -> str:
     """Generate TensorFlow Python code from a saved model configuration."""
     model_configs = db.exec(select(ModelBasic).where(ModelBasic.model_name == model_name)).first()
@@ -40,6 +83,9 @@ def generate_code(model_name: str, db: Session) -> str:
     file = db.exec(select(DataFile).where(DataFile.id == model_configs.file_id)).first()
     if file is None:
         raise CodeGenerationError(f"Dataset file not found (id={model_configs.file_id})")
+
+    from_logits = _determine_from_logits(model_configs)
+    loss_expr = _loss_expression(model_configs.loss, model_configs.model_type, from_logits=from_logits)
 
     data = {
         DATASET: {
@@ -52,6 +98,7 @@ def generate_code(model_name: str, db: Session) -> str:
             MODEL_OPTIMIZER: model_configs.optimizer,
             MODEL_METRIC: model_configs.metric,
             MODEL_EPOCHS: model_configs.epochs,
+            MODEL_LOSS: loss_expr,
         },
     }
 

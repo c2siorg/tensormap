@@ -52,3 +52,10 @@ def losses_for_problem_type(problem_type: int) -> frozenset[LossFunction]:
     if problem_type in (ProblemType.CLASSIFICATION, ProblemType.IMAGE_CLASSIFICATION):
         return CLASSIFICATION_LOSSES
     return REGRESSION_LOSSES
+
+
+def default_loss_for_problem_type(problem_type: int | None) -> LossFunction:
+    """Default loss function for a problem type."""
+    if problem_type in (ProblemType.CLASSIFICATION, ProblemType.IMAGE_CLASSIFICATION):
+        return LossFunction.SPARSE_CATEGORICAL_CROSSENTROPY
+    return LossFunction.MEAN_SQUARED_ERROR

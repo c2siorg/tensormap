@@ -17,7 +17,9 @@ sys.modules.setdefault("tensorflow", _tf_stub)
 sys.modules.setdefault("flatten_json", MagicMock())
 
 from app.services.code_generation import (  # noqa: E402
+    _determine_from_logits,
     _file_location,
+    _loss_expression,
     _map_template,
     generate_code,
 )
@@ -30,9 +32,11 @@ from app.shared.constants import (  # noqa: E402
     FILE_TARGET,
     IMG_SIZE,
     LABEL_MODE,
+    LEARNING_MODEL,
+    MODEL_LOSS,
     MODEL_TRAINING_SPLIT,
 )
-from app.shared.enums import ProblemType  # noqa: E402
+from app.shared.enums import LossFunction, ProblemType, default_loss_for_problem_type  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -47,7 +51,7 @@ def mock_db():
     return db
 
 
-def _make_model(model_type, file_id=1, target_field="label", training_split=0.8):
+def _make_model(model_type, file_id=1, target_field="label", training_split=0.8, loss=None, graph_json=None):
     model = MagicMock()
     model.file_id = file_id
     model.model_type = model_type
@@ -56,6 +60,8 @@ def _make_model(model_type, file_id=1, target_field="label", training_split=0.8)
     model.optimizer = "adam"
     model.metric = "accuracy"
     model.epochs = 10
+    model.loss = loss
+    model.graph_json = graph_json
     return model
 
 
@@ -235,3 +241,141 @@ class TestGenerateCodeHappyPaths:
         assert BATCH_SIZE not in rendered_data[DATASET]
         assert COLOR_MODE not in rendered_data[DATASET]
         assert LABEL_MODE not in rendered_data[DATASET]
+
+
+# ---------------------------------------------------------------------------
+# Loss resolution and rendering
+# ---------------------------------------------------------------------------
+
+
+class TestLossExpression:
+    def test_default_loss_classification(self):
+        expr = _loss_expression(None, ProblemType.CLASSIFICATION)
+        assert expr == "tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)"
+
+    def test_default_loss_image_classification(self):
+        expr = _loss_expression(None, ProblemType.IMAGE_CLASSIFICATION)
+        assert expr == "tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)"
+
+    def test_default_loss_regression(self):
+        expr = _loss_expression(None, ProblemType.REGRESSION)
+        assert expr == "tf.keras.losses.MeanSquaredError()"
+
+    def test_categorical_crossentropy_from_logits_true(self):
+        expr = _loss_expression(LossFunction.CATEGORICAL_CROSSENTROPY, ProblemType.CLASSIFICATION, from_logits=True)
+        assert expr == "tf.keras.losses.CategoricalCrossentropy(from_logits=True)"
+
+    def test_categorical_crossentropy_from_logits_false(self):
+        expr = _loss_expression(LossFunction.CATEGORICAL_CROSSENTROPY, ProblemType.CLASSIFICATION, from_logits=False)
+        assert expr == "tf.keras.losses.CategoricalCrossentropy(from_logits=False)"
+
+    def test_binary_crossentropy(self):
+        expr = _loss_expression(LossFunction.BINARY_CROSSENTROPY, ProblemType.CLASSIFICATION)
+        assert expr == "tf.keras.losses.BinaryCrossentropy(from_logits=True)"
+
+    def test_mean_absolute_error(self):
+        expr = _loss_expression(LossFunction.MEAN_ABSOLUTE_ERROR, ProblemType.REGRESSION)
+        assert expr == "tf.keras.losses.MeanAbsoluteError()"
+
+    def test_huber(self):
+        expr = _loss_expression(LossFunction.HUBER, ProblemType.REGRESSION)
+        assert expr == "tf.keras.losses.Huber()"
+
+    def test_invalid_loss_raises_value_error(self):
+        with pytest.raises(ValueError, match="Unknown loss function: 'invalid_loss'"):
+            _loss_expression("invalid_loss", ProblemType.CLASSIFICATION)
+
+    def test_determine_from_logits_softmax(self):
+        model = MagicMock()
+        model.graph_json = {
+            "config": {
+                "layers": [
+                    {"config": {"name": "dense_1", "activation": "relu"}},
+                    {"config": {"name": "dense_2", "activation": "softmax"}},
+                ]
+            }
+        }
+        assert _determine_from_logits(model) is False
+
+    def test_determine_from_logits_linear(self):
+        model = MagicMock()
+        model.graph_json = {
+            "config": {
+                "layers": [
+                    {"config": {"name": "dense_1", "activation": "relu"}},
+                    {"config": {"name": "dense_2", "activation": "linear"}},
+                ]
+            }
+        }
+        assert _determine_from_logits(model) is True
+
+    def test_default_loss_for_problem_type_helper(self):
+        assert default_loss_for_problem_type(ProblemType.CLASSIFICATION) == LossFunction.SPARSE_CATEGORICAL_CROSSENTROPY
+        assert (
+            default_loss_for_problem_type(ProblemType.IMAGE_CLASSIFICATION)
+            == LossFunction.SPARSE_CATEGORICAL_CROSSENTROPY
+        )
+        assert default_loss_for_problem_type(ProblemType.REGRESSION) == LossFunction.MEAN_SQUARED_ERROR
+
+
+class TestGenerateCodeLossRendering:
+    @patch("app.services.code_generation.Environment")
+    @patch("app.services.code_generation.FileSystemLoader")
+    def test_classification_passes_loss_to_template(self, mock_loader, mock_env, mock_db):
+        model = _make_model(ProblemType.CLASSIFICATION, loss=LossFunction.CATEGORICAL_CROSSENTROPY)
+        file = _make_file(file_type="csv", file_name="iris.csv")
+        mock_db.exec.return_value.first.side_effect = [model, file]
+
+        mock_template = MagicMock()
+        mock_template.render.return_value = "CODE"
+        mock_env.return_value.get_template.return_value = mock_template
+
+        generate_code("cat_model", mock_db)
+
+        rendered_data = mock_template.render.call_args.kwargs["data"]
+        assert rendered_data[LEARNING_MODEL][MODEL_LOSS] == "tf.keras.losses.CategoricalCrossentropy(from_logits=True)"
+
+    @patch("app.services.code_generation.Environment")
+    @patch("app.services.code_generation.FileSystemLoader")
+    def test_regression_passes_huber_loss_to_template(self, mock_loader, mock_env, mock_db):
+        model = _make_model(ProblemType.REGRESSION, loss=LossFunction.HUBER)
+        file = _make_file(file_type="csv", file_name="prices.csv")
+        mock_db.exec.return_value.first.side_effect = [model, file]
+
+        mock_template = MagicMock()
+        mock_template.render.return_value = "CODE"
+        mock_env.return_value.get_template.return_value = mock_template
+
+        generate_code("huber_model", mock_db)
+
+        rendered_data = mock_template.render.call_args.kwargs["data"]
+        assert rendered_data[LEARNING_MODEL][MODEL_LOSS] == "tf.keras.losses.Huber()"
+
+    def test_actual_regression_template_renders_huber_loss(self, mock_db):
+        model = _make_model(ProblemType.REGRESSION, loss=LossFunction.HUBER)
+        file = _make_file(file_type="csv", file_name="prices.csv")
+        mock_db.exec.return_value.first.side_effect = [model, file]
+
+        rendered_code = generate_code("real_huber_model", mock_db)
+        assert "loss=tf.keras.losses.Huber()," in rendered_code
+        # Ensure it compiles without SyntaxError
+        compile(rendered_code, "<string>", "exec")
+
+    def test_actual_classification_template_renders_categorical_crossentropy(self, mock_db):
+        model = _make_model(ProblemType.CLASSIFICATION, loss=LossFunction.CATEGORICAL_CROSSENTROPY)
+        file = _make_file(file_type="csv", file_name="iris.csv")
+        mock_db.exec.return_value.first.side_effect = [model, file]
+
+        rendered_code = generate_code("real_cat_model", mock_db)
+        assert "loss=tf.keras.losses.CategoricalCrossentropy(from_logits=True)," in rendered_code
+        compile(rendered_code, "<string>", "exec")
+
+    def test_actual_image_template_renders_binary_crossentropy(self, mock_db):
+        model = _make_model(ProblemType.IMAGE_CLASSIFICATION, loss=LossFunction.BINARY_CROSSENTROPY)
+        file = _make_file(file_type="zip", file_name="cats_dogs.zip")
+        image_props = MagicMock(image_size=128, batch_size=32, color_mode="rgb", label_mode="binary")
+        mock_db.exec.return_value.first.side_effect = [model, file, image_props]
+
+        rendered_code = generate_code("real_image_model", mock_db)
+        assert "loss=tf.keras.losses.BinaryCrossentropy(from_logits=True)," in rendered_code
+        compile(rendered_code, "<string>", "exec")

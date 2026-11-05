@@ -41,6 +41,7 @@ interface UseTrainingMetricsReturn {
   error: string | null;
   isCompleted: boolean;
   isCancelled: boolean;
+  bestCheckpoint?: { epoch: number; metric: string; value: number } | null;
 }
 
 export function mergeEpochMetric(
@@ -131,6 +132,7 @@ export function useTrainingMetrics(
   const [cancelRequested, setCancelRequested] = useState(false);
   const [startedAt, setStartedAt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [bestCheckpoint, setBestCheckpoint] = useState<{ epoch: number; metric: string; value: number } | null>(null);
   const [isSocketConnected, setIsSocketConnected] = useState(true);
 
   const cleanupRef = useRef<(() => void) | null>(null);
@@ -177,6 +179,8 @@ export function useTrainingMetrics(
       if (data.error) {
         setError(data.error);
       }
+    } else if ("type" in data && data.type === "checkpoint") {
+      setBestCheckpoint({ epoch: data.epoch, metric: data.metric, value: data.value });
     }
   }, []);
 
@@ -268,5 +272,6 @@ export function useTrainingMetrics(
     error,
     isCompleted: status === "completed",
     isCancelled: status === "cancelled",
+    bestCheckpoint,
   };
 }

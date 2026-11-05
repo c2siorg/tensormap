@@ -367,4 +367,29 @@ describe("TrainingMetricsChart Integration", () => {
     const responsiveContainer = container.querySelector(".recharts-responsive-container");
     expect(responsiveContainer).toBeTruthy();
   });
+
+  it("displays best checkpoint when provided by hook", () => {
+    vi.mocked(useTrainingMetrics).mockReturnValue({
+      metrics: [
+        { epoch: 1, loss: 0.8, val_loss: 0.7 },
+        { epoch: 2, loss: 0.5, val_loss: 0.3 },
+        { epoch: 3, loss: 0.45, val_loss: 0.6 },
+      ],
+      status: "running",
+      currentEpoch: 3,
+      totalEpochs: 10,
+      cancel: vi.fn(),
+      cancelRequested: false,
+      startedAt: null,
+      error: null,
+      isCompleted: false,
+      isCancelled: false,
+      bestCheckpoint: { epoch: 2, metric: "val_loss", value: 0.3 },
+    });
+
+    render(<TrainingMetricsChart jobId="job-checkpoint" totalEpochs={10} />);
+    expect(screen.getByText("Best Epoch")).toBeInTheDocument();
+    expect(screen.getByText("2")).toBeInTheDocument();
+    expect(screen.getByText("0.3000")).toBeInTheDocument();
+  });
 });

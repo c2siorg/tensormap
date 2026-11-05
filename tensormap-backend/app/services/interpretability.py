@@ -11,6 +11,7 @@ Results are cached in training_job.analysis_cache JSON column.
 
 import asyncio
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -262,8 +263,18 @@ class InterpretabilityService:
         else:
             class_names = [str(c) for c in sorted(y.unique())]
 
+        # Guard non-numeric feature columns against string-to-float conversion failures
+        for col in X.columns:
+            if not pd.api.types.is_numeric_dtype(X[col]):
+                X[col] = pd.Categorical(X[col]).codes
+
         training_split = model.training_split if model.training_split else 80
         split_index = int(len(X) * float(training_split) / 100)
+
+        if split_index >= len(X):
+            raise ValueError(
+                f"Training split of {training_split}% leaves no test samples in dataset with {len(X)} usable rows."
+            )
 
         X_test = X[split_index:].values.astype(np.float32)
         y_test = y[split_index:].values if hasattr(y, "values") else y[split_index:]
@@ -321,10 +332,20 @@ class InterpretabilityService:
         if not pd.api.types.is_numeric_dtype(y):
             y = pd.Categorical(y).codes
 
+        # Guard non-numeric feature columns against string-to-float conversion failures
+        for col in X.columns:
+            if not pd.api.types.is_numeric_dtype(X[col]):
+                X[col] = pd.Categorical(X[col]).codes
+
         feature_names = list(X.columns)
 
         training_split = model.training_split if model.training_split else 80
         split_index = int(len(X) * float(training_split) / 100)
+
+        if split_index >= len(X):
+            raise ValueError(
+                f"Training split of {training_split}% leaves no test samples in dataset with {len(X)} usable rows."
+            )
 
         X_test = X[split_index:].values.astype(np.float32)
         y_test = y[split_index:].values if hasattr(y, "values") else y[split_index:]
@@ -388,15 +409,93 @@ class InterpretabilityService:
         else:
             class_names = [str(c) for c in sorted(y.unique())]
 
+        # Guard non-numeric feature columns against string-to-float conversion failures
+        for col in X.columns:
+            if not pd.api.types.is_numeric_dtype(X[col]):
+                X[col] = pd.Categorical(X[col]).codes
+
         feature_names = list(X.columns)
 
         training_split = model.training_split if model.training_split else 80
         split_index = int(len(X) * float(training_split) / 100)
 
+        if split_index >= len(X):
+            raise ValueError(
+                f"Training split of {training_split}% leaves no test samples in dataset with {len(X)} usable rows."
+            )
+
         X_test = X[split_index:].values.astype(np.float32)
         y_test = y[split_index:].values if hasattr(y, "values") else y[split_index:]
 
         return X_test, y_test, class_names, feature_names
+
+    def _load_test_data_with_raw_features(
+        self, job_id: str, session: Session
+    ) -> tuple[np.ndarray, np.ndarray, list[str], pd.DataFrame]:
+        """Loads test split returning (X_test, y_test, class_names, raw_test_df).
+
+        Preserves unencoded raw feature DataFrame for subgroup analysis (e.g. fairness audits).
+        """
+        from app.config import get_settings
+        from app.models.data import DataFile
+        from app.models.ml import ModelBasic
+        from app.models.training_job import TrainingJob
+
+        job = session.get(TrainingJob, job_id)
+        if not job:
+            raise ValueError(f"Training job not found: {job_id}")
+
+        model = session.get(ModelBasic, job.model_id)
+        if not model:
+            raise ValueError(f"Model not found for job: {job_id}")
+
+        if not model.file_id:
+            raise ValueError(f"No dataset linked to model {model.model_name}")
+
+        data_file = session.get(DataFile, model.file_id)
+        if not data_file:
+            raise ValueError(f"Data file not found for model {model.model_name}")
+
+        upload_folder = get_settings().upload_folder
+        file_path = f"{upload_folder}/{data_file.disk_name}"
+
+        features = pd.read_csv(file_path)
+
+        target_field = model.target_field
+        if target_field not in features.columns:
+            raise ValueError(f"Target field '{target_field}' not found in dataset")
+
+        features = features.dropna()
+        features = features.sample(frac=1, random_state=42).reset_index(drop=True)
+
+        training_split = model.training_split if model.training_split else 80
+        split_index = int(len(features) * float(training_split) / 100)
+
+        if split_index >= len(features):
+            raise ValueError(
+                f"Training split of {training_split}% leaves no test samples in dataset with "
+                f"{len(features)} usable rows."
+            )
+
+        raw_test_df = features.iloc[split_index:].copy().reset_index(drop=True)
+
+        X = features.drop(target_field, axis=1)
+        y = features[target_field]
+
+        if not pd.api.types.is_numeric_dtype(y):
+            class_names = list(pd.Categorical(y).categories)
+            y = pd.Categorical(y).codes
+        else:
+            class_names = [str(c) for c in sorted(y.unique())]
+
+        for col in X.columns:
+            if not pd.api.types.is_numeric_dtype(X[col]):
+                X[col] = pd.Categorical(X[col]).codes
+
+        X_test = X.iloc[split_index:].values.astype(np.float32)
+        y_test = y.iloc[split_index:].values if hasattr(y, "iloc") else y[split_index:]
+
+        return X_test, y_test, class_names, raw_test_df
 
     # ------------------------------------------------------------------
     # Confusion matrix + classification report
@@ -977,3 +1076,259 @@ class InterpretabilityService:
         predictions.sort(key=lambda p: p["confidence"], reverse=True)
 
         return {"predictions": predictions}
+
+    # ------------------------------------------------------------------
+    # Algorithmic Fairness & Demographic Parity Diagnostics
+    # ------------------------------------------------------------------
+
+    async def compute_fairness_audit_async(
+        self,
+        job_id: str,
+        sensitive_feature: str,
+        privileged_group: str | None,
+        session: Session,
+    ) -> dict:
+        """Compute algorithmic fairness and demographic parity metrics (async)."""
+        cache_key = f"fairness_{sensitive_feature}_{privileged_group or 'auto'}"
+        cached = self.cache.get_cached(job_id, cache_key, session)
+        if cached:
+            return cached
+
+        result = await asyncio.to_thread(
+            self._compute_fairness_audit_sync, job_id, sensitive_feature, privileged_group, session
+        )
+        self.cache.set_cached(job_id, cache_key, result, session)
+        return result
+
+    def _compute_fairness_audit_sync(
+        self,
+        job_id: str,
+        sensitive_feature: str,
+        privileged_group: str | None,
+        session: Session,
+    ) -> dict:
+        """Compute disparate impact and demographic disparity metrics (blocking)."""
+        import tensorflow as tf
+
+        model_path = EXPORTS_BASE / job_id / "model.keras"
+        if not model_path.exists():
+            raise FileNotFoundError(f"model.keras not found for job: {job_id}")
+        model = tf.keras.models.load_model(model_path)
+
+        X_test, y_test, class_names, raw_test_df = self._load_test_data_with_raw_features(job_id, session)
+
+        if sensitive_feature not in raw_test_df.columns:
+            available = list(raw_test_df.columns)
+            raise ValueError(f"Sensitive feature '{sensitive_feature}' not found in dataset. Available: {available}")
+
+        y_pred_raw = model.predict(X_test, verbose=0)
+        y_pred_classes, _ = _resolve_classification_predictions(y_pred_raw)
+        y_true_classes = _resolve_ground_truth_classes(y_test)
+
+        groups = raw_test_df[sensitive_feature].astype(str).values
+        unique_groups = sorted(list(set(groups)))
+
+        if len(unique_groups) < 2:
+            raise ValueError(
+                f"Sensitive feature '{sensitive_feature}' has only 1 unique group ({unique_groups}). "
+                "At least 2 groups are required for fairness comparison."
+            )
+
+        # In binary or multi-class, positive outcome is class 1 (or first positive class)
+        pos_label = 1 if (1 in y_true_classes or len(class_names) == 2) else y_true_classes[0]
+
+        group_metrics: dict[str, dict[str, Any]] = {}
+        for g in unique_groups:
+            mask = groups == g
+            n_g = int(np.sum(mask))
+            if n_g == 0:
+                continue
+
+            y_t_g = y_true_classes[mask]
+            y_p_g = y_pred_classes[mask]
+
+            pos_pred_count = int(np.sum(y_p_g == pos_label))
+            selection_rate = float(pos_pred_count / n_g) if n_g > 0 else 0.0
+
+            tp = int(np.sum((y_p_g == pos_label) & (y_t_g == pos_label)))
+            fp = int(np.sum((y_p_g == pos_label) & (y_t_g != pos_label)))
+            fn = int(np.sum((y_p_g != pos_label) & (y_t_g == pos_label)))
+            tn = int(np.sum((y_p_g != pos_label) & (y_t_g != pos_label)))
+
+            total_pos = tp + fn
+            total_neg = tn + fp
+
+            tpr = float(tp / total_pos) if total_pos > 0 else 0.0
+            fpr = float(fp / total_neg) if total_neg > 0 else 0.0
+            acc = float(np.mean(y_p_g == y_t_g)) if n_g > 0 else 0.0
+            precision = float(tp / (tp + fp)) if (tp + fp) > 0 else 0.0
+            f1 = float(2 * precision * tpr / (precision + tpr)) if (precision + tpr) > 0 else 0.0
+
+            group_metrics[g] = {
+                "group": g,
+                "sample_count": n_g,
+                "selection_rate": round(selection_rate, 4),
+                "accuracy": round(acc, 4),
+                "precision": round(precision, 4),
+                "recall": round(tpr, 4),
+                "f1_score": round(f1, 4),
+                "true_positive_rate": round(tpr, 4),
+                "false_positive_rate": round(fpr, 4),
+            }
+
+        # Resolve privileged group
+        if privileged_group and privileged_group in group_metrics:
+            priv_group = privileged_group
+        else:
+            priv_group = max(unique_groups, key=lambda g: group_metrics[g]["selection_rate"])
+
+        priv_m = group_metrics[priv_group]
+        priv_sr = priv_m["selection_rate"]
+        priv_tpr = priv_m["true_positive_rate"]
+        priv_fpr = priv_m["false_positive_rate"]
+
+        disparities: dict[str, dict[str, Any]] = {}
+        for g in unique_groups:
+            if g == priv_group:
+                continue
+            gm = group_metrics[g]
+            g_sr = gm["selection_rate"]
+            g_tpr = gm["true_positive_rate"]
+            g_fpr = gm["false_positive_rate"]
+
+            dir_val = round(float(g_sr / (priv_sr + 1e-7)), 4) if priv_sr > 0 else 1.0
+            dpd_val = round(float(g_sr - priv_sr), 4)
+            eod_val = round(float(g_tpr - priv_tpr), 4)
+            aod_val = round(float(0.5 * ((g_fpr - priv_fpr) + (g_tpr - priv_tpr))), 4)
+            passes_80 = bool(0.8 <= dir_val <= 1.25)
+
+            disparities[g] = {
+                "group": g,
+                "compared_to": priv_group,
+                "disparate_impact_ratio": dir_val,
+                "demographic_parity_difference": dpd_val,
+                "equal_opportunity_difference": eod_val,
+                "average_odds_difference": aod_val,
+                "passes_80_percent_rule": passes_80,
+            }
+
+        all_pass = all(d["passes_80_percent_rule"] for d in disparities.values()) if disparities else True
+
+        return {
+            "job_id": job_id,
+            "sensitive_feature": sensitive_feature,
+            "privileged_group": priv_group,
+            "group_metrics": group_metrics,
+            "disparities": disparities,
+            "overall_summary": {
+                "compliant_with_80_percent_rule": all_pass,
+                "groups_evaluated": len(unique_groups),
+                "total_samples": len(y_true_classes),
+            },
+        }
+
+    # ------------------------------------------------------------------
+    # Layer-wise Weight & Activation Diagnostics
+    # ------------------------------------------------------------------
+
+    async def compute_layer_diagnostics_async(self, job_id: str, session: Session) -> dict:
+        """Compute layer-wise weight statistics, sparsity, and health status (async)."""
+        cached = self.cache.get_cached(job_id, "layer_diagnostics", session)
+        if cached:
+            return cached
+
+        result = await asyncio.to_thread(self._compute_layer_diagnostics_sync, job_id, session)
+        self.cache.set_cached(job_id, "layer_diagnostics", result, session)
+        return result
+
+    def _compute_layer_diagnostics_sync(self, job_id: str, session: Session) -> dict:
+        """Analyze trainable weights for each layer in the trained model (blocking)."""
+        import tensorflow as tf
+
+        model_path = EXPORTS_BASE / job_id / "model.keras"
+        if not model_path.exists():
+            raise FileNotFoundError(f"model.keras not found for job: {job_id}")
+        model = tf.keras.models.load_model(model_path)
+
+        layers_diag: list[dict[str, Any]] = []
+        total_parameters = 0
+        healthy_count = 0
+        has_critical = False
+        has_warning = False
+
+        for layer in model.layers:
+            weights = layer.get_weights()
+            if not weights:
+                continue
+
+            w = weights[0].flatten()
+            total_parameters += len(w)
+
+            l2_norm = float(np.linalg.norm(w))
+            w_mean = float(np.mean(w))
+            w_std = float(np.std(w))
+            w_min = float(np.min(w))
+            w_max = float(np.max(w))
+            dead_ratio = float(np.mean(np.abs(w) < 1e-6))
+
+            if np.any(np.isnan(w)) or np.any(np.isinf(w)):
+                status = "NAN_OR_INF"
+                has_critical = True
+                histogram = []
+            else:
+                if l2_norm < 1e-4:
+                    status = "VANISHING_WEIGHTS"
+                    has_warning = True
+                elif np.max(np.abs(w)) > 100.0:
+                    status = "EXPLODING_WEIGHTS"
+                    has_warning = True
+                elif dead_ratio > 0.8:
+                    status = "HIGH_SPARSITY"
+                    has_warning = True
+                else:
+                    status = "HEALTHY"
+                    healthy_count += 1
+
+                counts, bin_edges = np.histogram(w, bins=10)
+                histogram = [
+                    {
+                        "bin_start": round(float(bin_edges[i]), 4),
+                        "bin_end": round(float(bin_edges[i + 1]), 4),
+                        "count": int(counts[i]),
+                    }
+                    for i in range(len(counts))
+                ]
+
+            layer_info: dict[str, Any] = {
+                "layer_name": layer.name,
+                "layer_type": layer.__class__.__name__,
+                "shape": list(weights[0].shape),
+                "param_count": int(len(w)),
+                "l2_norm": round(l2_norm, 4),
+                "mean": round(w_mean, 4),
+                "std": round(w_std, 4),
+                "min": round(w_min, 4),
+                "max": round(w_max, 4),
+                "dead_weights_ratio": round(dead_ratio, 4),
+                "status": status,
+                "histogram": histogram,
+            }
+
+            if len(weights) > 1:
+                b = weights[1].flatten()
+                total_parameters += len(b)
+                layer_info["bias_l2_norm"] = round(float(np.linalg.norm(b)), 4)
+                layer_info["bias_mean"] = round(float(np.mean(b)), 4)
+
+            layers_diag.append(layer_info)
+
+        overall_status = "CRITICAL" if has_critical else ("WARNING" if has_warning else "HEALTHY")
+
+        return {
+            "job_id": job_id,
+            "overall_status": overall_status,
+            "total_layers": len(layers_diag),
+            "healthy_layers": healthy_count,
+            "total_parameters": total_parameters,
+            "layers": layers_diag,
+        }

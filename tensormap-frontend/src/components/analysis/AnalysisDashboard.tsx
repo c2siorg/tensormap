@@ -16,6 +16,8 @@ import ClassificationReportTable from "./ClassificationReportTable";
 import FeatureImportanceChart from "./FeatureImportanceChart";
 import PredictionExplorer from "./PredictionExplorer";
 import ResidualPlotPanel from "./ResidualPlotPanel";
+import LayerHealthPanel from "./LayerHealthPanel";
+import FairnessAuditPanel from "./FairnessAuditPanel";
 import { useFeatureImportancePoller } from "@/hooks/useFeatureImportancePoller";
 import logger from "@/shared/logger";
 
@@ -145,6 +147,15 @@ export default function AnalysisDashboard({ jobId }: AnalysisDashboardProps) {
             />
           )}
 
+          {/* Algorithmic Fairness Audit */}
+          <FairnessAuditPanel
+            jobId={jobId}
+            features={featureImportanceData?.features || []}
+          />
+
+          {/* Neural Network Layer Health & Weight Diagnostics */}
+          <LayerHealthPanel jobId={jobId} />
+
           {/* Prediction Explorer */}
           <PredictionExplorer jobId={jobId} />
         </>
@@ -164,6 +175,9 @@ export default function AnalysisDashboard({ jobId }: AnalysisDashboardProps) {
               classNames={confusionData.class_names}
             />
           </div>
+
+          {/* Neural Network Layer Health & Weight Diagnostics */}
+          <LayerHealthPanel jobId={jobId} />
         </>
       )}
 
@@ -206,6 +220,9 @@ export default function AnalysisDashboard({ jobId }: AnalysisDashboardProps) {
               importancesStd={featureImportanceData.importances_std}
             />
           )}
+
+          {/* Neural Network Layer Health & Weight Diagnostics */}
+          <LayerHealthPanel jobId={jobId} />
         </>
       )}
     </div>

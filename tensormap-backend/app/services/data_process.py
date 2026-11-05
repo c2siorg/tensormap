@@ -1,6 +1,7 @@
 import contextlib
 import csv
 import json
+import math
 import os
 import shutil
 import uuid as uuid_pkg
@@ -282,6 +283,179 @@ def get_correlation_matrix(db: Session, file_id: uuid_pkg.UUID) -> tuple:
         True,
         "Correlation matrix computed successfully",
         {"columns": columns, "matrix": matrix},
+    )
+
+
+def get_vif_metrics(db: Session, file_id: uuid_pkg.UUID) -> tuple:
+    """Compute Variance Inflation Factor (VIF) and multicollinearity diagnostics for numeric features.
+
+    Returns a dict with:
+    - ``vif_scores``: List of per-feature diagnostics (feature, vif, tolerance, r_squared, severity, recommendation)
+    - ``constant_columns``: Columns excluded due to zero variance
+    - ``summary``: Overall multicollinearity health, feature counts by severity, and matrix condition index.
+    """
+    file = db.exec(select(DataFile).where(DataFile.id == file_id)).first()
+    if not file:
+        return _resp(400, False, "File doesn't exist in DB")
+
+    csv_err = _require_csv_file(file, "computing VIF multicollinearity metrics")
+    if csv_err:
+        return csv_err
+
+    file_path = _get_file_path(file)
+    try:
+        df = pd.read_csv(file_path)
+    except FileNotFoundError:
+        return _resp(500, False, f"File not found: {file_path}")
+    except Exception as e:
+        logger.exception("Error reading CSV for VIF: %s", str(e))
+        return _resp(500, False, f"Error reading CSV: {e}")
+
+    numeric_df = df.select_dtypes(include="number")
+    if numeric_df.empty:
+        return _resp(
+            200,
+            True,
+            "No numeric columns found",
+            {
+                "vif_scores": [],
+                "constant_columns": [],
+                "summary": {"overall_multicollinearity": "LOW", "total_features_evaluated": 0, "high_vif_features": 0},
+            },
+        )
+
+    # Impute or drop NaN rows in numeric columns
+    clean_numeric = numeric_df.dropna()
+    if clean_numeric.empty:
+        clean_numeric = numeric_df.fillna(numeric_df.mean())
+
+    # Detect constant columns
+    constant_cols = [c for c in clean_numeric.columns if clean_numeric[c].std() == 0 or clean_numeric[c].nunique() <= 1]
+    valid_cols = [c for c in clean_numeric.columns if c not in constant_cols]
+
+    if len(valid_cols) < 2:
+        return _resp(
+            200,
+            True,
+            "At least 2 non-constant numeric features are required for VIF multicollinearity analysis",
+            {
+                "vif_scores": [],
+                "constant_columns": constant_cols,
+                "summary": {
+                    "overall_multicollinearity": "LOW",
+                    "total_features_evaluated": len(valid_cols),
+                    "high_vif_features": 0,
+                    "condition_index": 1.0,
+                },
+            },
+        )
+
+    X = clean_numeric[valid_cols].to_numpy(dtype=float)
+    n_samples, n_features = X.shape
+
+    vif_results = []
+    count_high = 0
+    count_mod = 0
+    count_low = 0
+
+    for j, col_name in enumerate(valid_cols):
+        y_col = X[:, j]
+        other_indices = [i for i in range(n_features) if i != j]
+        X_others = X[:, other_indices]
+
+        # Add constant intercept for linear regression
+        X_design = np.column_stack([np.ones(n_samples), X_others])
+
+        try:
+            beta, residuals, rank, s = np.linalg.lstsq(X_design, y_col, rcond=None)
+            y_pred = X_design @ beta
+            ss_tot = float(np.sum((y_col - np.mean(y_col)) ** 2))
+            ss_res = float(np.sum((y_col - y_pred) ** 2))
+
+            r_squared = 0.0 if ss_tot <= 1e-12 else max(0.0, min(1.0, 1.0 - (ss_res / ss_tot)))
+
+            if r_squared >= 0.99999 or math.isclose(r_squared, 1.0, abs_tol=1e-5):
+                vif = 99999.0
+                severity = "PERFECT_COLLINEARITY"
+                tolerance = 0.0
+            else:
+                denom = max(1e-7, 1.0 - r_squared)
+                vif = 1.0 / denom
+                tolerance = 1.0 - r_squared
+
+                if vif >= 10.0:
+                    severity = "HIGH"
+                elif vif >= 5.0:
+                    severity = "MODERATE"
+                else:
+                    severity = "LOW"
+        except Exception as e:
+            logger.warning("VIF computation error for column %s: %s", col_name, e)
+            vif = 1.0
+            tolerance = 1.0
+            r_squared = 0.0
+            severity = "LOW"
+
+        if severity in ("HIGH", "PERFECT_COLLINEARITY"):
+            count_high += 1
+            recommendation = (
+                "High collinearity detected. Consider dropping, combining, or applying L1/L2 regularization."
+            )
+        elif severity == "MODERATE":
+            count_mod += 1
+            recommendation = "Moderate collinearity. Monitor performance or feature importance variance."
+        else:
+            count_low += 1
+            recommendation = "Healthy feature with low multicollinearity."
+
+        vif_results.append(
+            {
+                "feature": col_name,
+                "vif": round(float(vif), 2) if vif < 99999.0 else "Infinity",
+                "vif_numeric": round(float(vif), 2),
+                "tolerance": round(float(tolerance), 4),
+                "r_squared": round(float(r_squared), 4),
+                "severity": severity,
+                "recommendation": recommendation,
+            }
+        )
+
+    # Sort descending by VIF score
+    vif_results.sort(key=lambda item: item["vif_numeric"], reverse=True)
+
+    # Compute condition index of centered & standardized feature matrix
+    try:
+        X_centered = (X - np.mean(X, axis=0)) / (np.std(X, axis=0) + 1e-7)
+        singular_values = np.linalg.svd(X_centered, compute_uv=False)
+        max_sv = float(np.max(singular_values))
+        min_sv = float(np.min(singular_values))
+        condition_index = max_sv / max(min_sv, 1e-7)
+    except Exception:
+        condition_index = 1.0
+
+    if count_high > 0 or condition_index >= 30.0:
+        overall_severity = "HIGH"
+    elif count_mod > 0 or condition_index >= 15.0:
+        overall_severity = "MODERATE"
+    else:
+        overall_severity = "LOW"
+
+    return _resp(
+        200,
+        True,
+        "Variance Inflation Factor (VIF) computed successfully",
+        {
+            "vif_scores": vif_results,
+            "constant_columns": constant_cols,
+            "summary": {
+                "overall_multicollinearity": overall_severity,
+                "condition_index": round(float(condition_index), 2),
+                "total_features_evaluated": len(valid_cols),
+                "high_vif_features": count_high,
+                "moderate_vif_features": count_mod,
+                "low_vif_features": count_low,
+            },
+        },
     )
 
 

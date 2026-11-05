@@ -95,6 +95,26 @@ export const getCorrelationMatrix = async (file_id) =>
     });
 
 /**
+ * Fetches the Variance Inflation Factor (VIF) and multicollinearity diagnostics for a file.
+ *
+ * @param {string} file_id - ID of the uploaded file.
+ * @returns {Promise<{vif_scores: Array, constant_columns: Array, summary: object}>}
+ */
+export const getVIFMetrics = async (file_id) =>
+  axios
+    .get(urls.BACKEND_GET_VIF + file_id)
+    .then((resp) => {
+      if (resp.data.success === true) {
+        return resp.data.data;
+      }
+      throw new Error(resp.data.message || "Failed to fetch VIF metrics");
+    })
+    .catch((err) => {
+      logger.error(err);
+      throw err;
+    });
+
+/**
  * Fetches the raw data content of a file as a JSON string.
  *
  * @param {string} file_id - ID of the uploaded file.

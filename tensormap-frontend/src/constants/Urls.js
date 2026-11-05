@@ -18,6 +18,7 @@ export const WS_DL_RESULTS = import.meta.env.VITE_WS_URL || "http://localhost:43
 export const BACKEND_VALIDATE_MODEL = "/model/validate";
 export const BACKEND_GET_COV_MATRIX = "/data/process/data_metrics/";
 export const BACKEND_GET_CORRELATION = "/data/process/correlation/";
+export const BACKEND_GET_VIF = "/data/process/vif/";
 export const BACKEND_GET_FILE_DATA = "/data/process/file/";
 export const BACKEND_TRANSFORM_DATA = "/data/process/preprocess/";
 export const BACKEND_DELETE_FILE = "/data/upload/file/";

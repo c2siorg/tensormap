@@ -84,6 +84,16 @@ export interface TrainingStatusEvent {
   error?: string;
 }
 
+export interface TrainingCheckpointEvent {
+  version: 1;
+  type: "checkpoint";
+  job_id: string;
+  timestamp: string;
+  epoch: number;
+  metric: string;
+  value: number;
+}
+
 /** Previously supported training payloads emitted before envelope version 1. */
 export interface LegacyTrainingMetricsEvent {
   type: "metrics";
@@ -130,6 +140,7 @@ export type TrainingSocketEvent =
   | TrainingMetricsEvent
   | TrainingCatchupEvent
   | TrainingStatusEvent
+  | TrainingCheckpointEvent
   | LegacyTrainingMetricsEvent
   | LegacyTrainingCatchupEvent
   | LegacyTrainingStatusEvent

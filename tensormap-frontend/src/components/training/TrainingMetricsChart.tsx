@@ -17,7 +17,7 @@ export default function TrainingMetricsChart({
   totalEpochs,
   onComplete,
 }: TrainingMetricsChartProps) {
-  const { metrics, status, currentEpoch, cancel, cancelRequested, startedAt, error, isCompleted } =
+  const { metrics, status, currentEpoch, cancel, cancelRequested, startedAt, error, isCompleted, bestCheckpoint } =
     useTrainingMetrics(jobId, totalEpochs);
 
   // Call onComplete when training finishes
@@ -48,8 +48,11 @@ export default function TrainingMetricsChart({
     return metrics.length > 0 ? metrics[metrics.length - 1] : null;
   }, [metrics]);
 
-  // Find best epoch (lowest val_loss)
+  // Find best epoch (optimal checkpoint or lowest val_loss)
   const bestEpoch = useMemo(() => {
+    if (bestCheckpoint) {
+      return { epoch: bestCheckpoint.epoch, val_loss: bestCheckpoint.value };
+    }
     const withValidation = metrics.filter((m) => m.val_loss != null);
     if (withValidation.length === 0) return null;
 
@@ -58,7 +61,7 @@ export default function TrainingMetricsChart({
     );
 
     return { epoch: best.epoch, val_loss: best.val_loss! };
-  }, [metrics]);
+  }, [bestCheckpoint, metrics]);
 
   return (
     <div className="space-y-6">

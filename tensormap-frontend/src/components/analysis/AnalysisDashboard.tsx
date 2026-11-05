@@ -7,11 +7,7 @@
 import { useState, useEffect } from "react";
 import axios from "@/shared/Axios";
 import { BACKEND_MODEL_ANALYSIS } from "@/constants/Urls";
-import {
-  ConfusionMatrixData,
-  RegressionAnalysisData,
-  RocCurveData,
-} from "@/types/analysis";
+import { ConfusionMatrixData, RegressionAnalysisData, RocCurveData } from "@/types/analysis";
 import ConfusionMatrixPanel from "./ConfusionMatrixPanel";
 import ClassificationReportTable from "./ClassificationReportTable";
 import FeatureImportanceChart from "./FeatureImportanceChart";
@@ -19,6 +15,8 @@ import PredictionExplorer from "./PredictionExplorer";
 import ResidualPlotPanel from "./ResidualPlotPanel";
 import RocPrCurvePanel from "./RocPrCurvePanel";
 import CalibrationCurvePanel from "./CalibrationCurvePanel";
+import LayerHealthPanel from "./LayerHealthPanel";
+import FairnessAuditPanel from "./FairnessAuditPanel";
 import { useFeatureImportancePoller } from "@/hooks/useFeatureImportancePoller";
 import logger from "@/shared/logger";
 
@@ -237,11 +235,7 @@ export default function AnalysisDashboard({ jobId }: AnalysisDashboardProps) {
           </div>
 
           {/* ROC & Precision-Recall Diagnostic Curves */}
-          <RocPrCurvePanel
-            data={rocData}
-            isLoading={isLoadingRoc}
-            error={rocError}
-          />
+          <RocPrCurvePanel data={rocData} isLoading={isLoadingRoc} error={rocError} />
 
           {/* Feature Importance */}
           {isLoadingFeatureImportance && (
@@ -277,6 +271,12 @@ export default function AnalysisDashboard({ jobId }: AnalysisDashboardProps) {
           {/* Probability Calibration & Reliability Analysis */}
           <CalibrationCurvePanel jobId={jobId} />
 
+          {/* Algorithmic Fairness Audit */}
+          <FairnessAuditPanel jobId={jobId} features={featureImportanceData?.features || []} />
+
+          {/* Neural Network Layer Health & Weight Diagnostics */}
+          <LayerHealthPanel jobId={jobId} />
+
           {/* Prediction Explorer */}
           <PredictionExplorer jobId={jobId} />
         </>
@@ -296,6 +296,9 @@ export default function AnalysisDashboard({ jobId }: AnalysisDashboardProps) {
               classNames={confusionData.class_names}
             />
           </div>
+
+          {/* Neural Network Layer Health & Weight Diagnostics */}
+          <LayerHealthPanel jobId={jobId} />
         </>
       )}
 
@@ -342,6 +345,9 @@ export default function AnalysisDashboard({ jobId }: AnalysisDashboardProps) {
               importancesStd={featureImportanceData.importances_std}
             />
           )}
+
+          {/* Neural Network Layer Health & Weight Diagnostics */}
+          <LayerHealthPanel jobId={jobId} />
         </>
       )}
     </div>

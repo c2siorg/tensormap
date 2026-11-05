@@ -52,16 +52,18 @@ def generate_code(model_name: str, db: Session) -> str:
             MODEL_OPTIMIZER: model_configs.optimizer,
             MODEL_METRIC: model_configs.metric,
             MODEL_EPOCHS: model_configs.epochs,
+            BATCH_SIZE: getattr(model_configs, "batch_size", None) or 32,
         },
     }
 
     if file.file_type == "zip":
         image_prop = db.exec(select(ImageProperties).where(ImageProperties.id == model_configs.file_id)).first()
         if image_prop:
+            effective_image_batch = getattr(model_configs, "batch_size", None) or image_prop.batch_size or 32
             data[DATASET].update(
                 {
                     IMG_SIZE: image_prop.image_size,
-                    BATCH_SIZE: image_prop.batch_size,
+                    BATCH_SIZE: effective_image_batch,
                     COLOR_MODE: image_prop.color_mode,
                     LABEL_MODE: image_prop.label_mode,
                 }

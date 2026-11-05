@@ -17,6 +17,21 @@ function formatPercent(value: number | undefined): string {
   return `${(value * 100).toFixed(2)}%`;
 }
 
+function getMetricLabel(metric?: string | null): string {
+  if (!metric) return "Val Loss:";
+  const labels: Record<string, string> = {
+    val_loss: "Val Loss:",
+    loss: "Loss:",
+    val_accuracy: "Val Accuracy:",
+    accuracy: "Accuracy:",
+    val_mae: "Val MAE:",
+    mae: "MAE:",
+    val_mse: "Val MSE:",
+    mse: "MSE:",
+  };
+  return labels[metric] || `${metric}:`;
+}
+
 export default function MetricsSummaryBar({
   currentMetrics,
   bestEpoch,
@@ -88,8 +103,10 @@ export default function MetricsSummaryBar({
                   <span className="font-mono font-medium">{bestEpoch.epoch}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-600">Val Loss:</span>
-                  <span className="font-mono font-medium">{formatValue(bestEpoch.val_loss)}</span>
+                  <span className="text-gray-600">{getMetricLabel(bestEpoch.metric)}</span>
+                  <span className="font-mono font-medium">
+                    {formatValue(bestEpoch.value ?? bestEpoch.val_loss)}
+                  </span>
                 </div>
               </div>
             ) : (

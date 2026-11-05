@@ -72,6 +72,7 @@ export interface TrainingCatchupEvent {
   status: TrainingJobStatus;
   started_at: string | null;
   metrics: EpochMetric[];
+  best_checkpoint?: { epoch: number; metric: string; value: number } | null;
 }
 
 export interface TrainingStatusEvent {
@@ -85,6 +86,16 @@ export interface TrainingStatusEvent {
   batch: number | null;
   steps: number | null;
   error?: string;
+}
+
+export interface TrainingCheckpointEvent {
+  version: 1;
+  type: "checkpoint";
+  job_id: string;
+  timestamp: string;
+  epoch: number;
+  metric: string;
+  value: number;
 }
 
 /** Previously supported training payloads emitted before envelope version 1. */
@@ -143,6 +154,7 @@ export type TrainingSocketEvent =
   | TrainingCatchupEvent
   | TrainingStatusEvent
   | TrainingLearningRateReducedEvent
+  | TrainingCheckpointEvent
   | LegacyTrainingMetricsEvent
   | LegacyTrainingCatchupEvent
   | LegacyTrainingStatusEvent
@@ -171,7 +183,7 @@ export interface ChartProps {
 
 export interface MetricsSummaryBarProps {
   currentMetrics: EpochMetric | null;
-  bestEpoch: { epoch: number; val_loss: number } | null;
+  bestEpoch: { epoch: number; val_loss?: number; metric?: string; value?: number } | null;
   currentEpoch: number;
   totalEpochs: number;
 }

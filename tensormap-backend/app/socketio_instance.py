@@ -48,6 +48,7 @@ def _load_catchup(job_id: str) -> dict | None:
             status=job.status.value,
             started_at=job.started_at.isoformat() if job.started_at else None,
             metrics=get_job_metrics_grouped(job_id, session),
+            best_checkpoint=(job.analysis_cache or {}).get("best_checkpoint"),
         )
 
 

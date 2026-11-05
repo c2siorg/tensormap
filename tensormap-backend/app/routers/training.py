@@ -161,6 +161,7 @@ def get_training_job(job: TrainingJob = Depends(get_job_or_404), db: Session = D
         "error_message": job.error_message,
         "latest_metrics": get_latest_metrics(job.id, db),
         "reproducibility": job.reproducibility,
+        "best_checkpoint": (job.analysis_cache or {}).get("best_checkpoint"),
     }
     return JSONResponse(status_code=200, content=_envelope("Training job retrieved", data))
 

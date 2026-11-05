@@ -191,7 +191,7 @@ def test_build_training_callbacks_attaches_scheduler():
     try:
         # When disabled
         callbacks_default = _build_training_callbacks(job_id="job-1", hyperparams={})
-        assert len(callbacks_default) == 2  # MetricsCallback and CancellationCheckCallback
+        assert len(callbacks_default) == 3  # BestModelCheckpointCallback, MetricsCallback, CancellationCheckCallback
 
         # When enabled
         callbacks_with_lr = _build_training_callbacks(
@@ -199,7 +199,7 @@ def test_build_training_callbacks_attaches_scheduler():
             hyperparams={"reduce_lr_on_plateau": True, "reduce_lr_factor": 0.1},
             has_validation=True,
         )
-        assert len(callbacks_with_lr) == 3
+        assert len(callbacks_with_lr) == 4
         lr_cbs = [cb for cb in callbacks_with_lr if isinstance(cb, ReduceLROnPlateauCallback)]
         assert len(lr_cbs) == 1
         assert lr_cbs[0].factor == 0.1

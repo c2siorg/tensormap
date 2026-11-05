@@ -41,6 +41,7 @@ interface UseTrainingMetricsReturn {
   error: string | null;
   isCompleted: boolean;
   isCancelled: boolean;
+  bestCheckpoint?: { epoch: number; metric: string; value: number } | null;
 }
 
 export function mergeEpochMetric(
@@ -133,21 +134,63 @@ export function useTrainingMetrics(
   const [cancelRequested, setCancelRequested] = useState(false);
   const [startedAt, setStartedAt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [bestCheckpoint, setBestCheckpoint] = useState<{
+    epoch: number;
+    metric: string;
+    value: number;
+  } | null>(null);
   const [isSocketConnected, setIsSocketConnected] = useState(true);
 
   const cleanupRef = useRef<(() => void) | null>(null);
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Fetch metrics from API (fallback or initial load)
+  // Reset state when jobId changes
+  useEffect(() => {
+    setMetrics([]);
+    setStatus("idle");
+    setCurrentEpoch(0);
+    setCancelRequested(false);
+    setStartedAt(null);
+    setError(null);
+    setBestCheckpoint(null);
+  }, [jobId]);
+
+  // Fetch metrics and job metadata from API (fallback, catch-up, or initial load)
   const fetchMetrics = useCallback(async () => {
     if (!jobId) return;
 
     try {
-      const response = await axios.get(`${urls.BACKEND_TRAINING_JOB}/${jobId}/metrics`);
-      // Backend returns {success, message, data: [...metrics...]}
-      if (response.data && response.data.data && Array.isArray(response.data.data)) {
-        setMetrics((previous) => mergeEpochMetrics(previous, response.data.data));
-        setCurrentEpoch((previous) => Math.max(previous, response.data.data.length));
+      const [metricsRes, jobRes] = await Promise.allSettled([
+        axios.get(`${urls.BACKEND_TRAINING_JOB}/${jobId}/metrics`),
+        axios.get(`${urls.BACKEND_TRAINING_JOB}/${jobId}`),
+      ]);
+
+      if (
+        metricsRes.status === "fulfilled" &&
+        metricsRes.value.data &&
+        metricsRes.value.data.data &&
+        Array.isArray(metricsRes.value.data.data)
+      ) {
+        setMetrics((previous) => mergeEpochMetrics(previous, metricsRes.value.data.data));
+        setCurrentEpoch((previous) => Math.max(previous, metricsRes.value.data.data.length));
+      }
+
+      if (jobRes.status === "fulfilled" && jobRes.value.data && jobRes.value.data.data) {
+        const jobData = jobRes.value.data.data;
+        if (jobData.status) {
+          setStatus((prev) => {
+            const terminalStates = ["completed", "failed", "cancelled"];
+            if (terminalStates.includes(prev)) return prev;
+            return jobData.status;
+          });
+        }
+        if (jobData.best_checkpoint) {
+          setBestCheckpoint({
+            epoch: jobData.best_checkpoint.epoch,
+            metric: jobData.best_checkpoint.metric,
+            value: jobData.best_checkpoint.value,
+          });
+        }
       }
     } catch (err) {
       logger.error("Failed to fetch metrics:", err);
@@ -164,6 +207,13 @@ export function useTrainingMetrics(
       if (data.started_at) {
         setStartedAt(data.started_at);
       }
+      if (data.best_checkpoint) {
+        setBestCheckpoint({
+          epoch: data.best_checkpoint.epoch,
+          metric: data.best_checkpoint.metric,
+          value: data.best_checkpoint.value,
+        });
+      }
     } else if ("type" in data && data.type === "metrics") {
       // Live metrics use the same one-record-per-epoch shape as catch-up.
       const newMetric = toEpochMetricUpdate(data);
@@ -179,6 +229,8 @@ export function useTrainingMetrics(
       if (data.error) {
         setError(data.error);
       }
+    } else if ("type" in data && data.type === "checkpoint") {
+      setBestCheckpoint({ epoch: data.epoch, metric: data.metric, value: data.value });
     }
   }, []);
 
@@ -270,5 +322,6 @@ export function useTrainingMetrics(
     error,
     isCompleted: status === "completed",
     isCancelled: status === "cancelled",
+    bestCheckpoint,
   };
 }

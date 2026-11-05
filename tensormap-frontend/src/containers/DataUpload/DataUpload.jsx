@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSetRecoilState } from "recoil";
 import { useParams } from "react-router-dom";
-import { Upload, FileSpreadsheet } from "lucide-react";
+import { Upload, FileSpreadsheet, Download } from "lucide-react";
 import { projectFiles } from "../../shared/atoms";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import * as strings from "../../constants/Strings";
-import { getAllFiles, uploadFile, deleteFile } from "../../services/FileServices";
+import { getAllFiles, uploadFile, deleteFile, downloadDataset } from "../../services/FileServices";
 import FeedbackDialog from "../../components/shared/FeedbackDialog";
 import logger from "../../shared/logger";
 
@@ -23,6 +23,7 @@ function DataUpload() {
   const [dataset, setDataset] = useState(null);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [feedbackSuccess, setFeedbackSuccess] = useState(true);
   const [feedbackMessage, setFeedbackMessage] = useState("");
@@ -34,9 +35,13 @@ function DataUpload() {
         setProjectFiles(response);
         if (response.length > 0) {
           const file = response[0];
+          const ext = file.file_type || "csv";
+          const fullName = file.file_name.toLowerCase().endsWith(`.${ext}`)
+            ? file.file_name
+            : `${file.file_name}.${ext}`;
           setDataset({
             id: file.file_id,
-            name: `${file.file_name}.${file.file_type}`,
+            name: fullName,
             columns: file.fields?.length ?? 0,
             rows: file.row_count ?? 0,
           });
@@ -92,6 +97,21 @@ function DataUpload() {
       setUploading(false);
       setFeedbackOpen(true);
       if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const handleDownload = async () => {
+    if (!dataset?.id) return;
+    setDownloading(true);
+    try {
+      await downloadDataset(dataset.id, dataset.name);
+    } catch (error) {
+      logger.error("Download error:", error);
+      setFeedbackSuccess(false);
+      setFeedbackMessage(error.message || "Failed to download dataset");
+      setFeedbackOpen(true);
+    } finally {
+      setDownloading(false);
     }
   };
 
@@ -160,12 +180,25 @@ function DataUpload() {
                 <div className="flex gap-3">
                   <Button
                     variant="outline"
-                    disabled={uploading}
+                    disabled={uploading || downloading}
+                    onClick={handleDownload}
+                    className="flex items-center gap-2"
+                  >
+                    <Download className="h-4 w-4" />
+                    {downloading ? "Downloading..." : "Download"}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    disabled={uploading || downloading}
                     onClick={() => fileInputRef.current?.click()}
                   >
                     {uploading ? "Uploading..." : "Replace"}
                   </Button>
-                  <Button variant="destructive" disabled={uploading} onClick={handleRemove}>
+                  <Button
+                    variant="destructive"
+                    disabled={uploading || downloading}
+                    onClick={handleRemove}
+                  >
                     Remove
                   </Button>
                 </div>

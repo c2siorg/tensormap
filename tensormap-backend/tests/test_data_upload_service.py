@@ -10,6 +10,7 @@ from app.models.data import DataFile, ImageProperties
 from app.services.data_upload import (
     add_file_service,
     delete_one_file_by_id_service,
+    download_file_service,
     get_all_files_service,
 )
 
@@ -432,3 +433,77 @@ class TestGetAllFilesService:
         assert status == 200
         assert body["data"] == []
         assert body["pagination"]["total"] == 0
+
+
+class TestDownloadFileService:
+    def test_returns_404_when_file_not_in_db(self, mock_db, file_id):
+        mock_db.exec.return_value.first.return_value = None
+        body, status = download_file_service(mock_db, file_id)
+        assert status == 404
+        assert body["success"] is False
+        assert "doesn't exist" in body["message"]
+
+    def test_returns_404_when_file_missing_on_disk(self, mock_db, file_id, sample_file):
+        mock_db.exec.return_value.first.return_value = sample_file
+        with (
+            patch("app.services.data_upload.get_settings") as mock_settings,
+            patch("app.services.data_upload.os.path.isfile", return_value=False),
+        ):
+            mock_settings.return_value.upload_folder = "/tmp"
+            body, status = download_file_service(mock_db, file_id)
+
+        assert status == 404
+        assert body["success"] is False
+        assert "not available on disk" in body["message"]
+
+    def test_returns_csv_download_metadata(self, mock_db, file_id, sample_file):
+        sample_file.file_name = "my_dataset"
+        sample_file.file_type = "csv"
+        sample_file.disk_name = "my_dataset_123.csv"
+        mock_db.exec.return_value.first.return_value = sample_file
+
+        with (
+            patch("app.services.data_upload.get_settings") as mock_settings,
+            patch("app.services.data_upload.os.path.isfile", return_value=True),
+        ):
+            mock_settings.return_value.upload_folder = "/tmp"
+            result, status = download_file_service(mock_db, file_id)
+
+        assert status == 200
+        assert result["filename"] == "my_dataset.csv"
+        assert result["media_type"] == "text/csv"
+        assert result["file_path"] == os.path.join("/tmp", "my_dataset_123.csv")
+
+    def test_returns_csv_download_metadata_already_extension(self, mock_db, file_id, sample_file):
+        sample_file.file_name = "my_dataset.csv"
+        sample_file.file_type = "csv"
+        sample_file.disk_name = "my_dataset_123.csv"
+        mock_db.exec.return_value.first.return_value = sample_file
+
+        with (
+            patch("app.services.data_upload.get_settings") as mock_settings,
+            patch("app.services.data_upload.os.path.isfile", return_value=True),
+        ):
+            mock_settings.return_value.upload_folder = "/tmp"
+            result, status = download_file_service(mock_db, file_id)
+
+        assert status == 200
+        assert result["filename"] == "my_dataset.csv"
+        assert result["media_type"] == "text/csv"
+
+    def test_returns_zip_download_metadata(self, mock_db, file_id, sample_file):
+        sample_file.file_name = "images_data"
+        sample_file.file_type = "zip"
+        sample_file.disk_name = "images_data_456.zip"
+        mock_db.exec.return_value.first.return_value = sample_file
+
+        with (
+            patch("app.services.data_upload.get_settings") as mock_settings,
+            patch("app.services.data_upload.os.path.isfile", return_value=True),
+        ):
+            mock_settings.return_value.upload_folder = "/tmp"
+            result, status = download_file_service(mock_db, file_id)
+
+        assert status == 200
+        assert result["filename"] == "images_data.zip"
+        assert result["media_type"] == "application/zip"

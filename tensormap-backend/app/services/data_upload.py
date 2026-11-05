@@ -257,3 +257,32 @@ def delete_one_file_by_id_service(db: Session, file_id: uuid_pkg.UUID) -> tuple:
         return _resp(200, True, "File record deleted, but the physical file could not be removed from storage")
 
     return _resp(200, True, "File deleted successfully")
+
+
+def download_file_service(db: Session, file_id: uuid_pkg.UUID) -> tuple:
+    """Resolve on-disk path and download metadata for a DataFile.
+
+    Returns (dict, 200) with file_path, filename, and media_type on success,
+    or (_resp(404, ...)) when the file does not exist or is missing from disk.
+    """
+    settings = get_settings()
+    file = db.exec(select(DataFile).where(DataFile.id == file_id)).first()
+    if not file:
+        return _resp(404, False, "File doesn't exist in DB")
+
+    file_path = os.path.join(settings.upload_folder, file.disk_name)
+    if not os.path.isfile(file_path):
+        logger.error("Dataset file missing on disk: %s (id=%s)", file_path, file_id)
+        return _resp(404, False, "Dataset file is not available on disk")
+
+    if file.file_type == "csv":
+        download_name = file.file_name if file.file_name.lower().endswith(".csv") else f"{file.file_name}.csv"
+        media_type = "text/csv"
+    elif file.file_type == "zip":
+        download_name = file.file_name if file.file_name.lower().endswith(".zip") else f"{file.file_name}.zip"
+        media_type = "application/zip"
+    else:
+        download_name = file.disk_name
+        media_type = "application/octet-stream"
+
+    return {"file_path": file_path, "filename": download_name, "media_type": media_type}, 200

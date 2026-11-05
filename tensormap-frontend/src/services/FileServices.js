@@ -203,3 +203,45 @@ export const deleteFile = async (fileId) => {
       throw error;
     });
 };
+
+/**
+ * Downloads a dataset file (CSV or ZIP) by ID and triggers a browser download.
+ *
+ * @param {string} fileId - ID of the dataset file.
+ * @param {string} [defaultFilename="dataset.csv"] - Fallback filename if not provided by server.
+ * @returns {Promise<void>}
+ */
+export const downloadDataset = async (fileId, defaultFilename = "dataset.csv") => {
+  return axios
+    .get(`${urls.BACKEND_DOWNLOAD_FILE}${fileId}/download`, {
+      responseType: "blob",
+    })
+    .then((resp) => {
+      let filename = defaultFilename;
+      const disposition = resp.headers?.["content-disposition"];
+      if (disposition) {
+        const match = disposition.match(/filename=["']?([^"';]+)["']?/i);
+        if (match && match[1]) {
+          filename = match[1].trim();
+        }
+      }
+
+      const blob = new Blob([resp.data], {
+        type: resp.headers?.["content-type"] || "application/octet-stream",
+      });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      setTimeout(() => {
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(link);
+      }, 200);
+    })
+    .catch((err) => {
+      logger.error("Download error:", err);
+      throw err;
+    });
+};

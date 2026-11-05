@@ -21,6 +21,7 @@ export const BACKEND_GET_CORRELATION = "/data/process/correlation/";
 export const BACKEND_GET_FILE_DATA = "/data/process/file/";
 export const BACKEND_TRANSFORM_DATA = "/data/process/preprocess/";
 export const BACKEND_DELETE_FILE = "/data/upload/file/";
+export const BACKEND_DOWNLOAD_FILE = "/data/upload/file/";
 export const BACKEND_GET_MODEL_GRAPH = "/model";
 export const BACKEND_SAVE_MODEL = "/model/save";
 export const BACKEND_UPDATE_TRAINING_CONFIG = "/model/training-config";

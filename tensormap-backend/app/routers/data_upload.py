@@ -1,7 +1,7 @@
 import uuid as uuid_pkg
 
 from fastapi import APIRouter, Depends, Form, Query, UploadFile
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from sqlmodel import Session
 
 from app.config import get_settings
@@ -9,6 +9,7 @@ from app.database import get_db
 from app.services.data_upload import (
     add_file_service,
     delete_one_file_by_id_service,
+    download_file_service,
     get_all_files_service,
 )
 from app.shared.logging_config import get_logger
@@ -109,3 +110,17 @@ def delete_file(file_id: uuid_pkg.UUID, db: Session = Depends(get_db)):
     logger.debug("Deleting file with id: %s", file_id)
     body, status_code = delete_one_file_by_id_service(db, file_id=file_id)
     return JSONResponse(status_code=status_code, content=body)
+
+
+@router.get("/data/upload/file/{file_id}/download")
+def download_file(file_id: uuid_pkg.UUID, db: Session = Depends(get_db)):
+    """Download an uploaded or preprocessed dataset file (CSV or ZIP) by its ID."""
+    logger.debug("Download request for file id: %s", file_id)
+    result, status_code = download_file_service(db, file_id=file_id)
+    if status_code != 200:
+        return JSONResponse(status_code=status_code, content=result)
+    return FileResponse(
+        path=result["file_path"],
+        filename=result["filename"],
+        media_type=result["media_type"],
+    )

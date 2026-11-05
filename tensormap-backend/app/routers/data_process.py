@@ -1,7 +1,7 @@
 import uuid as uuid_pkg
 
 from fastapi import APIRouter, Depends, Query
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from sqlmodel import Session
 
 from app.database import get_db
@@ -22,6 +22,7 @@ from app.services.data_process import (
     preprocess_data,
     revert_data_process_service,
 )
+from app.services.data_upload import download_file_service
 from app.services.dataset_quality import analyze_dataset_quality
 from app.shared.logging_config import get_logger
 
@@ -137,3 +138,17 @@ def get_backup_status(file_id: uuid_pkg.UUID, db: Session = Depends(get_db)):
     """Check if a preprocessing backup exists for a CSV file and return its details."""
     body, status_code = get_dataset_backup_status_service(db, file_id=file_id)
     return JSONResponse(status_code=status_code, content=body)
+
+
+@router.get("/data/process/download/{file_id}")
+def download_preprocessed_file(file_id: uuid_pkg.UUID, db: Session = Depends(get_db)):
+    """Download an uploaded or preprocessed dataset file (CSV or ZIP) by its ID."""
+    logger.debug("Download request for processed file id: %s", file_id)
+    result, status_code = download_file_service(db, file_id=file_id)
+    if status_code != 200:
+        return JSONResponse(status_code=status_code, content=result)
+    return FileResponse(
+        path=result["file_path"],
+        filename=result["filename"],
+        media_type=result["media_type"],
+    )

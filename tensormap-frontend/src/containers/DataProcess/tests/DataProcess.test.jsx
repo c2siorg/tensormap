@@ -5,9 +5,11 @@ import { RecoilRoot } from "recoil";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import DataProcess from "../DataProcess";
 import { projectFiles } from "../../../shared/atoms";
+import { downloadDataset } from "../../../services/FileServices";
 
 vi.mock("../../../services/FileServices", () => ({
   getAllFiles: vi.fn(),
+  downloadDataset: vi.fn(() => Promise.resolve()),
 }));
 
 vi.mock("../../../components/Process/SelectFileModal", () => ({
@@ -149,5 +151,33 @@ describe("DataProcess Container", () => {
       expect(options[1].textContent).toBe("iris.csv");
       expect(options[2].textContent).toBe("mnist.zip (ZIP - Image Dataset)");
     });
+  });
+
+  it("renders download button for CSV dataset and triggers downloadDataset on click", async () => {
+    const user = userEvent.setup();
+    renderDataProcess([CSV_FILE]);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Download CSV/i })).toBeTruthy();
+    });
+
+    const downloadButton = screen.getByRole("button", { name: /Download CSV/i });
+    await user.click(downloadButton);
+
+    expect(downloadDataset).toHaveBeenCalledWith("csv-1", "iris.csv");
+  });
+
+  it("renders download dataset button when image dataset (ZIP) is selected", async () => {
+    const user = userEvent.setup();
+    renderDataProcess([ZIP_FILE]);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Download Dataset/i })).toBeTruthy();
+    });
+
+    const downloadButton = screen.getByRole("button", { name: /Download Dataset/i });
+    await user.click(downloadButton);
+
+    expect(downloadDataset).toHaveBeenCalledWith("zip-1", "mnist.zip");
   });
 });

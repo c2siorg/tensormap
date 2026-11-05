@@ -32,7 +32,19 @@ def deep_learning_model():
         metrics=["{{data.dl_model.metric}}"],
     )
 
-    history = model.fit(x_training, y_training, epochs={{data.dl_model.epochs}})
+    class_weight_mode = "{{data.dl_model.class_weight_mode}}"
+    class_weights = None
+    if class_weight_mode == "balanced":
+        classes, counts = np.unique(y_training, return_counts=True)
+        n_samples = float(len(y_training))
+        n_classes = float(len(classes))
+        class_weights = {
+            int(c): float(n_samples / (n_classes * count))
+            for c, count in zip(classes, counts, strict=False)
+            if count > 0
+        }
+
+    history = model.fit(x_training, y_training, epochs={{data.dl_model.epochs}}, class_weight=class_weights)
 
     test_loss, test_acc = model.evaluate(x_testing, y_testing, verbose=2)
 

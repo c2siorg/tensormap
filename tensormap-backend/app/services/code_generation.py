@@ -4,6 +4,7 @@ from sqlmodel import Session, select
 from app.models import DataFile, ImageProperties, ModelBasic
 from app.shared.constants import (
     BATCH_SIZE,
+    CLASS_WEIGHT_MODE,
     CODE_TEMPLATE_FOLDER,
     COLOR_MODE,
     DATASET,
@@ -52,6 +53,7 @@ def generate_code(model_name: str, db: Session) -> str:
             MODEL_OPTIMIZER: model_configs.optimizer,
             MODEL_METRIC: model_configs.metric,
             MODEL_EPOCHS: model_configs.epochs,
+            CLASS_WEIGHT_MODE: model_configs.class_weight_mode,
         },
     }
 

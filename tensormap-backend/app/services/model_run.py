@@ -268,15 +268,18 @@ def _build_training_callbacks(job_id: str | None) -> list[tf.keras.callbacks.Cal
 
     Without a job_id (legacy/direct calls) we keep the text-based
     ``CustomProgressBar``. With a job_id we use the persistent ``MetricsCallback``
-    (DB + room-scoped Socket.IO) plus ``CancellationCheckCallback``.
+    (DB + room-scoped Socket.IO), ``CancellationCheckCallback``, and
+    ``BestModelCheckpointCallback`` to restore optimal weights at train end.
     """
     if job_id is None:
         return [CustomProgressBar()]
 
+    from app.callbacks.checkpoint_callback import BestModelCheckpointCallback
     from app.services.training_service import make_session
 
     loop = _training_loop_ctx.get()
     return [
+        BestModelCheckpointCallback(job_id, make_session, sio=sio, loop=loop),
         MetricsCallback(job_id, make_session, sio, loop),
         CancellationCheckCallback(job_id, make_session),
     ]

@@ -150,6 +150,7 @@ def get_training_job(job: TrainingJob = Depends(get_job_or_404), db: Session = D
         "completed_at": job.completed_at.isoformat() if job.completed_at else None,
         "error_message": job.error_message,
         "latest_metrics": get_latest_metrics(job.id, db),
+        "best_checkpoint": (job.analysis_cache or {}).get("best_checkpoint"),
     }
     return JSONResponse(status_code=200, content=_envelope("Training job retrieved", data))
 

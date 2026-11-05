@@ -78,8 +78,18 @@ export default function MetricsSummaryBar({
                   <span className="font-mono font-medium">{bestEpoch.epoch}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-600">Val Loss:</span>
-                  <span className="font-mono font-medium">{formatValue(bestEpoch.val_loss)}</span>
+                  <span className="text-gray-600">
+                    {bestEpoch.metric
+                      ? bestEpoch.metric === "val_loss"
+                        ? "Val Loss:"
+                        : bestEpoch.metric === "loss"
+                          ? "Loss:"
+                          : `${bestEpoch.metric}:`
+                      : "Val Loss:"}
+                  </span>
+                  <span className="font-mono font-medium">
+                    {formatValue(bestEpoch.value ?? bestEpoch.val_loss)}
+                  </span>
                 </div>
               </div>
             ) : (

@@ -9,6 +9,7 @@ import SelectFileModal from "../../components/Process/SelectFileModal";
 import PreprocessData from "../../components/Process/PreprocessData";
 import CorrelationHeatmap from "../../components/Process/CorrelationHeatmap";
 import FeatureDistributionPanel from "../../components/Process/FeatureDistributionPanel";
+import VIFMulticollinearityPanel from "../../components/Process/VIFMulticollinearityPanel";
 import { getAllFiles } from "../../services/FileServices";
 import { projectFiles } from "../../shared/atoms";
 import logger from "../../shared/logger";
@@ -151,6 +152,14 @@ function DataProcess() {
                   </CardHeader>
                   <CardContent>
                     <CorrelationHeatmap fileId={selectedFileId} />
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Multicollinearity & VIF Analysis</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <VIFMulticollinearityPanel fileId={selectedFileId} />
                   </CardContent>
                 </Card>
               </div>

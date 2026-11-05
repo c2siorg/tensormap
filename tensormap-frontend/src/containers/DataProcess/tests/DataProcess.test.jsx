@@ -39,6 +39,10 @@ vi.mock("../../../components/Process/CorrelationHeatmap", () => ({
   ),
 }));
 
+vi.mock("../../../components/Process/DatasetDriftPanel", () => ({
+  default: ({ fileId }) => <div data-testid="dataset-drift-panel">Dataset Drift: {fileId}</div>,
+}));
+
 const CSV_FILE = {
   file_id: "csv-1",
   file_name: "iris.csv",

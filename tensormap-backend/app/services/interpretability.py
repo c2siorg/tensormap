@@ -17,6 +17,7 @@ import pandas as pd
 from sklearn.metrics import (
     auc,
     average_precision_score,
+    brier_score_loss,
     classification_report,
     confusion_matrix,
     mean_absolute_error,
@@ -595,6 +596,183 @@ class InterpretabilityService:
             "is_binary": is_binary,
             "class_names": class_names,
             "n_samples": len(y_true),
+            "analysis_type": "classification",
+        }
+
+    # ------------------------------------------------------------------
+    # Calibration Curve (Reliability Diagram)
+    # ------------------------------------------------------------------
+
+    async def compute_calibration_curve_async(self, job_id: str, session: Session, n_bins: int = 10) -> dict:
+        """Async wrapper for probability calibration and reliability curve analysis.
+
+        Returns cached result if available.
+
+        Args:
+            job_id: Training job ID
+            session: Database session
+            n_bins: Number of confidence bins (default: 10)
+
+        Returns:
+            Dictionary with per-class reliability curve points, Brier score, ECE, MCE,
+            confidence histograms, and macro metrics.
+        """
+        cache = self.cache.get_cached(job_id, "calibration_curve", session)
+        if cache:
+            return cache
+
+        result = await asyncio.to_thread(self._compute_calibration_curve_sync, job_id, session, n_bins)
+        self.cache.set_cached(job_id, "calibration_curve", result, session)
+        return result
+
+    def _compute_calibration_curve_sync(self, job_id: str, session: Session, n_bins: int = 10) -> dict:
+        """Compute reliability diagram, Brier score, ECE, and MCE (blocking).
+
+        Args:
+            job_id: Training job ID
+            session: Database session
+            n_bins: Number of confidence bins (default: 10)
+
+        Returns:
+            Dictionary with per-class calibration metrics, curve points, and confidence histograms.
+        """
+        import tensorflow as tf
+
+        model_path = EXPORTS_BASE / job_id / "model.keras"
+        model = tf.keras.models.load_model(model_path)
+
+        X_test, y_test, class_names = self._load_test_data(job_id, session)
+
+        y_pred = model.predict(X_test, verbose=0)
+        _, y_pred_probs = _resolve_classification_predictions(y_pred)
+        y_true = _resolve_ground_truth_classes(y_test)
+
+        n_classes = len(class_names)
+        is_binary = n_classes == 2 or (y_pred_probs.ndim == 2 and y_pred_probs.shape[1] == 2)
+        n_samples = len(y_true)
+
+        classes_data = []
+        class_brier_scores: list[float] = []
+        class_eces: list[float] = []
+        class_mces: list[float] = []
+
+        bin_edges = np.linspace(0.0, 1.0, n_bins + 1)
+
+        for c in range(n_classes):
+            y_binary = (y_true == c).astype(int)
+            prob_c = (
+                y_pred_probs[:, c]
+                if (y_pred_probs.ndim == 2 and c < y_pred_probs.shape[1])
+                else np.zeros_like(y_true, dtype=float)
+            )
+
+            # Defensive guard against single-class in test set split
+            if len(np.unique(y_binary)) < 2:
+                classes_data.append(
+                    {
+                        "class_index": c,
+                        "class_name": class_names[c],
+                        "insufficient_data": True,
+                        "brier_score": None,
+                        "ece": None,
+                        "mce": None,
+                        "points": [],
+                        "histogram": [],
+                    }
+                )
+                continue
+
+            # Brier Score Loss: mean squared error of predicted probabilities
+            brier = float(brier_score_loss(y_binary, prob_c))
+            class_brier_scores.append(brier)
+
+            points = []
+            histogram = []
+            bin_errors: list[float] = []
+            bin_weights: list[float] = []
+
+            for b in range(n_bins):
+                b_start = float(bin_edges[b])
+                b_end = float(bin_edges[b + 1])
+                is_last = b == n_bins - 1
+                mask = (prob_c >= b_start) & (prob_c <= b_end) if is_last else (prob_c >= b_start) & (prob_c < b_end)
+                count = int(np.sum(mask))
+                label = f"{b_start:.1f} - {b_end:.1f}"
+
+                histogram.append(
+                    {
+                        "bin_index": b,
+                        "bin_start": round(b_start, 4),
+                        "bin_end": round(b_end, 4),
+                        "bin_label": label,
+                        "count": count,
+                        "frequency": round((count / n_samples), 4) if n_samples > 0 else 0.0,
+                    }
+                )
+
+                if count > 0:
+                    mean_pred = float(np.mean(prob_c[mask]))
+                    frac_pos = float(np.mean(y_binary[mask]))
+                    abs_diff = abs(frac_pos - mean_pred)
+                    bin_errors.append(abs_diff)
+                    bin_weights.append(count / n_samples)
+
+                    rounded_mean_pred = round(mean_pred, 4)
+                    rounded_frac_pos = round(frac_pos, 4)
+                    points.append(
+                        {
+                            "bin_index": b,
+                            "bin_label": label,
+                            "mean_predicted": rounded_mean_pred,
+                            "fraction_positives": rounded_frac_pos,
+                            "count": count,
+                            "error": round(abs(rounded_frac_pos - rounded_mean_pred), 4),
+                        }
+                    )
+                else:
+                    points.append(
+                        {
+                            "bin_index": b,
+                            "bin_label": label,
+                            "mean_predicted": round((b_start + b_end) / 2.0, 4),
+                            "fraction_positives": None,
+                            "count": 0,
+                            "error": None,
+                        }
+                    )
+
+            ece = float(np.sum(np.array(bin_errors) * np.array(bin_weights))) if bin_errors else 0.0
+            mce = float(np.max(bin_errors)) if bin_errors else 0.0
+
+            class_eces.append(ece)
+            class_mces.append(mce)
+
+            classes_data.append(
+                {
+                    "class_index": c,
+                    "class_name": class_names[c],
+                    "insufficient_data": False,
+                    "brier_score": round(brier, 4),
+                    "ece": round(ece, 4),
+                    "mce": round(mce, 4),
+                    "points": points,
+                    "histogram": histogram,
+                }
+            )
+
+        macro_brier = _clean_metric(round(float(np.mean(class_brier_scores)), 4)) if class_brier_scores else None
+        macro_ece = _clean_metric(round(float(np.mean(class_eces)), 4)) if class_eces else None
+        macro_mce = _clean_metric(round(float(np.mean(class_mces)), 4)) if class_mces else None
+
+        return {
+            "classes": classes_data,
+            "macro_brier_score": macro_brier,
+            "macro_ece": macro_ece,
+            "macro_mce": macro_mce,
+            "is_binary": is_binary,
+            "class_names": class_names,
+            "n_samples": n_samples,
+            "n_bins": n_bins,
             "analysis_type": "classification",
         }
 

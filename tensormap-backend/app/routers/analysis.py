@@ -208,6 +208,76 @@ async def get_roc_curve(
     return JSONResponse(status_code=200, content={**result, "cached": False})
 
 
+@router.get("/{job_id}/calibration-curve")
+async def get_calibration_curve(
+    job_id: str,
+    n_bins: int = Query(10, ge=5, le=30, description="Number of probability confidence bins"),
+    db: Session = Depends(get_db),
+):
+    """Returns probability calibration curves and reliability metrics.
+
+    Computes empirical accuracy vs. mean predicted confidence across bins,
+    along with Expected Calibration Error (ECE), Maximum Calibration Error (MCE),
+    Brier Score Loss, and confidence histograms for classification models.
+
+    Args:
+        job_id: Training job ID
+        n_bins: Number of confidence bins (default: 10, between 5 and 30)
+
+    Returns:
+        {
+            "classes": [
+                {
+                    "class_index": int,
+                    "class_name": str,
+                    "brier_score": float | None,
+                    "ece": float | None,
+                    "mce": float | None,
+                    "points": [
+                        {
+                            "bin_index": int,
+                            "bin_label": str,
+                            "mean_predicted": float,
+                            "fraction_positives": float | None,
+                            "count": int,
+                            "error": float | None,
+                        }, ...
+                    ],
+                    "histogram": [ ... ],
+                },
+            ],
+            "macro_brier_score": float | None,
+            "macro_ece": float | None,
+            "macro_mce": float | None,
+            "is_binary": bool,
+            "class_names": [str, ...],
+            "n_samples": int,
+            "n_bins": int,
+            "analysis_type": "classification",
+            "cached": bool
+        }
+    """
+    _verify_job_completed(job_id, db)
+
+    analysis_type = get_analysis_type(job_id, db)
+    if analysis_type == "regression":
+        raise HTTPException(
+            status_code=400,
+            detail="Calibration curve analysis is only available for classification models.",
+        )
+
+    cached = _service.cache.get_cached(job_id, "calibration_curve", db)
+    if cached:
+        return JSONResponse(status_code=200, content={**cached, "cached": True})
+
+    try:
+        result = await _service.compute_calibration_curve_async(job_id, db, n_bins=n_bins)
+    except (ValueError, FileNotFoundError, OSError) as exc:
+        logger.exception("Calibration curve computation failed for job %s", job_id)
+        raise HTTPException(status_code=500, detail=f"Analysis computation failed: {exc}") from exc
+    return JSONResponse(status_code=200, content={**result, "cached": False})
+
+
 @router.get("/{job_id}/feature-importance")
 async def get_feature_importance(
     job_id: str,

@@ -7,15 +7,13 @@
 import { useState, useEffect } from "react";
 import axios from "@/shared/Axios";
 import { BACKEND_MODEL_ANALYSIS } from "@/constants/Urls";
-import {
-  ConfusionMatrixData,
-  RegressionAnalysisData,
-} from "@/types/analysis";
+import { ConfusionMatrixData, RegressionAnalysisData } from "@/types/analysis";
 import ConfusionMatrixPanel from "./ConfusionMatrixPanel";
 import ClassificationReportTable from "./ClassificationReportTable";
 import FeatureImportanceChart from "./FeatureImportanceChart";
 import PredictionExplorer from "./PredictionExplorer";
 import ResidualPlotPanel from "./ResidualPlotPanel";
+import CalibrationCurvePanel from "./CalibrationCurvePanel";
 import { useFeatureImportancePoller } from "@/hooks/useFeatureImportancePoller";
 import logger from "@/shared/logger";
 
@@ -122,7 +120,9 @@ export default function AnalysisDashboard({ jobId }: AnalysisDashboardProps) {
               <div className="flex items-center gap-3">
                 <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
                 <div>
-                  <p className="text-sm text-blue-800 font-medium">Computing feature importance...</p>
+                  <p className="text-sm text-blue-800 font-medium">
+                    Computing feature importance...
+                  </p>
                   <p className="text-xs text-blue-600">This may take up to 30 seconds</p>
                 </div>
               </div>
@@ -145,6 +145,9 @@ export default function AnalysisDashboard({ jobId }: AnalysisDashboardProps) {
             />
           )}
 
+          {/* Probability Calibration & Reliability Analysis */}
+          <CalibrationCurvePanel jobId={jobId} />
+
           {/* Prediction Explorer */}
           <PredictionExplorer jobId={jobId} />
         </>
@@ -164,6 +167,9 @@ export default function AnalysisDashboard({ jobId }: AnalysisDashboardProps) {
               classNames={confusionData.class_names}
             />
           </div>
+
+          {/* Probability Calibration & Reliability Analysis */}
+          <CalibrationCurvePanel jobId={jobId} />
         </>
       )}
 
@@ -184,7 +190,9 @@ export default function AnalysisDashboard({ jobId }: AnalysisDashboardProps) {
               <div className="flex items-center gap-3">
                 <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
                 <div>
-                  <p className="text-sm text-blue-800 font-medium">Computing feature importance...</p>
+                  <p className="text-sm text-blue-800 font-medium">
+                    Computing feature importance...
+                  </p>
                   <p className="text-xs text-blue-600">This may take up to 30 seconds</p>
                 </div>
               </div>

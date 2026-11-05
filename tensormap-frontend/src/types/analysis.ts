@@ -76,3 +76,49 @@ export interface PredictionsData {
   limit: number;
   predictions: Prediction[];
 }
+
+/** Single point on a probability calibration / reliability curve. */
+export interface CalibrationPoint {
+  bin_index: number;
+  bin_label: string;
+  mean_predicted: number;
+  fraction_positives: number | null;
+  count: number;
+  error: number | null;
+}
+
+/** Confidence distribution histogram bin. */
+export interface CalibrationHistogramBin {
+  bin_index: number;
+  bin_start: number;
+  bin_end: number;
+  bin_label: string;
+  count: number;
+  frequency: number;
+}
+
+/** Per-class calibration analysis data. */
+export interface ClassCalibrationData {
+  class_index: number;
+  class_name: string;
+  insufficient_data: boolean;
+  brier_score: number | null;
+  ece: number | null;
+  mce: number | null;
+  points: CalibrationPoint[];
+  histogram: CalibrationHistogramBin[];
+}
+
+/** Response from GET /analysis/{job_id}/calibration-curve. */
+export interface CalibrationCurveData {
+  classes: ClassCalibrationData[];
+  macro_brier_score: number | null;
+  macro_ece: number | null;
+  macro_mce: number | null;
+  is_binary: boolean;
+  class_names: string[];
+  n_samples: number;
+  n_bins: number;
+  analysis_type: "classification";
+  cached?: boolean;
+}

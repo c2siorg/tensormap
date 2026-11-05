@@ -27,7 +27,9 @@ def deep_learning_model():
         metrics=["{{data.dl_model.metric}}"],
     )
 
-    history = model.fit(x_training, y_training, epochs={{data.dl_model.epochs}})
+    history = model.fit(
+        x_training, y_training, epochs={{data.dl_model.epochs}}, batch_size={{data.dl_model.batch_size}}
+    )
 
     test_loss = model.evaluate(x_testing, y_testing, verbose=2)
 

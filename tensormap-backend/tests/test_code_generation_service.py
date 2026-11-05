@@ -30,6 +30,7 @@ from app.shared.constants import (  # noqa: E402
     FILE_TARGET,
     IMG_SIZE,
     LABEL_MODE,
+    LEARNING_MODEL,
     MODEL_TRAINING_SPLIT,
 )
 from app.shared.enums import ProblemType  # noqa: E402
@@ -47,7 +48,7 @@ def mock_db():
     return db
 
 
-def _make_model(model_type, file_id=1, target_field="label", training_split=0.8):
+def _make_model(model_type, file_id=1, target_field="label", training_split=0.8, batch_size=None):
     model = MagicMock()
     model.file_id = file_id
     model.model_type = model_type
@@ -56,6 +57,7 @@ def _make_model(model_type, file_id=1, target_field="label", training_split=0.8)
     model.optimizer = "adam"
     model.metric = "accuracy"
     model.epochs = 10
+    model.batch_size = batch_size
     return model
 
 
@@ -235,3 +237,92 @@ class TestGenerateCodeHappyPaths:
         assert BATCH_SIZE not in rendered_data[DATASET]
         assert COLOR_MODE not in rendered_data[DATASET]
         assert LABEL_MODE not in rendered_data[DATASET]
+
+    @patch("app.services.code_generation.Environment")
+    @patch("app.services.code_generation.FileSystemLoader")
+    def test_classification_passes_saved_model_batch_size_to_context(self, mock_loader, mock_env, mock_db):
+        model = _make_model(ProblemType.CLASSIFICATION, batch_size=128)
+        file = _make_file(file_type="csv", file_name="iris.csv")
+        mock_db.exec.return_value.first.side_effect = [model, file]
+
+        mock_template = MagicMock()
+        mock_template.render.return_value = "GENERATED_CODE"
+        mock_env.return_value.get_template.return_value = mock_template
+
+        generate_code("iris_model", mock_db)
+
+        rendered_data = mock_template.render.call_args.kwargs["data"]
+        assert rendered_data[LEARNING_MODEL][BATCH_SIZE] == 128
+
+    @patch("app.services.code_generation.Environment")
+    @patch("app.services.code_generation.FileSystemLoader")
+    def test_classification_defaults_batch_size_to_32_when_model_batch_size_none(self, mock_loader, mock_env, mock_db):
+        model = _make_model(ProblemType.CLASSIFICATION, batch_size=None)
+        file = _make_file(file_type="csv", file_name="iris.csv")
+        mock_db.exec.return_value.first.side_effect = [model, file]
+
+        mock_template = MagicMock()
+        mock_template.render.return_value = "GENERATED_CODE"
+        mock_env.return_value.get_template.return_value = mock_template
+
+        generate_code("iris_model", mock_db)
+
+        rendered_data = mock_template.render.call_args.kwargs["data"]
+        assert rendered_data[LEARNING_MODEL][BATCH_SIZE] == 32
+
+    @patch("app.services.code_generation.Environment")
+    @patch("app.services.code_generation.FileSystemLoader")
+    def test_image_classification_prioritizes_model_batch_size_over_image_properties(
+        self, mock_loader, mock_env, mock_db
+    ):
+        model = _make_model(ProblemType.IMAGE_CLASSIFICATION, target_field=None, batch_size=128)
+        file = _make_file(file_type="zip", file_name="images.zip")
+
+        image_props = MagicMock()
+        image_props.image_size = 128
+        image_props.batch_size = 32
+        image_props.color_mode = "rgb"
+        image_props.label_mode = "categorical"
+
+        mock_db.exec.return_value.first.side_effect = [model, file, image_props]
+
+        mock_template = MagicMock()
+        mock_template.render.return_value = "IMAGE_CODE"
+        mock_env.return_value.get_template.return_value = mock_template
+
+        generate_code("image_model", mock_db)
+
+        rendered_data = mock_template.render.call_args.kwargs["data"]
+        assert rendered_data[DATASET][BATCH_SIZE] == 128
+        assert rendered_data[LEARNING_MODEL][BATCH_SIZE] == 128
+
+    def test_render_classification_template_contains_batch_size(self, mock_db):
+        model = _make_model(ProblemType.CLASSIFICATION, batch_size=128)
+        file = _make_file(file_type="csv", file_name="iris.csv")
+        mock_db.exec.return_value.first.side_effect = [model, file]
+
+        code = generate_code("iris_model", mock_db)
+        assert "batch_size=128" in code
+
+    def test_render_regression_template_contains_batch_size(self, mock_db):
+        model = _make_model(ProblemType.REGRESSION, target_field="price", batch_size=64)
+        file = _make_file(file_type="csv", file_name="housing.csv")
+        mock_db.exec.return_value.first.side_effect = [model, file]
+
+        code = generate_code("housing_model", mock_db)
+        assert "batch_size=64" in code
+
+    def test_render_image_classification_template_contains_batch_size(self, mock_db):
+        model = _make_model(ProblemType.IMAGE_CLASSIFICATION, target_field=None, batch_size=128)
+        file = _make_file(file_type="zip", file_name="images.zip")
+
+        image_props = MagicMock()
+        image_props.image_size = 128
+        image_props.batch_size = 32
+        image_props.color_mode = "rgb"
+        image_props.label_mode = "categorical"
+
+        mock_db.exec.return_value.first.side_effect = [model, file, image_props]
+
+        code = generate_code("image_model", mock_db)
+        assert "batch_size = 128" in code

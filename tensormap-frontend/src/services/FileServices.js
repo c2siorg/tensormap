@@ -203,3 +203,25 @@ export const deleteFile = async (fileId) => {
       throw error;
     });
 };
+
+/**
+ * Fetches dataset drift and covariate shift profiling report for a file.
+ *
+ * @param {string} fileId - ID of the target dataset.
+ * @param {Object} [options] - Options including baseline_file_id, training_split, seed, alpha.
+ * @returns {Promise<Object>} Drift analysis report object.
+ */
+export const getDatasetDrift = async (fileId, options = {}) => {
+  return axios
+    .get(`${urls.BACKEND_GET_DATASET_DRIFT}${fileId}`, { params: options })
+    .then((resp) => {
+      if (resp.data.success === true) {
+        return resp.data.data;
+      }
+      return null;
+    })
+    .catch((err) => {
+      logger.error("Error fetching dataset drift:", err);
+      throw err;
+    });
+};

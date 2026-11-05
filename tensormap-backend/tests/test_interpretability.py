@@ -179,15 +179,11 @@ def test_confusion_matrix_cached_on_second_call(trained_job, db_session):
         ),
     ):
         # First call — should compute
-        result1 = asyncio.get_event_loop().run_until_complete(
-            service.compute_confusion_matrix_async(job_id, db_session)
-        )
+        result1 = asyncio.run(service.compute_confusion_matrix_async(job_id, db_session))
 
         # Second call — should hit cache (no _compute call)
         with patch.object(service, "_compute_confusion_matrix_sync") as mock_compute:
-            result2 = asyncio.get_event_loop().run_until_complete(
-                service.compute_confusion_matrix_async(job_id, db_session)
-            )
+            result2 = asyncio.run(service.compute_confusion_matrix_async(job_id, db_session))
             mock_compute.assert_not_called()
 
     assert result1["confusion_matrix"] == result2["confusion_matrix"]

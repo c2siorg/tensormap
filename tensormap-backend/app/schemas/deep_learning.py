@@ -24,6 +24,7 @@ class DLModelConfig(BaseModel):
     optimizer: Optimizer
     metric: Metric
     epochs: int = Field(gt=0)
+    class_weight_mode: str | None = None
 
 
 class CodeConfig(BaseModel):
@@ -111,4 +112,5 @@ class TrainingConfigRequest(BaseModel):
     # Optional so clients that predate the field keep working; the service
     # falls back to the problem-type default when it is omitted.
     loss: LossFunction | None = None
+    class_weight_mode: str | None = None
     project_id: uuid_pkg.UUID | None = None

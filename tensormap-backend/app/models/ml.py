@@ -31,6 +31,7 @@ class ModelBasic(SQLModel, table=True):
     epochs: int | None = Field(default=None, nullable=True)
     batch_size: int | None = Field(default=None, nullable=True)
     loss: str | None = Field(default=None, max_length=50, nullable=True)
+    class_weight_mode: str | None = Field(default=None, max_length=50, nullable=True)
     # sa_column is required here because SQLModel infers nullable from the
     # Python type hint alone, which does not produce the correct DDL for JSON
     # columns.  Explicit Column(JSON, nullable=True) ensures the database

@@ -32,6 +32,12 @@ vi.mock("../../../components/Process/CorrelationHeatmap", () => ({
   ),
 }));
 
+vi.mock("../../../components/Process/VIFMulticollinearityPanel", () => ({
+  default: ({ fileId }) => (
+    <div data-testid="vif-multicollinearity-panel">VIF Multicollinearity: {fileId}</div>
+  ),
+}));
+
 const CSV_FILE = {
   file_id: "csv-1",
   file_name: "iris.csv",

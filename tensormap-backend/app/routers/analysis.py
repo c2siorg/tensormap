@@ -393,3 +393,66 @@ async def get_residuals(
         raise HTTPException(status_code=500, detail=f"Analysis computation failed: {exc}") from exc
 
     return JSONResponse(status_code=200, content={**result, "cached": False})
+
+
+@router.get("/{job_id}/fairness")
+async def get_fairness_audit(
+    job_id: str,
+    sensitive_feature: str = Query(..., description="Column name of sensitive/protected attribute"),
+    privileged_group: str | None = Query(None, description="Privileged group value (optional)"),
+    db: Session = Depends(get_db),
+):
+    """Returns algorithmic fairness, disparate impact, and demographic parity diagnostics.
+
+    Evaluates demographic parity difference, disparate impact ratio (80% rule),
+    equal opportunity difference, and group-wise metrics across sensitive features.
+    """
+    _verify_job_completed(job_id, db)
+
+    analysis_type = get_analysis_type(job_id, db)
+    if analysis_type != "classification":
+        raise HTTPException(
+            status_code=400,
+            detail="Fairness audit is currently supported for tabular classification models.",
+        )
+
+    cache_key = f"fairness_{sensitive_feature}_{privileged_group or 'auto'}"
+    cached = _service.cache.get_cached(job_id, cache_key, db)
+    if cached:
+        return JSONResponse(status_code=200, content={**cached, "cached": True})
+
+    try:
+        result = await _service.compute_fairness_audit_async(job_id, sensitive_feature, privileged_group, db)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (FileNotFoundError, OSError) as exc:
+        logger.exception("Fairness audit failed for job %s", job_id)
+        raise HTTPException(status_code=500, detail=f"Fairness audit computation failed: {exc}") from exc
+
+    return JSONResponse(status_code=200, content={**result, "cached": False})
+
+
+@router.get("/{job_id}/layer-diagnostics")
+async def get_layer_diagnostics(
+    job_id: str,
+    db: Session = Depends(get_db),
+):
+    """Returns layer-wise weight distribution, health status, and dead weight sparsity diagnostics."""
+    _verify_job_completed(job_id, db)
+
+    cached = _service.cache.get_cached(job_id, "layer_diagnostics", db)
+    if cached:
+        return JSONResponse(status_code=200, content={**cached, "cached": True})
+
+    try:
+        result = await _service.compute_layer_diagnostics_async(job_id, db)
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail="Model file not found. Training may not be completed yet.",
+        ) from exc
+    except (ValueError, OSError) as exc:
+        logger.exception("Layer diagnostics failed for job %s", job_id)
+        raise HTTPException(status_code=500, detail=f"Layer diagnostics computation failed: {exc}") from exc
+
+    return JSONResponse(status_code=200, content={**result, "cached": False})

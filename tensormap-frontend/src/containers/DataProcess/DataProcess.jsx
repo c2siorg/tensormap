@@ -2,12 +2,14 @@ import { useState, useEffect } from "react";
 import { useRecoilState } from "recoil";
 import { useParams } from "react-router-dom";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Download } from "lucide-react";
 import ColumnStatsPanel from "../../components/Process/ColumnStatsPanel";
 import DisplayDataset from "../../components/Process/DisplayDataset";
 import SelectFileModal from "../../components/Process/SelectFileModal";
 import PreprocessData from "../../components/Process/PreprocessData";
 import CorrelationHeatmap from "../../components/Process/CorrelationHeatmap";
-import { getAllFiles } from "../../services/FileServices";
+import { getAllFiles, downloadDataset } from "../../services/FileServices";
 import { projectFiles } from "../../shared/atoms";
 import logger from "../../shared/logger";
 
@@ -20,6 +22,7 @@ function DataProcess() {
   const [files, setFiles] = useRecoilState(projectFiles);
   const [selectedFileId, setSelectedFileId] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isDownloading, setIsDownloading] = useState(false);
 
   useEffect(() => {
     if (files.length > 0 && !selectedFileId) {
@@ -48,6 +51,24 @@ function DataProcess() {
       });
   };
 
+  const handleDownload = async () => {
+    if (!selectedFileId) return;
+    setIsDownloading(true);
+    try {
+      const ext = selectedFile?.file_type || "csv";
+      const defaultName = selectedFile
+        ? selectedFile.file_name.toLowerCase().endsWith(`.${ext}`)
+          ? selectedFile.file_name
+          : `${selectedFile.file_name}.${ext}`
+        : "dataset.csv";
+      await downloadDataset(selectedFileId, defaultName);
+    } catch (error) {
+      logger.error("Download error:", error);
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
   const selectedFile = files.find((f) => String(f.file_id) === String(selectedFileId));
   const isNonCsv = selectedFile && selectedFile.file_type && selectedFile.file_type !== "csv";
 
@@ -62,28 +83,46 @@ function DataProcess() {
       ) : (
         <div className="space-y-6">
           {/* Dataset selector */}
-          <div className="flex items-center gap-4">
-            <label htmlFor="file-select" className="font-medium text-gray-700">
-              Select Dataset:
-            </label>
-            <select
-              id="file-select"
-              value={selectedFileId || ""}
-              onChange={(e) => setSelectedFileId(e.target.value)}
-              className="px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            >
-              <option value="" disabled>
-                Choose a dataset
-              </option>
-              {files.map((file) => (
-                <option key={file.file_id} value={String(file.file_id)}>
-                  {file.file_name}
-                  {file.file_type && file.file_type !== "csv"
-                    ? ` (${file.file_type.toUpperCase()} - Image Dataset)`
-                    : ""}
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="flex items-center gap-4">
+              <label htmlFor="file-select" className="font-medium text-gray-700">
+                Select Dataset:
+              </label>
+              <select
+                id="file-select"
+                value={selectedFileId || ""}
+                onChange={(e) => setSelectedFileId(e.target.value)}
+                className="px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="" disabled>
+                  Choose a dataset
                 </option>
-              ))}
-            </select>
+                {files.map((file) => (
+                  <option key={file.file_id} value={String(file.file_id)}>
+                    {file.file_name}
+                    {file.file_type && file.file_type !== "csv"
+                      ? ` (${file.file_type.toUpperCase()} - Image Dataset)`
+                      : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {selectedFile && (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={isDownloading}
+                onClick={handleDownload}
+                className="flex items-center gap-2"
+              >
+                <Download className="h-4 w-4" />
+                {isDownloading
+                  ? "Downloading..."
+                  : selectedFile.file_type === "csv"
+                    ? "Download CSV"
+                    : "Download Dataset"}
+              </Button>
+            )}
           </div>
 
           {isNonCsv ? (

@@ -216,3 +216,48 @@ def test_validate_model_valid(client: TestClient, db_session):
     assert resp.status_code == 200
     body = resp.json()
     assert body["success"] is True
+
+
+def test_download_dataset_endpoints_not_found(client: TestClient):
+    random_id = str(uuid.uuid4())
+    resp1 = client.get(f"/api/v1/data/upload/file/{random_id}/download")
+    assert resp1.status_code == 404
+    assert resp1.json()["success"] is False
+
+    resp2 = client.get(f"/api/v1/data/process/download/{random_id}")
+    assert resp2.status_code == 404
+    assert resp2.json()["success"] is False
+
+
+def test_download_dataset_endpoints_success(client: TestClient, db_session, tmp_path):
+    from app.models.data import DataFile
+
+    file_id = uuid.uuid4()
+    disk_name = f"{file_id}.csv"
+    file_path = tmp_path / disk_name
+    file_path.write_bytes(CSV_BYTES)
+
+    data_file = DataFile(
+        id=file_id,
+        file_name="my_dataset.csv",
+        disk_name=disk_name,
+        file_type="csv",
+        columns=["col1", "col2"],
+    )
+    db_session.add(data_file)
+    db_session.commit()
+
+    with patch("app.services.data_upload.get_settings") as mock_settings:
+        mock_settings.return_value.upload_folder = str(tmp_path)
+
+        resp1 = client.get(f"/api/v1/data/upload/file/{file_id}/download")
+        assert resp1.status_code == 200
+        assert resp1.content == CSV_BYTES
+        assert "text/csv" in resp1.headers.get("content-type", "")
+        assert 'filename="my_dataset.csv"' in resp1.headers.get("content-disposition", "")
+
+        resp2 = client.get(f"/api/v1/data/process/download/{file_id}")
+        assert resp2.status_code == 200
+        assert resp2.content == CSV_BYTES
+        assert "text/csv" in resp2.headers.get("content-type", "")
+        assert 'filename="my_dataset.csv"' in resp2.headers.get("content-disposition", "")

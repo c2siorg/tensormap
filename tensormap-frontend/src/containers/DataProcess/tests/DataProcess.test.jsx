@@ -32,6 +32,12 @@ vi.mock("../../../components/Process/CorrelationHeatmap", () => ({
   ),
 }));
 
+vi.mock("../../../components/Process/FeatureSelectionStudio", () => ({
+  default: ({ fileId }) => (
+    <div data-testid="feature-selection-studio">Feature Selection Studio: {fileId}</div>
+  ),
+}));
+
 const CSV_FILE = {
   file_id: "csv-1",
   file_name: "iris.csv",

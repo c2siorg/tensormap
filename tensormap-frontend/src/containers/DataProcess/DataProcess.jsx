@@ -161,18 +161,19 @@ function DataProcess() {
                     />
                   </CardContent>
                 </Card>
-              <Card>
-                <CardHeader>
-                  <CardTitle>Correlation Heatmap</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <CorrelationHeatmap
-                    key={`${selectedFileId}-${datasetRevision}`}
-                    fileId={selectedFileId}
-                  />
-                </CardContent>
-              </Card>
-            </div>
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Correlation Heatmap</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <CorrelationHeatmap
+                      key={`${selectedFileId}-${datasetRevision}`}
+                      fileId={selectedFileId}
+                    />
+                  </CardContent>
+                </Card>
+              </div>
+            )
           )}
         </div>
       )}

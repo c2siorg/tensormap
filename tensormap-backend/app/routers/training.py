@@ -149,8 +149,20 @@ def get_training_job(job: TrainingJob = Depends(get_job_or_404), db: Session = D
         "completed_at": job.completed_at.isoformat() if job.completed_at else None,
         "error_message": job.error_message,
         "latest_metrics": get_latest_metrics(job.id, db),
+        "reproducibility": job.reproducibility,
     }
     return JSONResponse(status_code=200, content=_envelope("Training job retrieved", data))
+
+
+@router.get("/training-job/{job_id}/reproducibility")
+def get_job_reproducibility(job: TrainingJob = Depends(get_job_or_404)) -> JSONResponse:
+    """Return reproducibility snapshot metadata for a training job."""
+    data = {
+        "job_id": job.id,
+        "has_snapshot": job.reproducibility is not None,
+        "reproducibility": job.reproducibility,
+    }
+    return JSONResponse(status_code=200, content=_envelope("Reproducibility metadata retrieved", data))
 
 
 @router.get("/training-job/{job_id}/metrics")

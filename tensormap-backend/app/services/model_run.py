@@ -337,6 +337,21 @@ def _run(model_name: str, db: Session, job_id: str | None = None) -> None:
     job = db.get(TrainingJob, job_id) if job_id else None
     hyperparams = job.hyperparams if job and job.hyperparams else {}
 
+    # Ensure reproducibility snapshot is captured for jobs starting training (Issue #520)
+    if job is not None and job.reproducibility is None:
+        try:
+            from app.services.reproducibility import capture_reproducibility_snapshot
+
+            job.reproducibility = capture_reproducibility_snapshot(
+                session=db,
+                model=model_configs,
+                hyperparams=hyperparams,
+            )
+            db.add(job)
+            db.commit()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Could not record reproducibility snapshot for job %s: %s", job_id, exc)
+
     batch_size = hyperparams.get("batch_size") or model_configs.batch_size
     epochs = hyperparams.get("epochs") or model_configs.epochs
     optimizer_name = hyperparams.get("optimizer") or model_configs.optimizer

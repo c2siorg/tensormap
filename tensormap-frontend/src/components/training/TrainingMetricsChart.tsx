@@ -10,6 +10,7 @@ import TrainingHeader from "./TrainingHeader";
 import LossChart from "./LossChart";
 import AccuracyChart from "./AccuracyChart";
 import MetricsSummaryBar from "./MetricsSummaryBar";
+import ReproducibilityDetails from "./ReproducibilityDetails";
 import { TrainingMetricsChartProps } from "@/types/training";
 
 export default function TrainingMetricsChart({
@@ -107,6 +108,9 @@ export default function TrainingMetricsChart({
           <p>Waiting for training to start...</p>
         </div>
       )}
+
+      {/* Reproducibility & Execution Context */}
+      <ReproducibilityDetails jobId={jobId} />
     </div>
   );
 }

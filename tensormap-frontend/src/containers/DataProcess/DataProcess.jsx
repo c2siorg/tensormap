@@ -7,6 +7,7 @@ import DisplayDataset from "../../components/Process/DisplayDataset";
 import SelectFileModal from "../../components/Process/SelectFileModal";
 import PreprocessData from "../../components/Process/PreprocessData";
 import CorrelationHeatmap from "../../components/Process/CorrelationHeatmap";
+import FeatureSelectionStudio from "../../components/Process/FeatureSelectionStudio";
 import { getAllFiles } from "../../services/FileServices";
 import { projectFiles } from "../../shared/atoms";
 import logger from "../../shared/logger";
@@ -141,6 +142,7 @@ function DataProcess() {
                     <CorrelationHeatmap fileId={selectedFileId} />
                   </CardContent>
                 </Card>
+                <FeatureSelectionStudio fileId={selectedFileId} onPruned={refreshFiles} />
               </div>
             )
           )}

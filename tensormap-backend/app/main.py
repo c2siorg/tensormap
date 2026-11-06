@@ -28,6 +28,7 @@ from app.routers import (
     data_upload,
     deep_learning,
     export,
+    feature_selection,
     health,
     layers,
     project,
@@ -160,6 +161,7 @@ app.add_exception_handler(Exception, generic_exception_handler)
 app.include_router(health.router, tags=["health"])
 app.include_router(data_upload.router, prefix=settings.api_base)
 app.include_router(data_process.router, prefix=settings.api_base)
+app.include_router(feature_selection.router, prefix=settings.api_base)
 app.include_router(deep_learning.router, prefix=settings.api_base)
 app.include_router(project.router, prefix=settings.api_base)
 app.include_router(layers.router, prefix=settings.api_base)

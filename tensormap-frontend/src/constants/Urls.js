@@ -32,3 +32,4 @@ export const BACKEND_GET_COLUMN_STATS = "/data/process/stats/";
 export const BACKEND_GET_DATASET_QUALITY = "/data/process/quality/";
 export const BACKEND_MODEL_TUNING = "/model/tuning";
 export const BACKEND_ANALYZE_GRAPH = "/layers/analyze-graph";
+export const BACKEND_FEATURE_SELECTION = "/data/process/feature-selection";

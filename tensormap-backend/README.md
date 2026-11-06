@@ -61,14 +61,17 @@ docker run -d \
 │   │   └── ml.py             # ModelBasic, ModelConfigs, ModelResults
 │   ├── schemas/
 │   │   ├── data_process.py   # Request validation schemas
+│   │   ├── feature_selection.py
 │   │   └── deep_learning.py
 │   ├── routers/
 │   │   ├── data_upload.py    # /data/upload endpoints
 │   │   ├── data_process.py   # /data/process endpoints
+│   │   ├── feature_selection.py
 │   │   └── deep_learning.py  # /model endpoints
 │   ├── services/
 │   │   ├── data_upload.py    # File upload business logic
 │   │   ├── data_process.py   # Data processing business logic
+│   │   ├── feature_selection.py
 │   │   ├── deep_learning.py  # Model validation/execution logic
 │   │   ├── model_generation.py  # ReactFlow graph to Keras JSON
 │   │   ├── code_generation.py   # Jinja2 TF code generation
@@ -85,6 +88,17 @@ docker run -d \
 ├── pyproject.toml
 └── Dockerfile
 ```
+
+### Feature selection API
+
+- `POST /api/v1/data/process/feature-selection/{file_id}/analyze` accepts
+  `{"target": "label", "task": "auto"}` and returns per-feature mutual
+  information, ANOVA F-statistic, variance, and a composite rank. `task` can
+  also be set to `classification` or `regression`.
+- `POST /api/v1/data/process/feature-selection/{file_id}/apply` accepts
+  `{"target": "label", "columns_to_drop": ["unused_feature"]}`. It refuses to
+  remove the target or the final predictor, creates/replaces a sibling `.bak`
+  copy before pruning, and refreshes the dataset's cached column list.
 
 ### Database modifications
 

@@ -30,6 +30,7 @@ import TrainingMetricsChart from "@/components/training/TrainingMetricsChart";
 import DatasetQualityReport from "@/components/training/DatasetQualityReport";
 import useDatasetQualityReport from "@/hooks/useDatasetQualityReport";
 import ExportPanel from "@/components/export/ExportPanel";
+import ReproducibilityDetails from "@/components/training/ReproducibilityDetails";
 import {
   download_code,
   runModel,
@@ -1054,9 +1055,12 @@ export default function Training() {
         />
       )}
 
-      {/* NEW: Export Panel (shown when training completes) */}
+      {/* Export Panel & Reproducibility (shown when training completes) */}
       {completedJobInfo && (
-        <ExportPanel jobId={completedJobInfo.jobId} modelName={completedJobInfo.modelName} />
+        <>
+          <ExportPanel jobId={completedJobInfo.jobId} modelName={completedJobInfo.modelName} />
+          <ReproducibilityDetails jobId={completedJobInfo.jobId} />
+        </>
       )}
 
       {/* Legacy text output for errors */}

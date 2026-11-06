@@ -49,13 +49,26 @@ def create_training_job(
     project_id: uuid_pkg.UUID | None,
     hyperparams: dict | None,
     session: Session,
+    reproducibility: dict | None = None,
 ) -> TrainingJob:
     """Persist a new job in the PENDING state and return it."""
+    if reproducibility is None:
+        try:
+            from app.models.ml import ModelBasic
+            from app.services.reproducibility import capture_reproducibility_snapshot
+
+            model = session.get(ModelBasic, model_id)
+            if model is not None:
+                reproducibility = capture_reproducibility_snapshot(session, model, hyperparams)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Could not capture reproducibility snapshot for model %s: %s", model_id, exc)
+
     job = TrainingJob(
         model_id=model_id,
         project_id=project_id,
         hyperparams=hyperparams,
         status=TrainingStatus.PENDING,
+        reproducibility=reproducibility,
     )
     session.add(job)
     session.commit()

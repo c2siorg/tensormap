@@ -36,6 +36,15 @@ class TrainingJobResponse(BaseModel):
     completed_at: datetime | None = None
     error_message: str | None = None
     latest_metrics: dict | None = None
+    reproducibility: dict | None = None
+
+
+class JobReproducibilityResponse(BaseModel):
+    """Reproducibility metadata for a single training job."""
+
+    job_id: str
+    has_snapshot: bool
+    reproducibility: dict | None = None
 
 
 class TrainingJobSummary(BaseModel):

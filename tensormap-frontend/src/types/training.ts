@@ -162,3 +162,56 @@ export interface MetricsSummaryBarProps {
   currentEpoch: number;
   totalEpochs: number;
 }
+
+export interface DatasetSnapshot {
+  file_id: string | null;
+  file_name: string | null;
+  file_type: string | null;
+  disk_name: string | null;
+  fingerprint: string | null;
+  file_size_bytes: number | null;
+  row_count: number | null;
+}
+
+export interface TrainingConfigSnapshot {
+  model_name: string;
+  problem_type: string | null;
+  problem_type_id: number | null;
+  target_field: string | null;
+  optimizer: string | null;
+  learning_rate: number | null;
+  loss: string | null;
+  metric: string | null;
+  epochs: number | null;
+  batch_size: number | null;
+  training_split: number | null;
+  hyperparameters: Record<string, unknown>;
+}
+
+export interface RuntimeEnvironmentSnapshot {
+  python_version: string;
+  platform: string;
+  libraries: {
+    tensorflow: string | null;
+    numpy: string | null;
+    pandas: string | null;
+  };
+}
+
+export interface ReproducibilitySnapshot {
+  captured_at: string;
+  dataset: DatasetSnapshot | null;
+  training_config: TrainingConfigSnapshot;
+  random_seed: number | string | null;
+  runtime_environment: RuntimeEnvironmentSnapshot;
+}
+
+export interface ReproducibilityResponse {
+  job_id: string;
+  has_snapshot: boolean;
+  reproducibility: ReproducibilitySnapshot | null;
+}
+
+export interface ReproducibilityDetailsProps {
+  jobId: string;
+}

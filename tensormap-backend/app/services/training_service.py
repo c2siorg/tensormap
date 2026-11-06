@@ -49,13 +49,19 @@ def create_training_job(
     project_id: uuid_pkg.UUID | None,
     hyperparams: dict | None,
     session: Session,
+    reproducibility: dict | None = None,
 ) -> TrainingJob:
-    """Persist a new job in the PENDING state and return it."""
+    """Persist a new job in the PENDING state and return it.
+
+    Snapshot capture runs asynchronously in the background training thread
+    (model_run) to keep the job creation request path fast and unblocked.
+    """
     job = TrainingJob(
         model_id=model_id,
         project_id=project_id,
         hyperparams=hyperparams,
         status=TrainingStatus.PENDING,
+        reproducibility=reproducibility,
     )
     session.add(job)
     session.commit()

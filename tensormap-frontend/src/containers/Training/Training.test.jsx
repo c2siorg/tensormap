@@ -32,6 +32,7 @@ vi.mock("../../services/socketService", () => ({
 
 vi.mock("@/components/training/TrainingMetricsChart", () => ({ default: () => null }));
 vi.mock("@/components/export/ExportPanel", () => ({ default: () => null }));
+vi.mock("@/components/training/ReproducibilityDetails", () => ({ default: () => null }));
 
 import { getTrainingHistory, runModel, updateTrainingConfig } from "../../services/ModelServices";
 import { getAllFiles } from "../../services/FileServices";

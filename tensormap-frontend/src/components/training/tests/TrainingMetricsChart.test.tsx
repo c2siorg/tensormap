@@ -18,6 +18,10 @@ vi.mock("@/hooks/useTrainingMetrics", () => ({
   useTrainingMetrics: vi.fn(),
 }));
 
+vi.mock("../ReproducibilityDetails", () => ({
+  default: () => null,
+}));
+
 vi.mock("@/services/socketService", () => ({
   subscribeToJob: vi.fn(() => vi.fn()),
   unsubscribeFromJob: vi.fn(),

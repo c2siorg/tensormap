@@ -72,3 +72,4 @@ class TrainingJob(SQLModel, table=True):
     analysis_cache: dict | None = Field(default=None, sa_column=Column(JSON, nullable=True))
     last_export_download_at: datetime | None = Field(default=None, sa_column=Column(DateTime, nullable=True))
     tuning_session_id: str | None = Field(default=None, max_length=36, nullable=True)
+    reproducibility: dict | None = Field(default=None, sa_column=Column(JSON, nullable=True))

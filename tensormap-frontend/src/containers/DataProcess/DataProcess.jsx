@@ -7,6 +7,7 @@ import DisplayDataset from "../../components/Process/DisplayDataset";
 import SelectFileModal from "../../components/Process/SelectFileModal";
 import PreprocessData from "../../components/Process/PreprocessData";
 import CorrelationHeatmap from "../../components/Process/CorrelationHeatmap";
+import FeatureSelectionStudio from "../../components/Process/FeatureSelectionStudio";
 import { getAllFiles } from "../../services/FileServices";
 import { projectFiles } from "../../shared/atoms";
 import logger from "../../shared/logger";
@@ -20,6 +21,7 @@ function DataProcess() {
   const [files, setFiles] = useRecoilState(projectFiles);
   const [selectedFileId, setSelectedFileId] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [datasetRevision, setDatasetRevision] = useState(0);
 
   useEffect(() => {
     if (files.length > 0 && !selectedFileId) {
@@ -36,6 +38,7 @@ function DataProcess() {
     getAllFiles(projectId)
       .then((response) => {
         setFiles(response);
+        setDatasetRevision((revision) => revision + 1);
         if (response.length > 0 && !selectedFileId) {
           const firstCsv = response.find((f) => f.file_type === "csv");
           setSelectedFileId(String(firstCsv ? firstCsv.file_id : response[0].file_id));
@@ -116,7 +119,10 @@ function DataProcess() {
                       <CardTitle>Dataset Preview</CardTitle>
                     </CardHeader>
                     <CardContent>
-                      <DisplayDataset fileId={selectedFileId} />
+                      <DisplayDataset
+                        key={`${selectedFileId}-${datasetRevision}`}
+                        fileId={selectedFileId}
+                      />
                     </CardContent>
                   </Card>
                   <Card>
@@ -124,13 +130,35 @@ function DataProcess() {
                       <CardTitle>Preprocessing</CardTitle>
                     </CardHeader>
                     <CardContent>
-                      <PreprocessData fileId={selectedFileId} updateFileList={refreshFiles} />
+                      <PreprocessData
+                        fileId={selectedFileId}
+                        refreshKey={datasetRevision}
+                        updateFileList={refreshFiles}
+                      />
                     </CardContent>
                   </Card>
                 </div>
                 <Card>
                   <CardContent className="pt-4">
-                    <ColumnStatsPanel fileId={selectedFileId} />
+                    <ColumnStatsPanel
+                      key={`${selectedFileId}-${datasetRevision}`}
+                      fileId={selectedFileId}
+                    />
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Feature Selection Studio</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <FeatureSelectionStudio
+                      fileId={selectedFileId}
+                      datasetRevision={datasetRevision}
+                      columns={
+                        files.find((file) => String(file.file_id) === selectedFileId)?.fields || []
+                      }
+                      updateFileList={refreshFiles}
+                    />
                   </CardContent>
                 </Card>
                 <Card>
@@ -138,7 +166,10 @@ function DataProcess() {
                     <CardTitle>Correlation Heatmap</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <CorrelationHeatmap fileId={selectedFileId} />
+                    <CorrelationHeatmap
+                      key={`${selectedFileId}-${datasetRevision}`}
+                      fileId={selectedFileId}
+                    />
                   </CardContent>
                 </Card>
               </div>

@@ -15,7 +15,7 @@ import logger from "../../shared/logger";
  *
  * @param {{ fileId: string, updateFileList: () => void }} props
  */
-function PreprocessData({ fileId, updateFileList }) {
+function PreprocessData({ fileId, refreshKey, updateFileList }) {
   const [data, setData] = useState(null);
   const [transformations, setTransformations] = useState([]);
   const [disableButton, setDisableButton] = useState(true);
@@ -38,7 +38,7 @@ function PreprocessData({ fileId, updateFileList }) {
       }
     };
     fetchData();
-  }, [fileId]);
+  }, [fileId, refreshKey]);
 
   useEffect(() => {
     setDisableButton(transformations.length === 0);
@@ -106,6 +106,7 @@ function PreprocessData({ fileId, updateFileList }) {
 
 PreprocessData.propTypes = {
   fileId: PropTypes.string.isRequired,
+  refreshKey: PropTypes.number,
   updateFileList: PropTypes.func.isRequired,
 };
 

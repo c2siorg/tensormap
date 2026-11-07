@@ -203,3 +203,81 @@ class TestTransformationCorrectness:
         result, status_code = _run(df, "Fill Missing Values", "col", params={"strategy": "interpolate"})
         assert status_code == 422
         assert "Unknown fill strategy" in result["message"]
+
+
+class TestClipOutliers:
+    def test_iqr_clipping(self):
+        # Q1 = 10, Q3 = 20, IQR = 10, lower = 10 - 1.5*10 = -5, upper = 20 + 1.5*10 = 35
+        df = pd.DataFrame({"val": [-100.0, 10.0, 15.0, 20.0, 100.0]})
+        result_df = _run_df(df, "Clip Outliers", "val", params={"method": "iqr", "factor": 1.5})
+        assert result_df["val"].min() == pytest.approx(-5.0)
+        assert result_df["val"].max() == pytest.approx(35.0)
+
+    def test_default_method_is_iqr(self):
+        df = pd.DataFrame({"val": [-100.0, 10.0, 15.0, 20.0, 100.0]})
+        result_df = _run_df(df, "Clip Outliers", "val", params=None)
+        assert result_df["val"].min() == pytest.approx(-5.0)
+        assert result_df["val"].max() == pytest.approx(35.0)
+
+    def test_zscore_clipping(self):
+        # Standardize and clip at 3 std
+        df = pd.DataFrame({"val": [10.0] * 20 + [1000.0]})
+        result_df = _run_df(df, "Clip Outliers", "val", params={"method": "zscore", "threshold": 2.0})
+        assert result_df["val"].max() < 1000.0
+
+    def test_percentile_clipping(self):
+        df = pd.DataFrame({"val": list(range(101))})
+        result_df = _run_df(
+            df,
+            "Clip Outliers",
+            "val",
+            params={"method": "percentile", "lower_percentile": 5.0, "upper_percentile": 95.0},
+        )
+        assert result_df["val"].min() == pytest.approx(5.0)
+        assert result_df["val"].max() == pytest.approx(95.0)
+
+    def test_non_numeric_rejected(self):
+        df = pd.DataFrame({"label": ["a", "b", "c"]})
+        result, status_code = _run(df, "Clip Outliers", "label")
+        assert status_code == 422
+        assert "not numeric" in result["message"]
+
+    def test_invalid_method_rejected(self):
+        df = pd.DataFrame({"val": [1.0, 2.0, 3.0]})
+        result, status_code = _run(df, "Clip Outliers", "val", params={"method": "unknown"})
+        assert status_code == 422
+        assert "Unknown method" in result["message"]
+
+
+class TestDropMissingRows:
+    def test_drops_null_rows(self):
+        df = pd.DataFrame({"a": [1.0, None, 3.0, None, 5.0], "b": [10, 20, 30, 40, 50]})
+        result_df = _run_df(df, "Drop Missing Rows", "a")
+        assert len(result_df) == 3
+        assert list(result_df["a"]) == [1.0, 3.0, 5.0]
+        assert list(result_df["b"]) == [10, 30, 50]
+
+    def test_rejects_dropping_all_rows(self):
+        df = pd.DataFrame({"a": [None, None, None]})
+        result, status_code = _run(df, "Drop Missing Rows", "a")
+        assert status_code == 422
+        assert "removed all rows" in result["message"]
+
+
+class TestSquareRootTransform:
+    def test_applies_sqrt(self):
+        df = pd.DataFrame({"val": [0.0, 4.0, 9.0, 16.0]})
+        result_df = _run_df(df, "Square Root Transform", "val")
+        assert list(result_df["val"]) == pytest.approx([0.0, 2.0, 3.0, 4.0])
+
+    def test_rejects_negative_values(self):
+        df = pd.DataFrame({"val": [4.0, -1.0, 9.0]})
+        result, status_code = _run(df, "Square Root Transform", "val")
+        assert status_code == 422
+        assert "negative value(s)" in result["message"]
+
+    def test_rejects_non_numeric(self):
+        df = pd.DataFrame({"val": ["cat", "dog"]})
+        result, status_code = _run(df, "Square Root Transform", "val")
+        assert status_code == 422
+        assert "not numeric" in result["message"]

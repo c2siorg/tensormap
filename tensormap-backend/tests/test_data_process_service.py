@@ -586,6 +586,7 @@ class TestPreprocessData:
         assert status == 200
         # The cache on the DataFile row itself is refreshed...
         assert sample_file.columns == ["sepal_length", "sepal_width"]
+        assert sample_file.row_count == 4
 
         # ...and get_all_files_service reports it, not the stale cache.
         mock_db.exec.side_effect = [

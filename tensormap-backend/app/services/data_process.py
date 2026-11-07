@@ -382,6 +382,62 @@ def _log_transform(df: pd.DataFrame, col: str, _params: dict | None) -> pd.DataF
     return df
 
 
+def _sqrt_transform(df: pd.DataFrame, col: str, _params: dict | None) -> pd.DataFrame:
+    if not pd.api.types.is_numeric_dtype(df[col]):
+        raise ValueError(f"Square Root Transform: Column '{col}' is not numeric.")
+    s = df[col]
+    invalid = int((s < 0).sum())
+    if invalid:
+        raise ValueError(
+            f"Square Root Transform: {invalid} negative value(s) in column '{col}'. "
+            "Square root requires non-negative values (x >= 0)."
+        )
+    df[col] = np.sqrt(s)
+    return df
+
+
+def _clip_outliers(df: pd.DataFrame, col: str, params: dict | None) -> pd.DataFrame:
+    if not pd.api.types.is_numeric_dtype(df[col]):
+        raise ValueError(f"Clip Outliers: Column '{col}' is not numeric.")
+    params = params or {}
+    method = params.get("method", "iqr")
+
+    if method == "iqr":
+        factor = float(params.get("factor", 1.5))
+        q25 = df[col].quantile(0.25)
+        q75 = df[col].quantile(0.75)
+        iqr = q75 - q25
+        lower = q25 - factor * iqr
+        upper = q75 + factor * iqr
+    elif method == "zscore":
+        threshold = float(params.get("threshold", 3.0))
+        mean = df[col].mean()
+        std = df[col].std()
+        if np.isclose(std, 0):
+            return df
+        lower = mean - threshold * std
+        upper = mean + threshold * std
+    elif method == "percentile":
+        lower_pct = float(params.get("lower_percentile", 1.0)) / 100.0
+        upper_pct = float(params.get("upper_percentile", 99.0)) / 100.0
+        lower = df[col].quantile(lower_pct)
+        upper = df[col].quantile(upper_pct)
+    else:
+        raise ValueError(f"Clip Outliers: Unknown method '{method}'. Valid: 'iqr', 'zscore', 'percentile'")
+
+    df[col] = df[col].clip(lower=lower, upper=upper)
+    return df
+
+
+def _drop_missing_rows(df: pd.DataFrame, col: str, _params: dict | None) -> pd.DataFrame:
+    df = df.dropna(subset=[col]).reset_index(drop=True)
+    if df.empty:
+        raise ValueError(
+            f"Drop Missing Rows: Dropping rows with missing values in column '{col}' removed all rows from the dataset."
+        )
+    return df
+
+
 def _fill_missing(df: pd.DataFrame, col: str, params: dict | None) -> pd.DataFrame:
     strategy = (params or {}).get("strategy", "mean")
     if strategy == "median":
@@ -407,6 +463,9 @@ _TRANSFORMATION_REGISTRY: dict[str, Callable[..., pd.DataFrame]] = {
     "Min-Max Normalization": _min_max_normalize,
     "Z-score Standardization": _zscore_standardize,
     "Log Transform": _log_transform,
+    "Square Root Transform": _sqrt_transform,
+    "Clip Outliers": _clip_outliers,
+    "Drop Missing Rows": _drop_missing_rows,
     "Fill Missing Values": _fill_missing,
 }
 
@@ -481,8 +540,10 @@ def preprocess_data(db: Session, file_id: uuid_pkg.UUID, transformations: list) 
             )
         else:
             file.columns = refreshed_columns
-            db.add(file)
-            db.commit()
+
+        file.row_count = len(df)
+        db.add(file)
+        db.commit()
         return _resp(200, True, "Dataset preprocessed successfully")
     except ValueError as e:
         return _resp(422, False, str(e))
@@ -520,12 +581,16 @@ def revert_data_process_service(db: Session, file_id: uuid_pkg.UUID) -> tuple:
         logger.exception("Failed to restore backup from %s to %s", bak_path, file_path)
         return _resp(500, False, f"Failed to restore dataset from backup: {e}")
 
-    # Refresh columns cache
+    # Refresh columns and row count cache
     refreshed_columns = read_csv_columns(file_path)
     if refreshed_columns is not None:
         file.columns = refreshed_columns
-        db.add(file)
-        db.commit()
+
+    with contextlib.suppress(Exception):
+        file.row_count = sum(chunk.shape[0] for chunk in pd.read_csv(file_path, chunksize=10_000))
+
+    db.add(file)
+    db.commit()
 
     return _resp(
         200,

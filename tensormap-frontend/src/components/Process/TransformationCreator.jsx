@@ -17,6 +17,9 @@ function TransformationCreator({ features, onAdd }) {
     "Min-Max Normalization",
     "Z-score Standardization",
     "Log Transform",
+    "Square Root Transform",
+    "Clip Outliers",
+    "Drop Missing Rows",
     "Fill Missing Values",
   ];
   const [selectedFeature, setSelectedFeature] = useState(features[0]);

@@ -22,6 +22,8 @@ from alembic.config import Config
 
 cfg = Config("alembic.ini")
 command.upgrade(cfg, "head")
+command.downgrade(cfg, "i7j8k9l0m1n2")  # undo reproducibility_metadata migration
+command.upgrade(cfg, "head")
 command.downgrade(cfg, "h6i7j8k9l0m1")  # undo the tuning_session migration
 command.upgrade(cfg, "head")
 """
@@ -40,5 +42,7 @@ def test_migrations_upgrade_downgrade_upgrade_on_fresh_sqlite(tmp_path):
     with sqlite3.connect(db_file) as conn:
         tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         tuning_fk = [r for r in conn.execute("PRAGMA foreign_key_list(training_job)") if r[2] == "tuning_session"]
+        training_job_columns = {r[1]: r for r in conn.execute("PRAGMA table_info(training_job)")}
     assert {"model_basic", "training_job", "tuning_session"} <= tables
     assert tuning_fk, "training_job.tuning_session_id should reference tuning_session"
+    assert training_job_columns["reproducibility_metadata"][3] == 0, "snapshot must be nullable for legacy jobs"

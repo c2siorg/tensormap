@@ -11,6 +11,7 @@ import os
 import uuid as uuid_pkg
 from datetime import UTC, datetime
 
+from sqlalchemy import update
 from sqlmodel import Session, select
 
 from app.database import engine
@@ -69,20 +70,25 @@ def update_job_status(
     session: Session,
     error_message: str | None = None,
 ) -> None:
-    """Transition a job to ``status``, stamping timestamps and error as needed."""
-    job = session.get(TrainingJob, job_id)
-    if job is None:
-        logger.warning("update_job_status: job %s not found", job_id)
-        return
-    job.status = status
-    if status == TrainingStatus.RUNNING and job.started_at is None:
-        job.started_at = _utcnow()
-    if status in (TrainingStatus.COMPLETED, TrainingStatus.FAILED, TrainingStatus.CANCELLED):
-        job.completed_at = _utcnow()
+    """Atomically transition a job without overwriting a terminal status."""
+    values = {"status": status}
+    if status == TrainingStatus.RUNNING:
+        values["started_at"] = _utcnow()
+        allowed_statuses = (TrainingStatus.PENDING,)
+    elif status in (TrainingStatus.CANCELLED, TrainingStatus.COMPLETED, TrainingStatus.FAILED):
+        values["completed_at"] = _utcnow()
+        allowed_statuses = (TrainingStatus.PENDING, TrainingStatus.RUNNING)
+    else:
+        allowed_statuses = (TrainingStatus.PENDING, TrainingStatus.RUNNING)
     if error_message is not None:
-        job.error_message = error_message[:2000]
-    session.add(job)
+        values["error_message"] = error_message[:2000]
+
+    result = session.exec(
+        update(TrainingJob).where(TrainingJob.id == job_id, TrainingJob.status.in_(allowed_statuses)).values(**values)
+    )
     session.commit()
+    if result.rowcount == 0:
+        logger.debug("Skipped stale status transition %s for job %s", status, job_id)
 
 
 def get_job_metrics_grouped(job_id: str, session: Session) -> list[dict]:
@@ -162,7 +168,14 @@ def _train_in_thread(model_name: str, job_id: str, loop: asyncio.AbstractEventLo
         except Exception as e:  # noqa: BLE001 - last-resort guard for the background thread
             logger.exception("Background training failed for job %s: %s", job_id, e)
             try:
-                update_job_status(job_id, TrainingStatus.FAILED, session, error_message=str(e))
+                from app.services.reproducibility import sanitize_error_message
+
+                update_job_status(
+                    job_id,
+                    TrainingStatus.FAILED,
+                    session,
+                    error_message=sanitize_error_message(str(e)),
+                )
             except Exception:  # noqa: BLE001
                 logger.exception("Failed to mark job %s as failed", job_id)
 

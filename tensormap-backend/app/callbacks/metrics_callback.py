@@ -11,9 +11,11 @@ import math
 from datetime import UTC, datetime
 
 import tensorflow as tf
+from sqlalchemy import update
 
 from app.models.training_job import TrainingJob, TrainingStatus
 from app.models.training_metric import TrainingMetric
+from app.services.reproducibility import TrainingCancelledError
 from app.shared.constants import SOCKETIO_DL_NAMESPACE, SOCKETIO_LISTENER
 from app.shared.logging_config import get_logger
 from app.shared.training_events import training_event
@@ -75,15 +77,23 @@ class MetricsCallback(tf.keras.callbacks.Callback):
         self.validation_steps = 0
 
     def on_train_begin(self, logs: dict = None) -> None:
-        """Mark the job RUNNING and record the start time."""
+        """Atomically mark PENDING jobs RUNNING without reviving cancellation."""
         self.start_time = _utcnow()
         with self.session_factory() as session:
-            job = session.get(TrainingJob, self.job_id)
-            if job is not None:
-                job.status = TrainingStatus.RUNNING
-                job.started_at = self.start_time
-                session.add(job)
-                session.commit()
+            result = session.exec(
+                update(TrainingJob)
+                .where(TrainingJob.id == self.job_id, TrainingJob.status == TrainingStatus.PENDING)
+                .values(status=TrainingStatus.RUNNING, started_at=self.start_time)
+            )
+            session.commit()
+            if result.rowcount == 0:
+                job = session.get(TrainingJob, self.job_id)
+                if job is not None and job.status == TrainingStatus.CANCELLED:
+                    if self.model is not None:
+                        self.model.stop_training = True
+                    raise TrainingCancelledError("Training job was cancelled before fitting")
+                if (job is None or job.status != TrainingStatus.RUNNING) and self.model is not None:
+                    self.model.stop_training = True
 
     def on_train_batch_end(self, batch: int, logs: dict = None) -> None:
         """Track the current training batch and step."""
@@ -158,16 +168,19 @@ class MetricsCallback(tf.keras.callbacks.Callback):
         is_cancelled_or_failed = False
 
         with self.session_factory() as session:
+            session.exec(
+                update(TrainingJob)
+                .where(TrainingJob.id == self.job_id, TrainingJob.status == TrainingStatus.RUNNING)
+                .values(status=TrainingStatus.COMPLETED, completed_at=_utcnow())
+            )
+            session.commit()
+            session.expire_all()
             job = session.get(TrainingJob, self.job_id)
             if job is not None:
                 if job.status in (TrainingStatus.CANCELLED, TrainingStatus.FAILED):
                     is_cancelled_or_failed = True
                     final_status = job.status.value
-                elif job.status == TrainingStatus.RUNNING:
-                    job.status = TrainingStatus.COMPLETED
-                    job.completed_at = _utcnow()
-                    session.add(job)
-                    session.commit()
+                elif job.status == TrainingStatus.COMPLETED:
                     final_status = job.status.value
 
         # Only save model artifact if the training completed successfully

@@ -209,3 +209,101 @@ class TestMigrationUpDown:
         # Query back
         loaded = db_session.get(ModelBasic, model.id)
         assert loaded.graph_ir == graph_data
+
+
+class TestReproducibilityMetadataMigration:
+    """Test the reproducibility_metadata column migration."""
+
+    def test_training_job_has_reproducibility_metadata_column(self, db_session: Session):
+        """Verify reproducibility_metadata column exists on training_job table."""
+        inspector = inspect(db_session.bind)
+        columns = {col["name"]: col for col in inspector.get_columns("training_job")}
+
+        assert "reproducibility_metadata" in columns, "reproducibility_metadata column should exist"
+        assert columns["reproducibility_metadata"]["nullable"] is True, "reproducibility_metadata should be nullable"
+
+    def test_reproducibility_metadata_accepts_json_data(self, db_session: Session):
+        """Verify reproducibility_metadata column can store JSON dictionaries."""
+        from app.models.ml import ModelBasic
+        from app.models.training_job import TrainingJob, TrainingStatus
+
+        # Create a model first (needed for FK constraint)
+        model = ModelBasic(model_name="test-model-for-repro")
+        db_session.add(model)
+        db_session.commit()
+
+        metadata = {
+            "schema_version": 2,
+            "dataset": {
+                "fingerprint": "abc123",
+                "file_path": "/data/test.csv",
+                "row_count": 1000,
+                "column_count": 10,
+            },
+            "training_config": {"epochs": 50, "batch_size": 32, "optimizer": "adam", "learning_rate": 0.001},
+            "randomness": {"tensorflow_seed": 42, "numpy_seed": 42, "python_seed": 42},
+            "runtime": {"tensorflow_version": "2.12.0", "numpy_version": "1.24.0", "python_version": "3.12.0"},
+        }
+
+        job = TrainingJob(model_id=model.id, status=TrainingStatus.PENDING, reproducibility_metadata=metadata)
+        db_session.add(job)
+        db_session.commit()
+        db_session.refresh(job)
+
+        assert job.reproducibility_metadata is not None
+        assert job.reproducibility_metadata["schema_version"] == 2
+        assert job.reproducibility_metadata["dataset"]["fingerprint"] == "abc123"
+        assert job.reproducibility_metadata["training_config"]["epochs"] == 50
+
+    def test_existing_training_jobs_work_with_null_metadata(self, db_session: Session):
+        """Legacy training jobs with NULL reproducibility_metadata should work correctly."""
+        from app.models.ml import ModelBasic
+        from app.models.training_job import TrainingJob, TrainingStatus
+
+        # Create a model first
+        model = ModelBasic(model_name="test-model-legacy")
+        db_session.add(model)
+        db_session.commit()
+
+        # Create a job without reproducibility metadata (simulating legacy data)
+        job = TrainingJob(
+            model_id=model.id, status=TrainingStatus.COMPLETED, hyperparams={"epochs": 10, "batch_size": 32}
+        )
+        db_session.add(job)
+        db_session.commit()
+        db_session.refresh(job)
+
+        # Should be able to query and use it normally
+        assert job.reproducibility_metadata is None
+        assert job.hyperparams is not None
+        assert job.status == TrainingStatus.COMPLETED
+
+    def test_new_training_jobs_can_store_and_retrieve_metadata(self, db_session: Session):
+        """New training jobs should persist and retrieve reproducibility metadata correctly."""
+        from app.models.ml import ModelBasic
+        from app.models.training_job import TrainingJob, TrainingStatus
+
+        # Create a model first
+        model = ModelBasic(model_name="test-model-new")
+        db_session.add(model)
+        db_session.commit()
+
+        metadata = {
+            "schema_version": 2,
+            "dataset": {"fingerprint": "def456", "file_path": "/data/train.csv"},
+            "runtime": {"tensorflow_version": "2.13.0"},
+            "captured_at": "2026-11-07T23:45:00Z",
+        }
+
+        job = TrainingJob(model_id=model.id, status=TrainingStatus.RUNNING, reproducibility_metadata=metadata)
+        db_session.add(job)
+        db_session.commit()
+
+        # Query it back
+        job_id = job.id
+        db_session.expunge(job)
+
+        retrieved_job = db_session.get(TrainingJob, job_id)
+        assert retrieved_job is not None
+        assert retrieved_job.reproducibility_metadata == metadata
+        assert retrieved_job.reproducibility_metadata["dataset"]["fingerprint"] == "def456"

@@ -1,7 +1,12 @@
 import asyncio
 import contextlib
 import contextvars
+import hashlib
+import json
 import os
+from contextlib import nullcontext
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
@@ -13,6 +18,20 @@ from app.config import get_settings
 from app.models.data import DataFile, ImageProperties
 from app.models.ml import ModelBasic
 from app.models.training_job import TrainingJob, TrainingStatus
+from app.schemas.training import (
+    DatasetProvenance,
+    RandomnessSnapshot,
+    ReproducibilitySnapshot,
+    RuntimeVersions,
+    TrainingConfigurationSnapshot,
+)
+from app.services.reproducibility import (
+    TrainingCancelledError,
+    image_dataset_snapshot,
+    read_csv_with_fingerprint,
+    runtime_versions,
+    sanitize_error_message,
+)
 from app.shared.constants import (
     MODEL_GENERATION_LOCATION,
     MODEL_GENERATION_TYPE,
@@ -251,15 +270,18 @@ def model_run(
     token = _training_loop_ctx.set(loop)
     try:
         _run(model_name, db, job_id=job_id)
+    except TrainingCancelledError as e:
+        logger.info("Training cancelled for job %s: %s", job_id, e)
     except Exception as e:
         logger.exception("Training failed for model '%s': %s", model_name, str(e))
         if job_id is not None:
             from app.callbacks.metrics_callback import schedule_room_emit
             from app.services.training_service import make_session, update_job_status
 
+            public_error = sanitize_error_message(str(e))
             try:
                 with make_session() as session:
-                    update_job_status(job_id, TrainingStatus.FAILED, session, error_message=str(e))
+                    update_job_status(job_id, TrainingStatus.FAILED, session, error_message=public_error)
                 schedule_room_emit(
                     sio,
                     loop,
@@ -272,7 +294,7 @@ def model_run(
                         epoch=None,
                         batch=None,
                         steps=None,
-                        error=str(e),
+                        error=public_error,
                     ),
                 )
             except Exception:  # noqa: BLE001 - never mask the original training error
@@ -319,12 +341,262 @@ def _prepare_training_data(features, target_field, training_split):
     return X[:split_index], y[:split_index], X[split_index:], y[split_index:]
 
 
+def _raise_if_job_cancelled(job_id: str | None) -> None:
+    """Read cancellation from a fresh session so stale worker state cannot revive a job."""
+    if job_id is None:
+        return
+
+    from app.services.training_service import make_session
+
+    with make_session() as session:
+        job = session.get(TrainingJob, job_id)
+        if job is not None and job.status == TrainingStatus.CANCELLED:
+            raise TrainingCancelledError("Training job was cancelled")
+
+
 def _should_skip_evaluation(callbacks: list[tf.keras.callbacks.Callback], model: tf.keras.Model) -> bool:
     """Return True if training was cancelled or stopped prematurely, skipping evaluation."""
     for cb in callbacks:
         if isinstance(cb, CancellationCheckCallback) and (getattr(cb, "cancelled", False) or cb.check_cancelled()):
             return True
     return bool(getattr(model, "stop_training", False))
+
+
+def _persist_reproducibility_snapshot(
+    db: Session,
+    job: TrainingJob | None,
+    dataset_file: DataFile,
+    fingerprint: str,
+    fingerprint_scope: str,
+    size_bytes: int,
+    model_configs: ModelBasic,
+    model: tf.keras.Model,
+    hyperparams: dict,
+    optimizer_name: Any,
+    learning_rate: float | None,
+    epochs: int,
+    batch_size: int,
+    training_split: float,
+    feature_columns: list[str] | None,
+    class_names: list[str] | None,
+    actual_training_rows: int | None = None,
+    actual_holdout_rows: int | None = None,
+    dataset_parameters: dict[str, Any] | None = None,
+) -> None:
+    """Persist a snapshot of the effective run configuration before model.fit."""
+    if job is None:
+        return
+
+    problem_type_id = int(model_configs.model_type) if model_configs.model_type is not None else None
+    try:
+        problem_type = ProblemType(problem_type_id).name.lower() if problem_type_id is not None else None
+    except ValueError:
+        problem_type = None
+
+    architecture_json = model.to_json()
+    actual_total_rows = (
+        actual_training_rows + actual_holdout_rows
+        if actual_training_rows is not None and actual_holdout_rows is not None
+        else None
+    )
+    actual_training_percent = (
+        actual_training_rows / actual_total_rows * 100
+        if actual_total_rows and actual_training_rows is not None
+        else None
+    )
+    actual_holdout_percent = (
+        actual_holdout_rows / actual_total_rows * 100 if actual_total_rows and actual_holdout_rows is not None else None
+    )
+
+    snapshot = ReproducibilitySnapshot(
+        job_id=job.id,
+        captured_at=datetime.now(UTC),
+        dataset=DatasetProvenance(
+            file_id=str(dataset_file.id),
+            filename=f"{Path(dataset_file.file_name).name}.{dataset_file.file_type}",
+            dataset_type=dataset_file.file_type,
+            fingerprint_algorithm="sha256",
+            fingerprint=fingerprint,
+            fingerprint_scope=fingerprint_scope,
+            size_bytes=size_bytes,
+        ),
+        training_configuration=TrainingConfigurationSnapshot(
+            problem_type_id=problem_type_id,
+            problem_type=problem_type,
+            target_column=model_configs.target_field,
+            feature_columns=feature_columns,
+            class_names=class_names,
+            model_architecture=json.loads(architecture_json),
+            architecture_sha256=hashlib.sha256(architecture_json.encode("utf-8")).hexdigest(),
+            optimizer=tf.keras.optimizers.serialize(model.optimizer),
+            loss=tf.keras.losses.serialize(model.loss),
+            metrics=[str(model_configs.metric)] if model_configs.metric is not None else [],
+            epochs=epochs,
+            batch_size=batch_size,
+            # Backward-compatible fields (schema v1) - maintained for existing consumers:
+            training_split_percent=float(training_split),
+            holdout_split_percent=100 - float(training_split),
+            # Explicit requested configuration (schema v2) - distinguishes intent from outcome:
+            requested_training_split_percent=float(training_split),
+            requested_holdout_split_percent=100 - float(training_split),
+            # Observed split results (schema v2) - actual row counts and computed percentages:
+            actual_training_rows=actual_training_rows,
+            actual_holdout_rows=actual_holdout_rows,
+            actual_training_split_percent=actual_training_percent,
+            actual_holdout_split_percent=actual_holdout_percent,
+            holdout_role="evaluation" if feature_columns is not None else "validation",
+            configured_hyperparameters={
+                "saved_model_configuration": {
+                    "optimizer": model_configs.optimizer,
+                    "epochs": model_configs.epochs,
+                    "batch_size": model_configs.batch_size,
+                    "loss": model_configs.loss,
+                    "metric": model_configs.metric,
+                    "training_split_percent": model_configs.training_split,
+                    "problem_type_id": problem_type_id,
+                    "target_column": model_configs.target_field,
+                },
+                "job_hyperparameters": {
+                    key: hyperparams[key] for key in ("optimizer", "lr", "epochs", "batch_size") if key in hyperparams
+                },
+                "runtime_overrides": {
+                    key: value
+                    for key, value in {
+                        "optimizer": optimizer_name,
+                        "learning_rate": learning_rate,
+                        "epochs": epochs,
+                        "batch_size": batch_size,
+                    }.items()
+                    if value is not None
+                    and value
+                    != {
+                        "optimizer": model_configs.optimizer,
+                        "learning_rate": None,
+                        "epochs": model_configs.epochs,
+                        "batch_size": model_configs.batch_size,
+                    }[key]
+                },
+            },
+            effective_hyperparameters={
+                "epochs": epochs,
+                "batch_size": batch_size,
+                "optimizer": tf.keras.optimizers.serialize(model.optimizer),
+                "learning_rate": tf.keras.optimizers.serialize(model.optimizer).get("config", {}).get("learning_rate"),
+                "loss": tf.keras.losses.serialize(model.loss),
+                "metrics": [str(model_configs.metric)] if model_configs.metric is not None else [],
+                "training_split_percent": float(training_split),
+                **(dataset_parameters or {}),
+            },
+        ),
+        randomness=RandomnessSnapshot(
+            configured_seed=None,
+            effective_seeds={
+                "tabular_dataframe_sample_random_state": 42 if feature_columns is not None else None,
+                "keras_image_dataset_seed": 123 if class_names is not None else None,
+            },
+            applied_seeds=(
+                ["tabular_dataframe_sample_random_state"]
+                if feature_columns is not None
+                else ["keras_image_dataset_seed"]
+            ),
+            global_framework_seed_applied=False,
+            deterministic_execution_guaranteed=False,
+        ),
+        runtime_versions=RuntimeVersions(**runtime_versions()),
+    )
+    job.reproducibility_metadata = snapshot.model_dump(mode="json")
+    db.add(job)
+    db.commit()
+
+
+def _fit_model(
+    model_name: str,
+    db: Session,
+    job: TrainingJob | None,
+    model_configs: ModelBasic,
+    hyperparams: dict,
+    optimizer_name: Any,
+    learning_rate: float | None,
+    epochs: int,
+    batch_size: int,
+    training_split: float,
+    dataset_file: DataFile | None,
+    fingerprint: str | None,
+    fingerprint_scope: str | None,
+    size_bytes: int | None,
+    feature_columns: list[str] | None,
+    class_names: list[str] | None,
+    dataset_parameters: dict[str, Any] | None,
+    actual_training_rows: int | None,
+    actual_holdout_rows: int | None,
+    callbacks: list[tf.keras.callbacks.Callback],
+    image_data: tuple | None = None,
+    tabular_data: tuple | None = None,
+) -> None:
+    """Compile, snapshot, and train using the already-resolved inputs."""
+    with open(_helper_generate_json_model_file_location(model_name=model_name)) as model_file:
+        model = tf.keras.models.model_from_json(model_file.read(), custom_objects=None)
+    model.summary()
+    model.compile(
+        optimizer=_build_optimizer(optimizer_name, learning_rate),
+        loss=resolve_loss(model_configs.loss, from_logits=_emits_logits(model)),
+        metrics=[model_configs.metric],
+    )
+
+    if job is not None:
+        if dataset_file is None or fingerprint is None or fingerprint_scope is None or size_bytes is None:
+            raise ModelRunError("Dataset provenance is unavailable; refusing to start training without a fingerprint")
+        _persist_reproducibility_snapshot(
+            db=db,
+            job=job,
+            dataset_file=dataset_file,
+            fingerprint=fingerprint,
+            fingerprint_scope=fingerprint_scope,
+            size_bytes=size_bytes,
+            model_configs=model_configs,
+            model=model,
+            hyperparams=hyperparams,
+            optimizer_name=optimizer_name,
+            learning_rate=learning_rate,
+            epochs=epochs,
+            batch_size=batch_size,
+            training_split=training_split,
+            feature_columns=feature_columns,
+            class_names=class_names,
+            actual_training_rows=actual_training_rows,
+            actual_holdout_rows=actual_holdout_rows,
+            dataset_parameters=dataset_parameters,
+        )
+
+    # This is intentionally the last operation before fit. If cancellation wins
+    # the DB race, no batches are started and the staging context still cleans up.
+    _raise_if_job_cancelled(job.id if job is not None else None)
+
+    if image_data is not None:
+        train_data, test_data = image_data
+        model.fit(train_data, validation_data=test_data, epochs=epochs, callbacks=callbacks, verbose=0)
+        if _should_skip_evaluation(callbacks, model):
+            logger.info(
+                "Training cancelled or stopped early; skipping evaluation for image model '%s' (job %s)",
+                model_name,
+                job.id if job else None,
+            )
+        else:
+            model.evaluate(test_data, callbacks=callbacks, verbose=0)
+        return
+
+    if tabular_data is None:
+        raise ModelRunError("Training data was not prepared")
+    x_training, y_training, x_testing, y_testing = tabular_data
+    model.fit(x_training, y_training, epochs=epochs, batch_size=batch_size, callbacks=callbacks, verbose=0)
+    if _should_skip_evaluation(callbacks, model):
+        logger.info(
+            "Training cancelled or stopped early; skipping evaluation for model '%s' (job %s)",
+            model_name,
+            job.id if job else None,
+        )
+    else:
+        model.evaluate(x_testing, y_testing, callbacks=callbacks, verbose=0)
 
 
 def _run(model_name: str, db: Session, job_id: str | None = None) -> None:
@@ -335,6 +607,8 @@ def _run(model_name: str, db: Session, job_id: str | None = None) -> None:
 
     # Resolve effective hyperparameters: job overrides take precedence over saved model configs
     job = db.get(TrainingJob, job_id) if job_id else None
+    if job_id is not None and job is None:
+        raise ModelRunError(f"Training job not found: {job_id}")
     hyperparams = job.hyperparams if job and job.hyperparams else {}
 
     batch_size = hyperparams.get("batch_size") or model_configs.batch_size
@@ -350,98 +624,127 @@ def _run(model_name: str, db: Session, job_id: str | None = None) -> None:
         training_split=training_split,
     )
 
-    if model_configs.model_type == ProblemType.IMAGE_CLASSIFICATION:
-        image_properties = db.exec(select(ImageProperties).where(ImageProperties.id == model_configs.file_id)).first()
-        if image_properties is None:
-            raise ModelRunError(f"Image properties not found for file_id={model_configs.file_id}")
-        image_size = (image_properties.image_size, image_properties.image_size)
-        effective_batch_size = batch_size or image_properties.batch_size or 32
-        color_mode = image_properties.color_mode
-        label_mode = image_properties.label_mode
+    dataset_file = None
+    if job is not None:
+        dataset_file = db.exec(select(DataFile).where(DataFile.id == model_configs.file_id)).first()
+        if dataset_file is None:
+            raise ModelRunError(f"Dataset file not found (id={model_configs.file_id})")
 
-        directory = _helper_generate_file_location(db, file_id=model_configs.file_id)
-        logger.debug(
-            "Image classification params - directory: %s, image_size: %s, "
-            "batch_size: %s, color_mode: %s, label_mode: %s",
-            directory,
-            image_size,
-            effective_batch_size,
-            color_mode,
-            label_mode,
+    image_model = model_configs.model_type == ProblemType.IMAGE_CLASSIFICATION
+    image_properties = None
+    source_location = _helper_generate_file_location(db, file_id=model_configs.file_id)
+    _raise_if_job_cancelled(job.id if job is not None else None)
+    image_context = (
+        image_dataset_snapshot(
+            source_location,
+            cancel_check=lambda: _job_is_cancelled(job.id),
         )
-        validation_split = 1 - (float(training_split) / 100)
-        train_data = tf.keras.utils.image_dataset_from_directory(
-            directory,
-            validation_split=validation_split,
-            subset="training",
-            seed=123,
-            image_size=image_size,
-            batch_size=effective_batch_size,
-            color_mode=color_mode,
-            label_mode=label_mode,
-        )
-        test_data = tf.keras.utils.image_dataset_from_directory(
-            directory,
-            validation_split=validation_split,
-            subset="validation",
-            seed=123,
-            image_size=image_size,
-            batch_size=effective_batch_size,
-            color_mode=color_mode,
-            label_mode=label_mode,
-        )
-    else:
-        file_location = _helper_generate_file_location(db, file_id=model_configs.file_id)
-        features = pd.read_csv(file_location)
-
-        # Issue #5: use _prepare_training_data for transparent missing-value handling
-        x_training, y_training, x_testing, y_testing = _prepare_training_data(
-            features, model_configs.target_field, training_split
-        )
-
-        effective_batch_size = batch_size if batch_size is not None else 32
-
-    with open(_helper_generate_json_model_file_location(model_name=model_name)) as f:
-        json_string = f.read()
-    model = tf.keras.models.model_from_json(json_string, custom_objects=None)
-    model.summary()
-    optimizer = _build_optimizer(optimizer_name, lr)
-    model.compile(
-        optimizer=optimizer,
-        loss=resolve_loss(model_configs.loss, from_logits=_emits_logits(model)),
-        metrics=[model_configs.metric],
+        if image_model and job is not None
+        else nullcontext(None)
     )
 
-    if model_configs.model_type == ProblemType.IMAGE_CLASSIFICATION:
-        model.fit(
-            train_data,
-            validation_data=test_data,
-            epochs=epochs,
-            callbacks=callbacks,
-            verbose=0,
-        )
-        if _should_skip_evaluation(callbacks, model):
-            logger.info(
-                "Training cancelled or stopped early; skipping evaluation for image model '%s' (job %s)",
-                model_name,
-                job_id,
+    with image_context as image_snapshot:
+        fingerprint = image_snapshot["fingerprint"] if image_snapshot else None
+        fingerprint_scope = "image_tree_manifest_v1" if image_snapshot else None
+        size_bytes = image_snapshot["size_bytes"] if image_snapshot else None
+        class_names = image_snapshot["class_names"] if image_snapshot else None
+        feature_columns = None
+        actual_training_rows = None
+        actual_holdout_rows = None
+        dataset_parameters = None
+        tabular_data = None
+        image_data = None
+
+        if image_model:
+            image_properties = db.exec(
+                select(ImageProperties).where(ImageProperties.id == model_configs.file_id)
+            ).first()
+            if image_properties is None:
+                raise ModelRunError(f"Image properties not found for file_id={model_configs.file_id}")
+            image_size = (image_properties.image_size, image_properties.image_size)
+            effective_batch_size = batch_size or image_properties.batch_size or 32
+            color_mode = image_properties.color_mode
+            label_mode = image_properties.label_mode
+            directory = image_snapshot["path"] if image_snapshot else source_location
+            logger.debug(
+                "Image classification params - directory: %s, image_size: %s, "
+                "batch_size: %s, color_mode: %s, label_mode: %s",
+                directory,
+                image_size,
+                effective_batch_size,
+                color_mode,
+                label_mode,
             )
+            validation_split = 1 - (float(training_split) / 100)
+            train_data = tf.keras.utils.image_dataset_from_directory(
+                directory,
+                validation_split=validation_split,
+                subset="training",
+                seed=123,
+                image_size=image_size,
+                batch_size=effective_batch_size,
+                color_mode=color_mode,
+                label_mode=label_mode,
+            )
+            test_data = tf.keras.utils.image_dataset_from_directory(
+                directory,
+                validation_split=validation_split,
+                subset="validation",
+                seed=123,
+                image_size=image_size,
+                batch_size=effective_batch_size,
+                color_mode=color_mode,
+                label_mode=label_mode,
+            )
+            image_data = (train_data, test_data)
+            dataset_parameters = {
+                "image_size": image_size[0],
+                "color_mode": color_mode,
+                "label_mode": label_mode,
+            }
         else:
-            model.evaluate(test_data, callbacks=callbacks, verbose=0)
-    else:
-        model.fit(
-            x_training,
-            y_training,
+            if job is not None:
+                features, fingerprint, size_bytes = read_csv_with_fingerprint(source_location)
+                fingerprint_scope = "file_bytes"
+            else:
+                features = pd.read_csv(source_location)
+            tabular_data = _prepare_training_data(features, model_configs.target_field, training_split)
+            x_training, _, _, _ = tabular_data
+            actual_training_rows = len(tabular_data[0])
+            actual_holdout_rows = len(tabular_data[2])
+            feature_columns = [str(column) for column in x_training.columns]
+            effective_batch_size = batch_size if batch_size is not None else 32
+
+        _fit_model(
+            model_name=model_name,
+            db=db,
+            job=job,
+            model_configs=model_configs,
+            hyperparams=hyperparams,
+            optimizer_name=optimizer_name,
+            learning_rate=lr,
             epochs=epochs,
             batch_size=effective_batch_size,
+            training_split=training_split,
+            dataset_file=dataset_file,
+            fingerprint=fingerprint,
+            fingerprint_scope=fingerprint_scope,
+            size_bytes=size_bytes,
+            feature_columns=feature_columns,
+            class_names=class_names,
+            dataset_parameters=dataset_parameters,
+            actual_training_rows=actual_training_rows,
+            actual_holdout_rows=actual_holdout_rows,
             callbacks=callbacks,
-            verbose=0,
+            image_data=image_data,
+            tabular_data=tabular_data,
         )
-        if _should_skip_evaluation(callbacks, model):
-            logger.info(
-                "Training cancelled or stopped early; skipping evaluation for model '%s' (job %s)",
-                model_name,
-                job_id,
-            )
-        else:
-            model.evaluate(x_testing, y_testing, callbacks=callbacks, verbose=0)
+
+
+def _job_is_cancelled(job_id: str) -> bool:
+    """Return current cancellation state using a short-lived worker session."""
+    from app.services.training_service import make_session
+
+    with make_session() as session:
+        job = session.get(TrainingJob, job_id)
+        return job is None or job.status == TrainingStatus.CANCELLED

@@ -7,7 +7,7 @@ the request/persistence behaviour without spinning up a real Keras run.
 import asyncio
 import threading
 from datetime import UTC, datetime, timedelta
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pytest
 from sqlmodel import Session, select
@@ -17,6 +17,7 @@ from app.models.ml import ModelBasic
 from app.models.project import Project
 from app.models.training_job import TrainingJob, TrainingStatus
 from app.models.training_metric import TrainingMetric
+from app.services.model_run import model_run
 from app.services.training_service import orphan_recovery
 
 BASE = "/api/v1/model"
@@ -187,6 +188,100 @@ def test_get_job_status(client, db_session):
     resp = client.get(f"{BASE}/training-job/{job.id}")
     assert resp.status_code == 200
     assert resp.json()["data"]["status"] == "running"
+    assert resp.json()["data"]["reproducibility_metadata"] is None
+
+
+def test_job_metadata_persists_and_is_returned_by_detail_api(client, db_session):
+    model = _seed_model(db_session, "metadata-model")
+    job = _seed_job(db_session, model.id, TrainingStatus.COMPLETED)
+    job.reproducibility_metadata = {
+        "schema_version": 1,
+        "job_id": job.id,
+        "captured_at": "2026-11-02T12:00:00Z",
+        "dataset": {
+            "file_id": "dataset-1",
+            "filename": "training.csv",
+            "dataset_type": "csv",
+            "fingerprint_algorithm": "sha256",
+            "fingerprint": "a" * 64,
+            "fingerprint_scope": "file_bytes",
+            "size_bytes": 100,
+        },
+        "training_configuration": {
+            "problem_type_id": 1,
+            "problem_type": "classification",
+            "target_column": "label",
+            "feature_columns": ["feature"],
+            "class_names": None,
+            "optimizer": "adam",
+            "loss": "sparse_categorical_crossentropy",
+            "metrics": ["accuracy"],
+            "epochs": 1,
+            "batch_size": 32,
+            "training_split_percent": 80,
+            "holdout_split_percent": 20,
+            "holdout_role": "evaluation",
+            "configured_hyperparameters": {"job_hyperparameters": {}},
+            "effective_hyperparameters": {"epochs": 1, "batch_size": 32},
+        },
+        "randomness": {
+            "configured_seed": None,
+            "effective_seeds": {
+                "tabular_dataframe_sample_random_state": 42,
+                "keras_image_dataset_seed": None,
+            },
+            "applied_seeds": ["tabular_dataframe_sample_random_state"],
+            "global_framework_seed_applied": False,
+            "deterministic_execution_guaranteed": False,
+        },
+        "runtime_versions": {
+            "python": "3.12.0",
+            "tensorflow": "2.16.0",
+            "keras": "3.0.0",
+            "numpy": "1.26.0",
+            "pandas": "2.2.0",
+        },
+    }
+    db_session.add(job)
+    db_session.commit()
+    db_session.refresh(job)
+
+    response = client.get(f"{BASE}/training-job/{job.id}")
+
+    assert response.status_code == 200
+    assert response.json()["data"]["reproducibility_metadata"]["dataset"]["fingerprint"] == "a" * 64
+    assert response.json()["data"]["reproducibility_metadata"]["job_id"] == job.id
+
+
+def test_image_loading_error_path_is_sanitized_in_persisted_job_and_api(client, db_session, monkeypatch):
+    model = _seed_model(db_session, "image-error-model")
+    job = _seed_job(db_session, model.id, TrainingStatus.PENDING)
+    temporary_path = "/tmp/tensormap-training-images-private-123/dataset/cats"
+
+    from app.services import training_service
+
+    engine = db_session.get_bind()
+    monkeypatch.setattr(training_service, "make_session", lambda: Session(engine))
+    with (
+        patch(
+            "app.services.model_run._run",
+            side_effect=ValueError(f"InvalidArgumentError: cannot decode image in {temporary_path}"),
+        ),
+        pytest.raises(ValueError, match="InvalidArgumentError"),
+    ):
+        model_run(model.model_name, db_session, job_id=job.id)
+
+    db_session.expire_all()
+    persisted = db_session.get(TrainingJob, job.id)
+    assert persisted.status == TrainingStatus.FAILED
+    assert "InvalidArgumentError" in persisted.error_message
+    assert temporary_path not in persisted.error_message
+
+    response = client.get(f"{BASE}/training-job/{job.id}")
+    assert response.status_code == 200
+    message = response.json()["data"]["error_message"]
+    assert "InvalidArgumentError" in message
+    assert temporary_path not in message
 
 
 def test_cancel_job(client, db_session):
@@ -301,3 +396,107 @@ def test_start_training_with_hyperparameter_overrides_stored_in_job(client, db_s
         "epochs": 25,
         "batch_size": 64,
     }
+
+
+def test_unix_temporary_paths_sanitized_in_persisted_error(client, db_session, monkeypatch):
+    """Verify Unix temporary paths are sanitized in both persisted error_message
+    and API responses.
+    """
+    model = _seed_model(db_session, "unix-path-model")
+    job = _seed_job(db_session, model.id, TrainingStatus.PENDING)
+    temporary_path = "/tmp/tensormap-training-csv-xyz123/dataset.csv"
+
+    from app.services import training_service
+
+    engine = db_session.get_bind()
+    monkeypatch.setattr(training_service, "make_session", lambda: Session(engine))
+    with (
+        patch(
+            "app.services.model_run._run",
+            side_effect=ValueError(f"ParserError: could not parse {temporary_path}"),
+        ),
+        pytest.raises(ValueError, match="ParserError"),
+    ):
+        model_run(model.model_name, db_session, job_id=job.id)
+
+    db_session.expire_all()
+    persisted = db_session.get(TrainingJob, job.id)
+    assert persisted.status == TrainingStatus.FAILED
+    assert "ParserError" in persisted.error_message
+    assert temporary_path not in persisted.error_message
+    assert "<path>" in persisted.error_message
+
+    response = client.get(f"{BASE}/training-job/{job.id}")
+    assert response.status_code == 200
+    message = response.json()["data"]["error_message"]
+    assert "ParserError" in message
+    assert temporary_path not in message
+    assert "<path>" in message
+
+
+def test_macos_temporary_paths_sanitized_in_persisted_error(client, db_session, monkeypatch):
+    """Verify macOS temporary paths (/var/folders/*) are sanitized."""
+    model = _seed_model(db_session, "macos-path-model")
+    job = _seed_job(db_session, model.id, TrainingStatus.PENDING)
+    temporary_path = "/var/folders/x1/y2z3/T/tensormap-training-images-abc/dataset/cats/img.png"
+
+    from app.services import training_service
+
+    engine = db_session.get_bind()
+    monkeypatch.setattr(training_service, "make_session", lambda: Session(engine))
+    with (
+        patch(
+            "app.services.model_run._run",
+            side_effect=RuntimeError(f"InvalidArgumentError: cannot decode {temporary_path}"),
+        ),
+        pytest.raises(RuntimeError, match="InvalidArgumentError"),
+    ):
+        model_run(model.model_name, db_session, job_id=job.id)
+
+    db_session.expire_all()
+    persisted = db_session.get(TrainingJob, job.id)
+    assert persisted.status == TrainingStatus.FAILED
+    assert "InvalidArgumentError" in persisted.error_message
+    assert temporary_path not in persisted.error_message
+    assert "<path>" in persisted.error_message
+
+    response = client.get(f"{BASE}/training-job/{job.id}")
+    assert response.status_code == 200
+    message = response.json()["data"]["error_message"]
+    assert "InvalidArgumentError" in message
+    assert temporary_path not in message
+
+
+def test_windows_temporary_paths_sanitized_in_persisted_error(client, db_session, monkeypatch):
+    """Verify Windows temporary paths are sanitized."""
+    model = _seed_model(db_session, "windows-path-model")
+    job = _seed_job(db_session, model.id, TrainingStatus.PENDING)
+    # Use raw string to avoid escape issues
+    temporary_path = r"C:\Users\TestUser\AppData\Local\Temp\tensormap-csv-tmp\data.csv"
+
+    from app.services import training_service
+
+    engine = db_session.get_bind()
+    monkeypatch.setattr(training_service, "make_session", lambda: Session(engine))
+    with (
+        patch(
+            "app.services.model_run._run",
+            side_effect=FileNotFoundError(f"File not found: {temporary_path}"),
+        ),
+        pytest.raises(FileNotFoundError),
+    ):
+        model_run(model.model_name, db_session, job_id=job.id)
+
+    db_session.expire_all()
+    persisted = db_session.get(TrainingJob, job.id)
+    assert persisted.status == TrainingStatus.FAILED
+    assert "File not found" in persisted.error_message
+    # Windows paths should be sanitized
+    assert "AppData" not in persisted.error_message
+    assert "<path>" in persisted.error_message
+
+    response = client.get(f"{BASE}/training-job/{job.id}")
+    assert response.status_code == 200
+    message = response.json()["data"]["error_message"]
+    assert "File not found" in message
+    assert "AppData" not in message

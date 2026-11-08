@@ -30,6 +30,7 @@ import TrainingMetricsChart from "@/components/training/TrainingMetricsChart";
 import DatasetQualityReport from "@/components/training/DatasetQualityReport";
 import useDatasetQualityReport from "@/hooks/useDatasetQualityReport";
 import ExportPanel from "@/components/export/ExportPanel";
+import ReproducibilityPanel from "@/components/training/ReproducibilityPanel";
 import {
   download_code,
   runModel,
@@ -1051,6 +1052,14 @@ export default function Training() {
             setCompletedJobInfo({ jobId, modelName: selectedModel });
             setActiveJobId(null); // Hide the live chart
           }}
+        />
+      )}
+
+      {/* NEW: Reproducibility Panel (shown during and after training) */}
+      {(activeJobId || completedJobInfo) && (
+        <ReproducibilityPanel
+          jobId={activeJobId || completedJobInfo.jobId}
+          jobStatus={activeJobId ? "running" : "completed"}
         />
       )}
 

@@ -6,6 +6,7 @@
  */
 
 import "@testing-library/jest-dom";
+import { vi } from "vitest";
 
 // Mock ResizeObserver (required for Recharts and other layout-dependent components)
 global.ResizeObserver = class ResizeObserver {
@@ -33,4 +34,16 @@ Object.defineProperty(window, "matchMedia", {
     removeEventListener: () => {},
     dispatchEvent: () => true,
   }),
+});
+
+// Mock navigator.clipboard (required for clipboard copy functionality)
+export const mockClipboardWriteText = vi.fn(() => Promise.resolve());
+
+Object.defineProperty(navigator, "clipboard", {
+  value: {
+    writeText: mockClipboardWriteText,
+    readText: vi.fn(() => Promise.resolve("")),
+  },
+  writable: true,
+  configurable: true,
 });

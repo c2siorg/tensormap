@@ -20,7 +20,7 @@ from app.database import get_db
 from app.exceptions import AppException
 from app.models.ml import ModelBasic
 from app.models.training_job import TrainingJob, TrainingStatus
-from app.schemas.training import TrainingStartRequest
+from app.schemas.training import TrainingJobResponse, TrainingStartRequest
 from app.services.dataset_quality import analyze_dataset_quality
 from app.services.training_service import (
     check_concurrency_limit,
@@ -139,17 +139,18 @@ def list_training_jobs(
 
 @router.get("/training-job/{job_id}")
 def get_training_job(job: TrainingJob = Depends(get_job_or_404), db: Session = Depends(get_db)) -> JSONResponse:
-    """Return a job's status, hyperparameters, and latest metrics."""
-    data = {
-        "job_id": job.id,
-        "model_id": job.model_id,
-        "status": job.status.value,
-        "hyperparams": job.hyperparams,
-        "started_at": job.started_at.isoformat() if job.started_at else None,
-        "completed_at": job.completed_at.isoformat() if job.completed_at else None,
-        "error_message": job.error_message,
-        "latest_metrics": get_latest_metrics(job.id, db),
-    }
+    """Return a job's status, hyperparameters, metrics, and optional run snapshot."""
+    data = TrainingJobResponse(
+        job_id=job.id,
+        model_id=job.model_id,
+        status=job.status.value,
+        hyperparams=job.hyperparams,
+        started_at=job.started_at,
+        completed_at=job.completed_at,
+        error_message=job.error_message,
+        latest_metrics=get_latest_metrics(job.id, db),
+        reproducibility_metadata=job.reproducibility_metadata,
+    ).model_dump(mode="json")
     return JSONResponse(status_code=200, content=_envelope("Training job retrieved", data))
 
 

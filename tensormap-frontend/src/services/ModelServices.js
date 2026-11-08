@@ -194,3 +194,24 @@ export const runModel = async (modelName, projectId) => {
       throw err;
     });
 };
+
+/**
+ * Fetches training job details including optional reproducibility snapshot.
+ *
+ * @param {string} jobId - Training job UUID
+ * @returns {Promise<object>} Job details with status, hyperparams, metrics, and reproducibility_metadata
+ */
+export const getTrainingJobDetails = async (jobId) => {
+  return axios
+    .get(`${urls.BACKEND_TRAINING_JOB}/${jobId}`)
+    .then((resp) => {
+      if (resp.data.success === true) {
+        return resp.data.data;
+      }
+      throw new Error(resp.data?.message ?? "Failed to fetch training job details");
+    })
+    .catch((err) => {
+      logger.error("Error fetching training job details:", err);
+      throw err;
+    });
+};

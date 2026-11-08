@@ -65,6 +65,7 @@ class TrainingJob(SQLModel, table=True):
     )
     # hyperparams shape: {"optimizer": "adam", "lr": 0.001, "epochs": 50, "batch_size": 32}
     hyperparams: dict | None = Field(default=None, sa_column=Column(JSON, nullable=True))
+    reproducibility_metadata: dict | None = Field(default=None, sa_column=Column(JSON, nullable=True))
     started_at: datetime | None = Field(default=None, sa_column=Column(DateTime, nullable=True))
     completed_at: datetime | None = Field(default=None, sa_column=Column(DateTime, nullable=True))
     error_message: str | None = Field(default=None, max_length=2000, nullable=True)

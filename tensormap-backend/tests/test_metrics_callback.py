@@ -7,12 +7,14 @@ in test_training_e2e.py behind the ``slow`` marker.
 
 from unittest.mock import MagicMock, patch
 
+import pytest
 from sqlmodel import select
 
 from app.callbacks.cancellation_callback import CancellationCheckCallback
 from app.callbacks.metrics_callback import MetricsCallback, _as_float
 from app.models.training_job import TrainingJob, TrainingStatus
 from app.models.training_metric import TrainingMetric
+from app.services.reproducibility import TrainingCancelledError
 from app.services.training_service import _train_in_thread, get_job_metrics_grouped
 
 
@@ -62,6 +64,22 @@ def test_job_status_running_during_training(training_session_factory):
         job = session.get(TrainingJob, job_id)
         assert job.status == TrainingStatus.RUNNING
         assert job.started_at is not None
+
+
+def test_on_train_begin_does_not_overwrite_cancelled_job(training_session_factory):
+    job_id = _seed_job(training_session_factory, status=TrainingStatus.CANCELLED)
+    cb = MetricsCallback(job_id, training_session_factory, MagicMock(), loop=None)
+    model = MagicMock()
+    model.stop_training = False
+    cb.set_model(model)
+
+    with pytest.raises(TrainingCancelledError):
+        cb.on_train_begin()
+
+    with training_session_factory() as session:
+        job = session.get(TrainingJob, job_id)
+        assert job.status == TrainingStatus.CANCELLED
+    assert model.stop_training is True
 
 
 def test_job_status_completed_after_training(training_session_factory):
@@ -367,3 +385,49 @@ def test_as_float_helper():
     assert _as_float("not_a_number") is None
     assert _as_float([1, 2, 3]) is None
     assert _as_float({"a": 1}) is None
+
+
+def test_metrics_callback_atomic_update_does_not_overwrite_cancelled():
+    """Verify that the atomic PENDING→RUNNING update respects CANCELLED status.
+
+    The update uses WHERE status = PENDING, so if the job was cancelled before
+    on_train_begin() is called, the update affects 0 rows and the callback
+    detects the cancellation and raises TrainingCancelledError.
+    """
+    from sqlmodel import Session, create_engine
+
+    engine = create_engine("sqlite:///:memory:")
+    TrainingJob.metadata.create_all(engine)
+
+    with Session(engine) as session:
+        # Create a job that is already CANCELLED
+        job = TrainingJob(
+            id="atomic-cancel-test",
+            model_id=1,
+            status=TrainingStatus.CANCELLED,
+            hyperparams={},
+        )
+        session.add(job)
+        session.commit()
+
+        # Create callback with session factory
+        callback = MetricsCallback(
+            "atomic-cancel-test",
+            lambda: Session(engine),
+            MagicMock(),  # sio
+            None,  # loop
+        )
+        model = MagicMock()
+        callback.set_model(model)
+
+        # on_train_begin should detect CANCELLED and raise
+        with pytest.raises(TrainingCancelledError, match="cancelled before fitting"):
+            callback.on_train_begin()
+
+        # Verify the status was NOT changed to RUNNING
+        session.expire_all()
+        updated_job = session.get(TrainingJob, "atomic-cancel-test")
+        assert updated_job.status == TrainingStatus.CANCELLED
+
+        # Verify model.stop_training was set
+        assert model.stop_training is True

@@ -24,6 +24,7 @@ from sklearn.metrics import (
     precision_recall_curve,
     roc_curve,
 )
+from sklearn.model_selection import train_test_split
 from sqlmodel import Session
 
 from app.shared.logging_config import get_logger
@@ -208,8 +209,9 @@ class InterpretabilityService:
         """Loads test split of the dataset used for this training job.
 
         Finds data_file via: training_job → model_basic → data_file
-        Applies same preprocessing that was used during training
-        (shuffle with random_state=42, split at training_split / 100).
+        Applies the exact same preprocessing and splitting logic that was used
+        during training, including stratified splitting for classification models
+        to ensure interpretability analysis uses the same test set as training.
 
         Args:
             job_id: Training job ID
@@ -218,10 +220,12 @@ class InterpretabilityService:
         Returns:
             Tuple of (X_test, y_test, class_names)
         """
+
         from app.config import get_settings
         from app.models.data import DataFile
         from app.models.ml import ModelBasic
         from app.models.training_job import TrainingJob
+        from app.shared.enums import ProblemType
 
         job = session.get(TrainingJob, job_id)
         if not job:
@@ -248,9 +252,14 @@ class InterpretabilityService:
         if target_field not in features.columns:
             raise ValueError(f"Target field '{target_field}' not found in dataset")
 
-        # Replicate exactly the same preprocessing as model_run._prepare_training_data
+        # Apply exact same preprocessing as model_run._prepare_training_data
         features = features.dropna()
-        features = features.sample(frac=1, random_state=42).reset_index(drop=True)
+
+        is_classification = model.model_type == ProblemType.CLASSIFICATION
+
+        # For regression, shuffle the entire dataset before splitting
+        if not is_classification:
+            features = features.sample(frac=1, random_state=42).reset_index(drop=True)
 
         X = features.drop(target_field, axis=1)
         y = features[target_field]
@@ -258,23 +267,36 @@ class InterpretabilityService:
         # Track original class names before encoding
         if not pd.api.types.is_numeric_dtype(y):
             class_names = list(pd.Categorical(y).categories)
-            y = pd.Categorical(y).codes
+            y = pd.Series(pd.Categorical(y).codes, index=features.index)
         else:
             class_names = [str(c) for c in sorted(y.unique())]
 
         training_split = model.training_split if model.training_split else 80
-        split_index = int(len(X) * float(training_split) / 100)
 
-        X_test = X[split_index:].values.astype(np.float32)
-        y_test = y[split_index:].values if hasattr(y, "values") else y[split_index:]
+        # Use stratified split for classification, simple split for regression
+        if is_classification:
+            _, X_test_df, _, y_test_series = train_test_split(
+                X,
+                y,
+                train_size=float(training_split) / 100,
+                random_state=42,
+                stratify=y,
+            )
+            X_test = X_test_df.values.astype(np.float32)
+            y_test = y_test_series.values if hasattr(y_test_series, "values") else y_test_series
+        else:
+            # Regression: simple index-based split
+            split_index = int(len(X) * float(training_split) / 100)
+            X_test = X[split_index:].values.astype(np.float32)
+            y_test = y[split_index:].values if hasattr(y, "values") else y[split_index:]
 
         return X_test, y_test, class_names
 
     def _load_test_data_with_features(self, job_id: str, session: Session) -> tuple[np.ndarray, np.ndarray, list[str]]:
         """Loads test split with feature names instead of class names.
 
-        Same data loading as _load_test_data but returns feature column names
-        for use with permutation feature importance.
+        Applies the exact same preprocessing and splitting logic as training,
+        including stratified splitting for classification models.
 
         Args:
             job_id: Training job ID
@@ -283,10 +305,12 @@ class InterpretabilityService:
         Returns:
             Tuple of (X_test, y_test, feature_names)
         """
+
         from app.config import get_settings
         from app.models.data import DataFile
         from app.models.ml import ModelBasic
         from app.models.training_job import TrainingJob
+        from app.shared.enums import ProblemType
 
         job = session.get(TrainingJob, job_id)
         if not job:
@@ -312,22 +336,41 @@ class InterpretabilityService:
         if target_field not in features.columns:
             raise ValueError(f"Target field '{target_field}' not found in dataset")
 
+        # Apply exact same preprocessing as model_run._prepare_training_data
         features = features.dropna()
-        features = features.sample(frac=1, random_state=42).reset_index(drop=True)
+
+        is_classification = model.model_type == ProblemType.CLASSIFICATION
+
+        # For regression, shuffle the entire dataset before splitting
+        if not is_classification:
+            features = features.sample(frac=1, random_state=42).reset_index(drop=True)
 
         X = features.drop(target_field, axis=1)
         y = features[target_field]
 
         if not pd.api.types.is_numeric_dtype(y):
-            y = pd.Categorical(y).codes
+            y = pd.Series(pd.Categorical(y).codes, index=features.index)
 
         feature_names = list(X.columns)
 
         training_split = model.training_split if model.training_split else 80
-        split_index = int(len(X) * float(training_split) / 100)
 
-        X_test = X[split_index:].values.astype(np.float32)
-        y_test = y[split_index:].values if hasattr(y, "values") else y[split_index:]
+        # Use stratified split for classification, simple split for regression
+        if is_classification:
+            _, X_test_df, _, y_test_series = train_test_split(
+                X,
+                y,
+                train_size=float(training_split) / 100,
+                random_state=42,
+                stratify=y,
+            )
+            X_test = X_test_df.values.astype(np.float32)
+            y_test = y_test_series.values if hasattr(y_test_series, "values") else y_test_series
+        else:
+            # Regression: simple index-based split
+            split_index = int(len(X) * float(training_split) / 100)
+            X_test = X[split_index:].values.astype(np.float32)
+            y_test = y[split_index:].values if hasattr(y, "values") else y[split_index:]
 
         return X_test, y_test, feature_names
 
@@ -336,8 +379,9 @@ class InterpretabilityService:
     ) -> tuple[np.ndarray, np.ndarray, list[str], list[str]]:
         """Loads test split with both class names and feature names in a single pass.
 
-        Avoids duplicate CSV loading and preprocessing by returning all metadata
-        at once. Use this when you need both class_names and feature_names.
+        Applies the exact same preprocessing and splitting logic as training,
+        including stratified splitting for classification models. Avoids duplicate
+        CSV loading and preprocessing by returning all metadata at once.
 
         Args:
             job_id: Training job ID
@@ -346,10 +390,12 @@ class InterpretabilityService:
         Returns:
             Tuple of (X_test, y_test, class_names, feature_names)
         """
+
         from app.config import get_settings
         from app.models.data import DataFile
         from app.models.ml import ModelBasic
         from app.models.training_job import TrainingJob
+        from app.shared.enums import ProblemType
 
         job = session.get(TrainingJob, job_id)
         if not job:
@@ -375,8 +421,14 @@ class InterpretabilityService:
         if target_field not in features.columns:
             raise ValueError(f"Target field '{target_field}' not found in dataset")
 
+        # Apply exact same preprocessing as model_run._prepare_training_data
         features = features.dropna()
-        features = features.sample(frac=1, random_state=42).reset_index(drop=True)
+
+        is_classification = model.model_type == ProblemType.CLASSIFICATION
+
+        # For regression, shuffle the entire dataset before splitting
+        if not is_classification:
+            features = features.sample(frac=1, random_state=42).reset_index(drop=True)
 
         X = features.drop(target_field, axis=1)
         y = features[target_field]
@@ -384,17 +436,30 @@ class InterpretabilityService:
         # Track original class names before encoding
         if not pd.api.types.is_numeric_dtype(y):
             class_names = list(pd.Categorical(y).categories)
-            y = pd.Categorical(y).codes
+            y = pd.Series(pd.Categorical(y).codes, index=features.index)
         else:
             class_names = [str(c) for c in sorted(y.unique())]
 
         feature_names = list(X.columns)
 
         training_split = model.training_split if model.training_split else 80
-        split_index = int(len(X) * float(training_split) / 100)
 
-        X_test = X[split_index:].values.astype(np.float32)
-        y_test = y[split_index:].values if hasattr(y, "values") else y[split_index:]
+        # Use stratified split for classification, simple split for regression
+        if is_classification:
+            _, X_test_df, _, y_test_series = train_test_split(
+                X,
+                y,
+                train_size=float(training_split) / 100,
+                random_state=42,
+                stratify=y,
+            )
+            X_test = X_test_df.values.astype(np.float32)
+            y_test = y_test_series.values if hasattr(y_test_series, "values") else y_test_series
+        else:
+            # Regression: simple index-based split
+            split_index = int(len(X) * float(training_split) / 100)
+            X_test = X[split_index:].values.astype(np.float32)
+            y_test = y[split_index:].values if hasattr(y, "values") else y[split_index:]
 
         return X_test, y_test, class_names, feature_names
 

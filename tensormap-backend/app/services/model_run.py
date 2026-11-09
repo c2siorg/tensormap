@@ -6,6 +6,7 @@ from typing import Any
 
 import pandas as pd
 import tensorflow as tf
+from sklearn.model_selection import train_test_split
 from sqlmodel import Session, select
 
 from app.callbacks import CancellationCheckCallback, MetricsCallback
@@ -284,13 +285,8 @@ def model_run(
         _training_loop_ctx.reset(token)
 
 
-def _prepare_training_data(features, target_field, training_split):
-    """Prepare training data with transparent logging of dropped rows (Issue #5).
-
-    Instead of silently dropping rows with missing values, this function logs
-    the count and emits a Socket.IO warning so the user knows their dataset
-    was trimmed before training.
-    """
+def _prepare_training_data(features, target_field, training_split, problem_type):
+    """Prepare training data with stratified splitting for classification."""
     original_rows = len(features)
     rows_with_missing = int(features.isnull().any(axis=1).sum())
 
@@ -306,14 +302,43 @@ def _prepare_training_data(features, target_field, training_split):
     if target_field not in features.columns:
         raise ValueError(f"Target field '{target_field}' not found in dataset after cleaning")
 
-    # Shuffle to prevent issues with ordered datasets
-    features = features.sample(frac=1, random_state=42).reset_index(drop=True)
+    is_classification = problem_type == ProblemType.CLASSIFICATION
+
+    if not is_classification:
+        features = features.sample(frac=1, random_state=42).reset_index(drop=True)
 
     X = features.drop(target_field, axis=1)
     y = features[target_field]
-    # Encode string labels to integers for categorical targets
+
     if not pd.api.types.is_numeric_dtype(y):
-        y = pd.Categorical(y).codes
+        y = pd.Series(pd.Categorical(y).codes, index=features.index)
+
+    if is_classification:
+        class_counts = y.value_counts()
+        train_size = int(len(X) * float(training_split) / 100)
+        test_size = len(X) - train_size
+        num_classes = len(class_counts)
+
+        if num_classes < 2 or class_counts.min() < 2 or train_size < num_classes or test_size < num_classes:
+            raise ValueError(
+                "Stratified splitting is not possible: every class needs at least "
+                "2 samples, and both training and testing partitions must contain "
+                "at least one sample from every class. Add more samples or adjust "
+                "the training split."
+            )
+
+        try:
+            x_training, x_testing, y_training, y_testing = train_test_split(
+                X,
+                y,
+                train_size=float(training_split) / 100,
+                random_state=42,
+                stratify=y,
+            )
+        except ValueError as exc:
+            raise ValueError(f"Unable to create stratified training split: {exc}") from exc
+
+        return x_training, y_training, x_testing, y_testing
 
     split_index = int(len(X) * float(training_split) / 100)
     return X[:split_index], y[:split_index], X[split_index:], y[split_index:]
@@ -396,7 +421,10 @@ def _run(model_name: str, db: Session, job_id: str | None = None) -> None:
 
         # Issue #5: use _prepare_training_data for transparent missing-value handling
         x_training, y_training, x_testing, y_testing = _prepare_training_data(
-            features, model_configs.target_field, training_split
+            features,
+            model_configs.target_field,
+            training_split,
+            model_configs.model_type,
         )
 
         effective_batch_size = batch_size if batch_size is not None else 32

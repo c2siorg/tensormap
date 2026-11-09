@@ -1,5 +1,6 @@
 from unittest.mock import MagicMock, patch
 
+import pandas as pd
 import pytest
 
 from app.models.training_job import TrainingJob
@@ -8,6 +9,7 @@ from app.services.model_run import (
     ModelRunError,
     _build_optimizer,
     _helper_generate_file_location,
+    _prepare_training_data,
     _run,
     _validate_training_params,
     model_run,
@@ -290,3 +292,106 @@ class TestRunHyperparameterOverrides:
         fit_kwargs = mock_model.fit.call_args.kwargs
         assert fit_kwargs["epochs"] == 12
         assert fit_kwargs["batch_size"] == 64
+
+
+class TestPrepareTrainingData:
+    def test_imbalanced_classification_preserves_class_proportions(self):
+        features = pd.DataFrame(
+            {
+                "feature": range(100),
+                "label": [0] * 90 + [1] * 10,
+            }
+        )
+
+        x_train, y_train, x_test, y_test = _prepare_training_data(features, "label", 80, ProblemType.CLASSIFICATION)
+
+        assert len(x_train) == 80
+        assert len(x_test) == 20
+        assert y_train.value_counts().to_dict() == {0: 72, 1: 8}
+        assert y_test.value_counts().to_dict() == {0: 18, 1: 2}
+
+    def test_balanced_classification_preserves_class_proportions(self):
+        features = pd.DataFrame(
+            {
+                "feature": range(100),
+                "label": [0] * 50 + [1] * 50,
+            }
+        )
+
+        _, y_train, _, y_test = _prepare_training_data(features, "label", 80, ProblemType.CLASSIFICATION)
+
+        assert y_train.value_counts().to_dict() == {0: 40, 1: 40}
+        assert y_test.value_counts().to_dict() == {0: 10, 1: 10}
+
+    def test_string_classification_labels_are_encoded_and_stratified(self):
+        features = pd.DataFrame(
+            {
+                "feature": range(50),
+                "label": ["cat"] * 40 + ["dog"] * 10,
+            }
+        )
+
+        _, y_train, _, y_test = _prepare_training_data(features, "label", 80, ProblemType.CLASSIFICATION)
+
+        assert set(y_train.unique()) == {0, 1}
+        assert y_train.value_counts().to_dict() == {0: 32, 1: 8}
+        assert y_test.value_counts().to_dict() == {0: 8, 1: 2}
+
+    def test_class_with_only_one_sample_raises_clear_error(self):
+        features = pd.DataFrame(
+            {
+                "feature": range(10),
+                "label": [0] * 9 + [1],
+            }
+        )
+
+        with pytest.raises(ValueError, match="every class needs at least 2 samples"):
+            _prepare_training_data(features, "label", 80, ProblemType.CLASSIFICATION)
+
+    def test_test_partition_too_small_for_all_classes_raises_error(self):
+        features = pd.DataFrame(
+            {
+                "feature": range(30),
+                "label": [0] * 10 + [1] * 10 + [2] * 10,
+            }
+        )
+
+        with pytest.raises(ValueError, match="both training and testing partitions"):
+            _prepare_training_data(features, "label", 95, ProblemType.CLASSIFICATION)
+
+    def test_regression_preserves_existing_random_split(self):
+        features = pd.DataFrame(
+            {
+                "feature": range(20),
+                "target": range(100, 120),
+            }
+        )
+
+        expected = features.sample(frac=1, random_state=42).reset_index(drop=True)
+        split_index = int(len(expected) * 0.8)
+
+        x_train, y_train, x_test, y_test = _prepare_training_data(features, "target", 80, ProblemType.REGRESSION)
+
+        pd.testing.assert_frame_equal(x_train, expected.drop("target", axis=1)[:split_index])
+        pd.testing.assert_series_equal(y_train, expected["target"][:split_index])
+        pd.testing.assert_frame_equal(x_test, expected.drop("target", axis=1)[split_index:])
+        pd.testing.assert_series_equal(y_test, expected["target"][split_index:])
+
+    def test_classification_drops_missing_rows_before_stratifying(self):
+        features = pd.DataFrame(
+            {
+                "feature": range(20),
+                "label": [0] * 10 + [1] * 10,
+            }
+        )
+        features.loc[0, "feature"] = float("nan")
+        features.loc[10, "feature"] = float("nan")
+
+        x_train, y_train, x_test, y_test = _prepare_training_data(features, "label", 80, ProblemType.CLASSIFICATION)
+
+        assert len(x_train) == 14
+        assert len(x_test) == 4
+        assert not x_train.isnull().any().any()
+        assert not x_test.isnull().any().any()
+        assert y_train.value_counts().to_dict() == {0: 7, 1: 7}
+        assert y_test.value_counts().to_dict() == {0: 2, 1: 2}

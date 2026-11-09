@@ -36,6 +36,11 @@ describe("ExportPanel", () => {
           onnx_supported: false,
           onnx_issues: ["CustomLayer is not supported in ONNX runtime"],
         },
+        keras: {
+          available: false,
+          size_bytes: null,
+          expires_at: null,
+        },
       },
     },
   };
@@ -207,6 +212,7 @@ describe("ExportPanel", () => {
           savedmodel: { available: true, size_bytes: 100, expires_at: null },
           tflite: { available: true, size_bytes: 100, expires_at: null },
           onnx: { available: false, size_bytes: null, expires_at: null, onnx_supported: true },
+          keras: { available: false, size_bytes: null, expires_at: null },
         },
       },
     };
@@ -313,6 +319,11 @@ describe("ExportPanel", () => {
             expires_at: new Date().toISOString(), // today
             onnx_supported: true,
           },
+          keras: {
+            available: false,
+            size_bytes: null,
+            expires_at: null,
+          },
         },
       },
     };
@@ -328,5 +339,54 @@ describe("ExportPanel", () => {
       expect(screen.getByText("Expires today")).toBeTruthy();
       expect(screen.getByText("Size: 2 KB")).toBeTruthy();
     });
+  });
+
+  it("downloads Keras (.keras) format with appropriate request params", async () => {
+    const user = userEvent.setup();
+    const formatsWithKeras = {
+      data: {
+        formats: {
+          savedmodel: { available: true, size_bytes: 1024, expires_at: null },
+          tflite: { available: false, size_bytes: null, expires_at: null },
+          onnx: { available: false, size_bytes: null, expires_at: null, onnx_supported: true },
+          keras: { available: true, size_bytes: 524288, expires_at: null },
+        },
+      },
+    };
+
+    (axios.get as any).mockResolvedValueOnce(formatsWithKeras);
+
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+
+    render(<ExportPanel jobId={mockJobId} modelName={mockModelName} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Keras (.keras)")).toBeTruthy();
+      expect(screen.getByText("Size: 512 KB")).toBeTruthy();
+    });
+
+    (axios.get as any).mockResolvedValueOnce({
+      data: new Blob(["keras-model-binary-data"]),
+      headers: {
+        "content-disposition": 'attachment; filename="mnist_classifier.keras"',
+      },
+    });
+    (axios.get as any).mockResolvedValueOnce(formatsWithKeras);
+
+    const kerasButton = screen.getAllByRole("button")[3];
+    await user.click(kerasButton);
+
+    await waitFor(() => {
+      expect(axios.get).toHaveBeenCalledWith(
+        `${urls.BACKEND_MODEL_EXPORT}/${mockJobId}`,
+        expect.objectContaining({
+          params: { format: "keras" },
+          responseType: "blob",
+        }),
+      );
+      expect(clickSpy).toHaveBeenCalled();
+    });
+
+    clickSpy.mockRestore();
   });
 });

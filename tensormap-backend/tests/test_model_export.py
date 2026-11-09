@@ -21,6 +21,7 @@ from app.services.model_export import (
     cleanup_exports,
     delete_job_exports,
     delete_model_exports,
+    export_keras,
     export_onnx,
     export_savedmodel,
     export_tflite,
@@ -282,6 +283,74 @@ def test_savedmodel_cached_on_second_call(tmp_path, mock_keras_model):
 
         assert result == zip_path
         assert result.read_text() == "existing zip"  # Not regenerated
+
+
+def test_export_keras_success(tmp_path):
+    """export_keras copies model.keras to <safe_name>.keras."""
+    job_id = str(uuid4())
+    model_name = "mnist_classifier"
+
+    export_dir = tmp_path / "exports" / job_id
+    export_dir.mkdir(parents=True)
+    (export_dir / "model.keras").write_bytes(b"dummy keras v3 payload")
+
+    with patch("app.services.model_export.EXPORTS_BASE", tmp_path / "exports"):
+        result = export_keras(job_id, model_name)
+
+        assert result.exists()
+        assert result.name == "mnist_classifier.keras"
+        assert result.read_bytes() == b"dummy keras v3 payload"
+
+
+def test_export_keras_same_name(tmp_path):
+    """export_keras returns model.keras directly when model_name is 'model'."""
+    job_id = str(uuid4())
+    model_name = "model"
+
+    export_dir = tmp_path / "exports" / job_id
+    export_dir.mkdir(parents=True)
+    source_file = export_dir / "model.keras"
+    source_file.write_bytes(b"model bytes")
+
+    with patch("app.services.model_export.EXPORTS_BASE", tmp_path / "exports"):
+        result = export_keras(job_id, model_name)
+
+        assert result == source_file
+        assert result.read_bytes() == b"model bytes"
+
+
+def test_export_keras_cached_on_second_call(tmp_path):
+    """Second call to export_keras returns existing file without re-copying."""
+    job_id = str(uuid4())
+    model_name = "cached_model"
+
+    export_dir = tmp_path / "exports" / job_id
+    export_dir.mkdir(parents=True)
+    (export_dir / "model.keras").write_bytes(b"new model bytes")
+
+    existing_keras = export_dir / f"{model_name}.keras"
+    existing_keras.write_bytes(b"existing cached bytes")
+
+    with patch("app.services.model_export.EXPORTS_BASE", tmp_path / "exports"):
+        result = export_keras(job_id, model_name)
+
+        assert result == existing_keras
+        assert result.read_bytes() == b"existing cached bytes"
+
+
+def test_export_keras_fails_if_no_keras_file(tmp_path):
+    """export_keras fails with FileNotFoundError if model.keras is missing."""
+    job_id = str(uuid4())
+    model_name = "test_model"
+
+    export_dir = tmp_path / "exports" / job_id
+    export_dir.mkdir(parents=True)
+
+    with (
+        patch("app.services.model_export.EXPORTS_BASE", tmp_path / "exports"),
+        pytest.raises(FileNotFoundError, match="model.keras not found"),
+    ):
+        export_keras(job_id, model_name)
 
 
 def test_export_fails_404_if_no_keras_file(tmp_path):
@@ -585,11 +654,15 @@ def test_get_export_formats_structure(tmp_path):
         assert "savedmodel" in formats
         assert "tflite" in formats
         assert "onnx" in formats
+        assert "keras" in formats
 
         # Check structure
         assert "available" in formats["savedmodel"]
         assert "size_bytes" in formats["savedmodel"]
         assert "expires_at" in formats["savedmodel"]
+        assert "available" in formats["keras"]
+        assert "size_bytes" in formats["keras"]
+        assert "expires_at" in formats["keras"]
 
         # ONNX should have additional fields
         assert "onnx_supported" in formats["onnx"]
@@ -1121,6 +1194,15 @@ def test_export_endpoints_success_for_completed_job(client: TestClient, db_sessi
         assert download_resp.status_code == 200
         assert download_resp.headers["content-type"] == "application/zip"
         assert download_resp.content == b"PK\x05\x06" + b"\x00" * 18
+
+    dummy_keras = tmp_path / "dummy.keras"
+    dummy_keras.write_bytes(b"dummy keras content")
+
+    with patch("app.routers.export.export_keras", return_value=dummy_keras):
+        keras_resp = client.get(f"/api/v1/model/export/{job_id}?format=keras")
+        assert keras_resp.status_code == 200
+        assert keras_resp.headers["content-type"] == "application/octet-stream"
+        assert keras_resp.content == b"dummy keras content"
 
 
 def test_export_download_model_file_missing_on_disk(client: TestClient, db_session: Session):

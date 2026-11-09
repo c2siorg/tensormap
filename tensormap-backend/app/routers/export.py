@@ -13,6 +13,7 @@ from app.models.ml import ModelBasic
 from app.models.training_job import TrainingJob, TrainingStatus
 from app.services.model_export import (
     ONNXUnsupportedError,
+    export_keras,
     export_onnx,
     export_savedmodel,
     export_tflite,
@@ -91,14 +92,14 @@ async def list_export_formats(
 @router.get("/{job_id}")
 async def download_export(
     job_id: str,
-    format: Literal["savedmodel", "tflite", "onnx"],
+    format: Literal["savedmodel", "tflite", "onnx", "keras"],
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ) -> FileResponse:
     """Download exported model in specified format.
 
     Query params:
-        format: savedmodel | tflite | onnx
+        format: savedmodel | tflite | onnx | keras
 
     Returns:
         FileResponse with appropriate content-type and filename
@@ -131,6 +132,11 @@ async def download_export(
         elif format == "onnx":
             file_path = await run_in_threadpool(export_onnx, job_id, model_name, model.graph_ir)
             filename = f"{model_name}.onnx"
+            media_type = "application/octet-stream"
+
+        elif format == "keras":
+            file_path = await run_in_threadpool(export_keras, job_id, model_name)
+            filename = f"{model_name}.keras"
             media_type = "application/octet-stream"
 
         else:

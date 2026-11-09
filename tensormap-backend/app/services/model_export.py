@@ -78,6 +78,36 @@ class ONNXUnsupportedError(Exception):
         super().__init__(f"ONNX export not supported: {'; '.join(issues)}")
 
 
+def export_keras(job_id: str, model_name: str) -> Path:
+    """Exports model to native Keras (.keras) format. Returns .keras path."""
+    safe_name = _sanitize_filename(model_name)
+    export_dir = EXPORTS_BASE / job_id
+    keras_path = export_dir / f"{safe_name}.keras"
+
+    with _export_lock(keras_path):
+        if keras_path.exists():
+            logger.info(f"Keras export already exists for job {job_id}")
+            return keras_path
+
+        source_path = export_dir / "model.keras"
+        if not source_path.exists():
+            raise FileNotFoundError(f"model.keras not found for job {job_id}")
+
+        if source_path == keras_path:
+            return keras_path
+
+        scratch_dir = _new_scratch_dir(export_dir)
+        try:
+            staged_path = scratch_dir / f"{safe_name}.keras"
+            shutil.copyfile(source_path, staged_path)
+            os.replace(staged_path, keras_path)
+        finally:
+            shutil.rmtree(scratch_dir, ignore_errors=True)
+        logger.info(f"Keras model saved to {keras_path}")
+
+    return keras_path
+
+
 def export_savedmodel(job_id: str, model_name: str) -> Path:
     """Exports model to SavedModel format, zips it, returns zip path.
 
@@ -341,6 +371,7 @@ def get_export_formats(job_id: str, model_name: str, graph_ir: dict | None = Non
                 "onnx_supported": False,
                 "onnx_issues": ["Training not completed"],
             },
+            "keras": {"available": False, "size_bytes": None, "expires_at": None},
         }
 
     # SavedModel
@@ -371,6 +402,14 @@ def get_export_formats(job_id: str, model_name: str, graph_ir: dict | None = Non
         "expires_at": _get_expiry_date(onnx_file) if onnx_file.exists() else None,
         "onnx_supported": onnx_supported,
         "onnx_issues": onnx_issues if not onnx_supported else None,
+    }
+
+    # Keras (.keras)
+    keras_file = export_dir / f"{safe_name}.keras"
+    formats["keras"] = {
+        "available": keras_file.exists(),
+        "size_bytes": keras_file.stat().st_size if keras_file.exists() else None,
+        "expires_at": _get_expiry_date(keras_file) if keras_file.exists() else None,
     }
 
     return formats

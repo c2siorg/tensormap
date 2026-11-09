@@ -51,6 +51,12 @@ const FORMAT_INFO: FormatDisplay[] = [
     description: "Open Neural Network Exchange format for cross-framework compatibility",
     icon: Package,
   },
+  {
+    format: "keras",
+    label: "Keras (.keras)",
+    description: "Native Keras 3 format containing architecture and weights",
+    icon: Package,
+  },
 ];
 
 export default function ExportPanel({ jobId, modelName }: ExportPanelProps) {
@@ -60,6 +66,7 @@ export default function ExportPanel({ jobId, modelName }: ExportPanelProps) {
     savedmodel: false,
     tflite: false,
     onnx: false,
+    keras: false,
   });
   const [error, setError] = useState<string | null>(null);
 
@@ -265,9 +272,13 @@ export default function ExportPanel({ jobId, modelName }: ExportPanelProps) {
           </Alert>
         )}
 
-        <div className="grid gap-4 md:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {FORMAT_INFO.map((info) => {
-            const formatData = formats[info.format];
+            const formatData = formats[info.format] || {
+              available: false,
+              size_bytes: null,
+              expires_at: null,
+            };
             const isOnnx = info.format === "onnx";
             const onnxUnsupported = isOnnx && !formatData.onnx_supported;
 

@@ -2,7 +2,7 @@
  * Types for model export functionality.
  */
 
-export type ExportFormat = "savedmodel" | "tflite" | "onnx";
+export type ExportFormat = "savedmodel" | "tflite" | "onnx" | "keras";
 
 export interface FormatInfo {
   available: boolean;
@@ -17,6 +17,7 @@ export interface ExportFormatsResponse {
     savedmodel: FormatInfo;
     tflite: FormatInfo;
     onnx: FormatInfo;
+    keras?: FormatInfo;
   };
 }
 

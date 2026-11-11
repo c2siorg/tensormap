@@ -35,7 +35,7 @@ async def validate_graph_endpoint(body: dict[str, Any]):
     graph_ir_data = body["graph_ir"]
 
     try:
-        graph = IRGraph(**graph_ir_data)
+        graph = IRGraph.model_validate(graph_ir_data)
     except ValidationError as e:
         raise HTTPException(status_code=422, detail=e.errors()) from e
 
@@ -61,7 +61,7 @@ async def analyze_graph_endpoint(body: dict[str, Any]):
     """
     if "graph_ir" in body:
         try:
-            return analyze_graph(IRGraph(**body["graph_ir"]))
+            return analyze_graph(IRGraph.model_validate(body["graph_ir"]))
         except ValidationError as e:
             raise HTTPException(status_code=422, detail=e.errors()) from e
     canvas = body.get("canvas")

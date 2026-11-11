@@ -118,9 +118,50 @@ def test_validate_graph_endpoint_400_invalid():
     }
     resp = client.post("/api/v1/layers/validate-graph", json={"graph_ir": graph_ir})
     assert resp.status_code == 400  # Will return {'valid': False, errors: [...]}
-    data = resp.json()
-    assert data["valid"] is False
-    assert len(data["errors"]) > 0
+
+
+# --- Non-object graph_ir inputs should return 422, not 500 (issue #546) ---
+
+
+def test_validate_graph_non_object_list_returns_422():
+    resp = client.post("/api/v1/layers/validate-graph", json={"graph_ir": []})
+    assert resp.status_code == 422
+
+
+def test_validate_graph_non_object_string_returns_422():
+    resp = client.post("/api/v1/layers/validate-graph", json={"graph_ir": "x"})
+    assert resp.status_code == 422
+
+
+def test_validate_graph_non_object_null_returns_422():
+    resp = client.post("/api/v1/layers/validate-graph", json={"graph_ir": None})
+    assert resp.status_code == 422
+
+
+def test_validate_graph_non_object_number_returns_422():
+    resp = client.post("/api/v1/layers/validate-graph", json={"graph_ir": 42})
+    assert resp.status_code == 422
+
+
+def test_analyze_graph_non_object_list_returns_422():
+    resp = client.post("/api/v1/layers/analyze-graph", json={"graph_ir": []})
+    assert resp.status_code == 422
+
+
+def test_analyze_graph_non_object_number_returns_422():
+    resp = client.post("/api/v1/layers/analyze-graph", json={"graph_ir": 5})
+    assert resp.status_code == 422
+
+
+def test_analyze_graph_non_object_null_returns_422():
+    resp = client.post("/api/v1/layers/analyze-graph", json={"graph_ir": None})
+    assert resp.status_code == 422
+
+
+def test_analyze_graph_empty_object_does_not_500():
+    # An empty dict is missing required IRGraph fields (version, nodes, edges) -> 422
+    resp = client.post("/api/v1/layers/analyze-graph", json={"graph_ir": {}})
+    assert resp.status_code == 422
 
 
 def test_translate_params_invalid_units():

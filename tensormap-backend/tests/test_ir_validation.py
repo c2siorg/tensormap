@@ -123,6 +123,12 @@ def test_validate_graph_endpoint_400_invalid():
     assert len(data["errors"]) > 0
 
 
+@pytest.mark.parametrize("graph_ir", [[], "graph", 5, None])
+def test_validate_graph_endpoint_422_non_object_graph_ir(graph_ir):
+    resp = client.post("/api/v1/layers/validate-graph", json={"graph_ir": graph_ir})
+    assert resp.status_code == 422
+
+
 def test_translate_params_invalid_units():
     with pytest.raises(TranslationError):
         translate_params_to_ir("dense", {"units": -1})

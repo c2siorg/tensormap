@@ -725,3 +725,8 @@ class TestAnalyzeGraphEndpoint:
     def test_malformed_graph_ir_is_a_422(self, client):
         response = client.post(self.URL, json={"graph_ir": {"nodes": []}})
         assert response.status_code == 422
+
+    @pytest.mark.parametrize("graph_ir", [[], "graph", 5, None])
+    def test_non_object_graph_ir_is_a_422(self, client, graph_ir):
+        response = client.post(self.URL, json={"graph_ir": graph_ir})
+        assert response.status_code == 422

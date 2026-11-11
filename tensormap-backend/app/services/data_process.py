@@ -533,9 +533,16 @@ def _one_hot_encode(df: pd.DataFrame, col: str, _params: dict | None) -> pd.Data
 
 
 def _categorical_to_numerical(df: pd.DataFrame, col: str, _params: dict | None) -> pd.DataFrame:
+    # Guard against NaN values: pd.Categorical.codes encodes NaN as -1, which
+    # would silently inject an invalid category code and corrupt any model
+    # trained on it.  Reject the request so the user fills missing values first.
+    nan_count = int(df[col].isnull().sum())
+    if nan_count:
+        raise ValueError(
+            f"Categorical to Numerical: column '{col}' contains {nan_count} missing value(s). "
+            "Fill or drop missing values before converting to numerical codes."
+        )
     # Preserve integer dtype so downstream consumers see a proper int column.
-    # pd.Categorical.codes returns int with -1 for NaNs — keep that convention
-    # rather than promoting to float just to hold NaN.
     df[col] = pd.Categorical(df[col]).codes
     return df
 
@@ -545,6 +552,11 @@ def _drop_column(df: pd.DataFrame, col: str, _params: dict | None) -> pd.DataFra
 
 
 def _min_max_normalize(df: pd.DataFrame, col: str, _params: dict | None) -> pd.DataFrame:
+    if not pd.api.types.is_numeric_dtype(df[col]):
+        raise ValueError(
+            f"Min-Max Normalization requires a numeric column, but '{col}' has dtype '{df[col].dtype}'. "
+            "Convert it to a numeric type first."
+        )
     col_min = df[col].min()
     col_max = df[col].max()
     df[col] = 0.0 if np.isclose(col_min, col_max) else (df[col] - col_min) / (col_max - col_min)
@@ -552,6 +564,11 @@ def _min_max_normalize(df: pd.DataFrame, col: str, _params: dict | None) -> pd.D
 
 
 def _zscore_standardize(df: pd.DataFrame, col: str, _params: dict | None) -> pd.DataFrame:
+    if not pd.api.types.is_numeric_dtype(df[col]):
+        raise ValueError(
+            f"Z-score Standardization requires a numeric column, but '{col}' has dtype '{df[col].dtype}'. "
+            "Convert it to a numeric type first."
+        )
     mean = df[col].mean()
     std = df[col].std()
     df[col] = 0.0 if np.isclose(std, 0) else (df[col] - mean) / std
@@ -559,6 +576,11 @@ def _zscore_standardize(df: pd.DataFrame, col: str, _params: dict | None) -> pd.
 
 
 def _log_transform(df: pd.DataFrame, col: str, _params: dict | None) -> pd.DataFrame:
+    if not pd.api.types.is_numeric_dtype(df[col]):
+        raise ValueError(
+            f"Log Transform requires a numeric column, but '{col}' has dtype '{df[col].dtype}'. "
+            "Convert it to a numeric type first."
+        )
     s = df[col]
     # log(1+x) is non-finite for x <= -1: at x == -1 it evaluates to -inf
     # (log 0), so reject those values instead of silently corrupting the CSV.
@@ -630,18 +652,30 @@ def _drop_missing_rows(df: pd.DataFrame, col: str, _params: dict | None) -> pd.D
 
 def _fill_missing(df: pd.DataFrame, col: str, params: dict | None) -> pd.DataFrame:
     strategy = (params or {}).get("strategy", "mean")
+    if strategy in {"mean", "median"} and not pd.api.types.is_numeric_dtype(df[col]):
+        raise ValueError(
+            f"Fill Missing Values with strategy='{strategy}' requires a numeric column, "
+            f"but '{col}' has dtype '{df[col].dtype}'. Use strategy='mode' for categorical columns."
+        )
     if strategy == "median":
         df[col] = df[col].fillna(df[col].median())
     elif strategy == "mode":
         mode_vals = df[col].mode()
-        fill_val = mode_vals[0] if not mode_vals.empty else df[col].median()
-        df[col] = df[col].fillna(fill_val)
+        if mode_vals.empty:
+            raise ValueError(
+                f"Fill Missing Values: Column '{col}' contains only missing values and has no mode to impute."
+            )
+        df[col] = df[col].fillna(mode_vals[0])
     elif strategy == "mean":
         df[col] = df[col].fillna(df[col].mean())
     else:
         raise ValueError(f"Unknown fill strategy '{strategy}'. Valid: 'mean', 'median', 'mode'")
     return df
 
+
+# Transformations that permanently remove or rename the target column would
+# corrupt any model already configured for this dataset — block them upfront.
+_TARGET_DESTRUCTIVE = frozenset({"Drop Column", "One Hot Encoding"})
 
 # Single source of truth: maps transformation name → handler function.
 # Adding a new transformation only requires adding one entry here.
@@ -675,6 +709,10 @@ def preprocess_data(db: Session, file_id: uuid_pkg.UUID, transformations: list) 
     try:
         df = pd.read_csv(file_path)
 
+        # Look up the active target column for this file (if set).
+        target_record = db.exec(select(DataProcess).where(DataProcess.file_id == file_id)).first()
+        active_target: str | None = target_record.target if target_record else None
+
         # Validate all transformations before applying any, so the request either
         # fully succeeds or fully fails — no partial mutations.
         for t in transformations:
@@ -689,6 +727,14 @@ def preprocess_data(db: Session, file_id: uuid_pkg.UUID, transformations: list) 
                     422,
                     False,
                     f"Column '{t.feature}' not found. Available columns: {list(df.columns)}",
+                )
+            # Reject transformations that would destroy or rename the target column.
+            if active_target and t.feature == active_target and t.transformation in _TARGET_DESTRUCTIVE:
+                return _resp(
+                    422,
+                    False,
+                    f"Cannot apply '{t.transformation}' to active target column '{active_target}'. "
+                    "Reassign the target field to a different column first.",
                 )
 
         for t in transformations:

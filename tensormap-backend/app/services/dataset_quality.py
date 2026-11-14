@@ -213,6 +213,20 @@ def analyze_dataset_quality(
                 blocking=True,
                 distinct_count=target_distinct,
             )
+        elif problem_type_id == int(ProblemType.REGRESSION) and (
+            not pd.api.types.is_numeric_dtype(target_values) or pd.api.types.is_bool_dtype(target_values)
+        ):
+            add_issue(
+                "non_numeric_regression_target",
+                "error",
+                (
+                    f"Regression target '{selected_target}' has non-numeric data type '{target_values.dtype}'. "
+                    "Regression requires a continuous numeric target. Select a numeric column or choose Classification."
+                ),
+                [selected_target],
+                blocking=True,
+                dtype=str(target_values.dtype),
+            )
         if columns <= 1:
             add_issue(
                 "no_feature_columns",
@@ -220,6 +234,27 @@ def analyze_dataset_quality(
                 "The target is the only column. Add at least one feature column before training.",
                 [selected_target],
                 blocking=True,
+            )
+
+        non_numeric_features = [
+            str(col)
+            for col in frame.columns
+            if col != selected_target
+            and (not pd.api.types.is_numeric_dtype(frame[col]) or pd.api.types.is_bool_dtype(frame[col]))
+        ]
+        if non_numeric_features:
+            cols_str = ", ".join(repr(c) for c in non_numeric_features)
+            add_issue(
+                "non_numeric_feature_columns",
+                "error",
+                (
+                    f"Feature column(s) {cols_str} have non-numeric data types. "
+                    "Neural network layers require numeric inputs. Apply One-Hot Encoding or Categorical to Numerical "
+                    "in Data Processing before training."
+                ),
+                non_numeric_features,
+                blocking=True,
+                non_numeric_columns=non_numeric_features,
             )
 
     duplicate_header_limitation = (

@@ -253,3 +253,64 @@ def test_quality_report_api_uses_standard_response_envelope(client, db_session, 
     assert body["success"] is True
     assert body["data"]["can_train"] is True
     assert body["data"]["status"] == "clean"
+
+
+def test_non_numeric_regression_target_is_blocking(tmp_path):
+    body, status = _analyze(
+        tmp_path,
+        "feature,target\n0,cat\n1,dog\n2,bird\n",
+        target="target",
+        problem_type=2,
+    )
+    assert status == 200
+    report = body["data"]
+    assert report["can_train"] is False
+    assert report["status"] == "blocked"
+    issue = _issues(report)["non_numeric_regression_target"]
+    assert issue["blocking"] is True
+    assert issue["columns"] == ["target"]
+    assert "Regression requires a continuous numeric target" in issue["message"]
+
+
+def test_boolean_regression_target_is_blocking(tmp_path):
+    body, status = _analyze(
+        tmp_path,
+        "feature,target\n0,True\n1,False\n2,True\n",
+        target="target",
+        problem_type=2,
+    )
+    assert status == 200
+    report = body["data"]
+    assert report["can_train"] is False
+    assert report["status"] == "blocked"
+    assert "non_numeric_regression_target" in _issues(report)
+
+
+def test_non_numeric_feature_columns_are_blocking(tmp_path):
+    body, status = _analyze(
+        tmp_path,
+        "feature,city,label\n0,paris,1\n1,tokyo,2\n2,london,3\n",
+        target="label",
+        problem_type=1,
+    )
+    assert status == 200
+    report = body["data"]
+    assert report["can_train"] is False
+    assert report["status"] == "blocked"
+    issue = _issues(report)["non_numeric_feature_columns"]
+    assert issue["blocking"] is True
+    assert issue["columns"] == ["city"]
+    assert "Neural network layers require numeric inputs" in issue["message"]
+
+
+def test_boolean_feature_columns_are_blocking(tmp_path):
+    body, status = _analyze(
+        tmp_path,
+        "feature,flag,label\n0,True,1\n1,False,2\n2,True,3\n",
+        target="label",
+        problem_type=1,
+    )
+    assert status == 200
+    report = body["data"]
+    assert report["can_train"] is False
+    assert "non_numeric_feature_columns" in _issues(report)

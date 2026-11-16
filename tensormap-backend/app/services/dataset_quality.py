@@ -1,5 +1,6 @@
 """Read-only quality analysis for uploaded training datasets."""
 
+import asyncio
 import uuid as uuid_pkg
 from pathlib import Path
 from typing import Any
@@ -20,62 +21,20 @@ def _response(status_code: int, success: bool, message: str, data: Any = None) -
     return {"success": success, "message": message, "data": data}, status_code
 
 
-def analyze_dataset_quality(
-    db: Session,
-    file_id: uuid_pkg.UUID,
-    target_field: str | None = None,
-    problem_type_id: int | None = None,
-    training_split: float | None = None,
-) -> tuple:
-    """Analyze a CSV without changing it, using the same parser as training.
+def _analyze_csv_sync(
+    path: Path,
+    target_field: str | None,
+    problem_type_id: int | None,
+    training_split: float | None,
+) -> dict[str, Any]:
+    """Synchronous CSV analysis (runs in thread pool).
 
-    Missing values follow pandas' existing ``read_csv`` defaults, which are
-    also used by training. Zero and other non-null values remain valid values.
+    This contains all the blocking pandas operations.
     """
-    file = db.exec(select(DataFile).where(DataFile.id == file_id)).first()
-    if file is None:
-        return _response(404, False, "Dataset file was not found")
-
-    if file.file_type != "csv":
-        info = {
-            "status": "not_applicable",
-            "can_train": True,
-            "summary": {"rows": file.row_count or 0, "columns": len(file.columns or []), "missing_values": 0},
-            "issues": [
-                {
-                    "code": "tabular_analysis_not_applicable",
-                    "severity": "info",
-                    "columns": [],
-                    "blocking": False,
-                    "message": (
-                        "Tabular quality checks do not apply to image archive datasets. "
-                        "The image loader will validate this dataset when training starts."
-                    ),
-                }
-            ],
-            "limitations": [],
-        }
-        return _response(200, True, "Dataset quality report generated", info)
-
-    settings = get_settings()
-    upload_folder = Path(settings.upload_folder).resolve()
-    path = (upload_folder / file.disk_name).resolve()
-    if path == upload_folder or upload_folder not in path.parents:
-        return _response(400, False, "Could not analyze this CSV. Check that the uploaded file is valid.")
     try:
-        if path.stat().st_size > settings.max_content_length:
-            return _response(413, False, "Dataset exceeds the configured upload size limit and cannot be analyzed.")
-        try:
-            frame = pd.read_csv(path)
-        except pd.errors.EmptyDataError:
-            frame = pd.DataFrame()
-    except (pd.errors.ParserError, OSError, UnicodeDecodeError, MemoryError, ValueError):
-        logger.exception("Could not analyze uploaded CSV for file_id=%s", file_id)
-        return _response(
-            400,
-            False,
-            "Could not analyze this CSV. Check that the uploaded file is a valid, readable CSV.",
-        )
+        frame = pd.read_csv(path)
+    except pd.errors.EmptyDataError:
+        frame = pd.DataFrame()
 
     rows = len(frame.index)
     columns = len(frame.columns)
@@ -243,4 +202,76 @@ def analyze_dataset_quality(
         "issues": issues,
         "limitations": [duplicate_header_limitation],
     }
+    return report
+
+
+async def analyze_dataset_quality(
+    db: Session,
+    file_id: uuid_pkg.UUID,
+    target_field: str | None = None,
+    problem_type_id: int | None = None,
+    training_split: float | None = None,
+) -> tuple:
+    """Analyze a CSV without changing it, using the same parser as training.
+
+    Missing values follow pandas' existing ``read_csv`` defaults, which are
+    also used by training. Zero and other non-null values remain valid values.
+
+    This function offloads blocking I/O (file stat, CSV parsing) to a thread pool
+    to avoid blocking the event loop for large datasets.
+    """
+    file = db.exec(select(DataFile).where(DataFile.id == file_id)).first()
+    if file is None:
+        return _response(404, False, "Dataset file was not found")
+
+    if file.file_type != "csv":
+        info = {
+            "status": "not_applicable",
+            "can_train": True,
+            "summary": {"rows": file.row_count or 0, "columns": len(file.columns or []), "missing_values": 0},
+            "issues": [
+                {
+                    "code": "tabular_analysis_not_applicable",
+                    "severity": "info",
+                    "columns": [],
+                    "blocking": False,
+                    "message": (
+                        "Tabular quality checks do not apply to image archive datasets. "
+                        "The image loader will validate this dataset when training starts."
+                    ),
+                }
+            ],
+            "limitations": [],
+        }
+        return _response(200, True, "Dataset quality report generated", info)
+
+    settings = get_settings()
+    upload_folder = Path(settings.upload_folder).resolve()
+    path = (upload_folder / file.disk_name).resolve()
+    if path == upload_folder or upload_folder not in path.parents:
+        return _response(400, False, "Could not analyze this CSV. Check that the uploaded file is valid.")
+
+    # Offload file stat and CSV reading to thread pool to avoid blocking event loop
+    try:
+        # Check file size in thread pool (blocking I/O)
+        file_size = await asyncio.to_thread(lambda: path.stat().st_size)
+        if file_size > settings.max_content_length:
+            return _response(413, False, "Dataset exceeds the configured upload size limit and cannot be analyzed.")
+
+        # Offload CSV analysis to thread pool
+        report = await asyncio.to_thread(
+            _analyze_csv_sync,
+            path,
+            target_field,
+            problem_type_id,
+            training_split,
+        )
+    except (pd.errors.ParserError, OSError, UnicodeDecodeError, MemoryError, ValueError):
+        logger.exception("Could not analyze uploaded CSV for file_id=%s", file_id)
+        return _response(
+            400,
+            False,
+            "Could not analyze this CSV. Check that the uploaded file is a valid, readable CSV.",
+        )
+
     return _response(200, True, "Dataset quality report generated", report)

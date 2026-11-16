@@ -51,6 +51,7 @@ async def lifespan(app: FastAPI):
     from alembic.script import ScriptDirectory
 
     cleanup_task = None
+    orphan_recovery_task = None
 
     if os.environ.get("TESTING"):
         logger.info("TESTING mode — skipping Alembic migrations")
@@ -124,6 +125,21 @@ async def lifespan(app: FastAPI):
 
         cleanup_task = asyncio.create_task(_export_cleanup_loop())
 
+        # Start background orphan recovery task (runs every 5 minutes)
+        async def _orphan_recovery_loop():
+            while True:
+                await asyncio.sleep(300)  # 5 minutes
+                try:
+                    from app.services.training_service import orphan_recovery
+
+                    recovered = orphan_recovery()
+                    if recovered > 0:
+                        logger.info(f"Periodic orphan recovery: marked {recovered} stale job(s) as failed")
+                except Exception as e:
+                    logger.error(f"Orphan recovery error: {e}")
+
+        orphan_recovery_task = asyncio.create_task(_orphan_recovery_loop())
+
     yield
 
     # Cleanup on shutdown
@@ -133,6 +149,13 @@ async def lifespan(app: FastAPI):
         cleanup_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await cleanup_task
+
+    if orphan_recovery_task:
+        import contextlib
+
+        orphan_recovery_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await orphan_recovery_task
 
 
 app = FastAPI(title="TensorMap API", lifespan=lifespan)

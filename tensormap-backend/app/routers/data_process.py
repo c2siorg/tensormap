@@ -31,7 +31,7 @@ router = APIRouter(tags=["data-process"])
 
 
 @router.get("/data/process/quality/{file_id}")
-def get_dataset_quality(
+async def get_dataset_quality(
     file_id: uuid_pkg.UUID,
     target_field: str | None = Query(None),
     problem_type_id: int | None = Query(None, ge=1, le=3),
@@ -39,7 +39,7 @@ def get_dataset_quality(
     db: Session = Depends(get_db),
 ):
     """Return a read-only quality report for a dataset and its selected target."""
-    body, status_code = analyze_dataset_quality(
+    body, status_code = await analyze_dataset_quality(
         db,
         file_id=file_id,
         target_field=target_field,

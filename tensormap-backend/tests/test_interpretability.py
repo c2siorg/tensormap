@@ -158,7 +158,8 @@ def test_confusion_matrix_shape(trained_job, db_session):
 
 
 @pytest.mark.slow
-def test_confusion_matrix_cached_on_second_call(trained_job, db_session):
+@pytest.mark.asyncio
+async def test_confusion_matrix_cached_on_second_call(trained_job, db_session):
     """Call twice, verify DB read on 2nd call (cache hit)."""
     job_id = trained_job["job_id"]
     X_test = trained_job["X_test"]
@@ -179,15 +180,11 @@ def test_confusion_matrix_cached_on_second_call(trained_job, db_session):
         ),
     ):
         # First call — should compute
-        result1 = asyncio.get_event_loop().run_until_complete(
-            service.compute_confusion_matrix_async(job_id, db_session)
-        )
+        result1 = await service.compute_confusion_matrix_async(job_id, db_session)
 
         # Second call — should hit cache (no _compute call)
         with patch.object(service, "_compute_confusion_matrix_sync") as mock_compute:
-            result2 = asyncio.get_event_loop().run_until_complete(
-                service.compute_confusion_matrix_async(job_id, db_session)
-            )
+            result2 = await service.compute_confusion_matrix_async(job_id, db_session)
             mock_compute.assert_not_called()
 
     assert result1["confusion_matrix"] == result2["confusion_matrix"]

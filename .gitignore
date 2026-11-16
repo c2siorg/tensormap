@@ -28,3 +28,4 @@ Desktop.ini
 tests/__pycache__/
 tests/**/__pycache__/
 *.pyc
+tensormap-backend/exports/

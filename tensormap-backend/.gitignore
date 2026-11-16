@@ -42,3 +42,6 @@ __pycache__/
 
 # Temporary scripts
 fix_*.py
+
+# Model exports
+exports/*

@@ -1,4 +1,4 @@
-from jinja2 import Environment, FileSystemLoader
+from jinja2 import Environment, FileSystemLoader, TemplateError, TemplateNotFound, TemplateSyntaxError
 from sqlmodel import Session, select
 
 from app.models import DataFile, ImageProperties, ModelBasic
@@ -70,9 +70,27 @@ def generate_code(model_name: str, db: Session) -> str:
     logger.debug("Generating code for model type: %s", model_configs.model_type)
     template_loader = FileSystemLoader(searchpath=TEMPLATE_ROOT)
     template_env = Environment(loader=template_loader)
-    template = template_env.get_template(_map_template(model_configs.model_type))
 
-    return template.render(data=data)
+    try:
+        template_path = _map_template(model_configs.model_type)
+        template = template_env.get_template(template_path)
+    except TemplateNotFound as e:
+        logger.error("Template not found: %s", str(e))
+        raise CodeGenerationError(
+            f"Code generation template not found for model type {model_configs.model_type}"
+        ) from e
+    except TemplateSyntaxError as e:
+        logger.error("Template syntax error in %s: %s", e.filename or "unknown", e.message)
+        raise CodeGenerationError(f"Code generation template has a syntax error: {e.message}") from e
+    except TemplateError as e:
+        logger.error("Template error: %s", str(e))
+        raise CodeGenerationError(f"Code generation template error: {str(e)}") from e
+
+    try:
+        return template.render(data=data)
+    except TemplateError as e:
+        logger.error("Template rendering error: %s", str(e))
+        raise CodeGenerationError(f"Code generation failed during template rendering: {str(e)}") from e
 
 
 def _map_template(problem_type_id: int | None) -> str:

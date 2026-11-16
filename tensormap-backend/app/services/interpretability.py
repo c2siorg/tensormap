@@ -14,6 +14,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import tensorflow as tf
 from sklearn.metrics import (
     auc,
     average_precision_score,
@@ -199,6 +200,24 @@ class InterpretabilityService:
 
     def __init__(self):
         self.cache = AnalysisCache()
+        self._model_cache: dict[str, tf.keras.Model] = {}
+
+    def _get_model(self, job_id: str) -> tf.keras.Model:
+        """Get cached model or load from disk.
+
+        Args:
+            job_id: Training job ID
+
+        Returns:
+            Loaded Keras model
+        """
+        if job_id in self._model_cache:
+            return self._model_cache[job_id]
+
+        model_path = EXPORTS_BASE / job_id / "model.keras"
+        model = tf.keras.models.load_model(model_path)
+        self._model_cache[job_id] = model
+        return model
 
     # ------------------------------------------------------------------
     # Data loading helpers
@@ -425,7 +444,7 @@ class InterpretabilityService:
     def _compute_confusion_matrix_sync(self, job_id: str, session: Session) -> dict:
         """Compute confusion matrix and classification report (blocking).
 
-        Loads the trained model from exports, runs predictions on the test split,
+        Loads the trained model from exports (cached), runs predictions on the test split,
         and computes sklearn metrics.
 
         Args:
@@ -436,10 +455,7 @@ class InterpretabilityService:
             Dictionary with confusion_matrix, classification_report, class_names,
             overall_accuracy, n_samples, and analysis_type
         """
-        import tensorflow as tf
-
-        model_path = EXPORTS_BASE / job_id / "model.keras"
-        model = tf.keras.models.load_model(model_path)
+        model = self._get_model(job_id)
 
         X_test, y_test, class_names = self._load_test_data(job_id, session)
 
@@ -492,7 +508,7 @@ class InterpretabilityService:
     def _compute_roc_curve_sync(self, job_id: str, session: Session) -> dict:
         """Compute ROC and Precision-Recall curves and AUC metrics (blocking).
 
-        Loads the trained model from exports, runs inference on the test split,
+        Loads the trained model from exports (cached), runs inference on the test split,
         and computes sklearn ROC, PR, and AUC scores with One-vs-Rest support.
 
         Args:
@@ -502,10 +518,7 @@ class InterpretabilityService:
         Returns:
             Dictionary containing per-class curves and AUC metrics.
         """
-        import tensorflow as tf
-
-        model_path = EXPORTS_BASE / job_id / "model.keras"
-        model = tf.keras.models.load_model(model_path)
+        model = self._get_model(job_id)
 
         X_test, y_test, class_names = self._load_test_data(job_id, session)
 
@@ -632,10 +645,7 @@ class InterpretabilityService:
         Returns:
             Dictionary with residuals, y_pred, y_true, mae, mse, analysis_type
         """
-        import tensorflow as tf
-
-        model_path = EXPORTS_BASE / job_id / "model.keras"
-        model = tf.keras.models.load_model(model_path)
+        model = self._get_model(job_id)
 
         X_test, y_test, _ = self._load_test_data(job_id, session)
 
@@ -751,7 +761,6 @@ class InterpretabilityService:
             Dictionary with features, importances_mean, importances_std,
             n_samples_used, n_repeats, analysis_type
         """
-        import tensorflow as tf
         from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
         from sklearn.inspection import permutation_importance
 
@@ -769,8 +778,7 @@ class InterpretabilityService:
 
         is_regression = model_basic.model_type == ProblemType.REGRESSION
 
-        model_path = EXPORTS_BASE / job_id / "model.keras"
-        keras_model = tf.keras.models.load_model(model_path)
+        keras_model = self._get_model(job_id)
 
         X_test, y_test, feature_names = self._load_test_data_with_features(job_id, session)
 

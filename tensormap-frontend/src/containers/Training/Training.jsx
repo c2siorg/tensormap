@@ -1109,6 +1109,9 @@ export default function Training() {
                       Loss
                     </th>
                     <th scope="col" className="px-4 py-3 font-medium border-b">
+                      Batch Size
+                    </th>
+                    <th scope="col" className="px-4 py-3 font-medium border-b">
                       Training Split
                     </th>
                   </tr>
@@ -1129,6 +1132,7 @@ export default function Training() {
                       <td className="px-4 py-3 capitalize">{model.optimizer || "-"}</td>
                       <td className="px-4 py-3 capitalize">{model.metric || "-"}</td>
                       <td className="px-4 py-3 capitalize">{model.loss || "-"}</td>
+                      <td className="px-4 py-3">{model.batch_size ?? "-"}</td>
                       <td className="px-4 py-3">
                         {model.training_split != null
                           ? `${(model.training_split > 1 ? model.training_split : model.training_split * 100).toFixed(0)}%`

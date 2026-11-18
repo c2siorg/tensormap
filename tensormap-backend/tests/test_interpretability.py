@@ -283,6 +283,7 @@ def test_confusion_matrix_not_available_for_regression(regression_job, db_sessio
     response = client.get(f"/api/v1/model/analysis/{regression_job}/confusion-matrix")
     assert response.status_code == 400
     assert "regression" in response.json()["detail"].lower()
+    assert "/residuals" in response.json()["detail"]
 
 
 # ------------------------------------------------------------------

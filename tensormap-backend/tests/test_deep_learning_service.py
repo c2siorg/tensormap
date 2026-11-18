@@ -250,3 +250,33 @@ class TestModelValidateService:
         assert body["success"] is True
         assert nested_dir.exists()
         assert (nested_dir / "test_validate_model.json").exists()
+
+
+# ---------------------------------------------------------------------------
+# get_training_history_service
+# ---------------------------------------------------------------------------
+
+
+class TestGetTrainingHistoryService:
+    def test_training_history_includes_batch_size(self, mock_db):
+        from app.services.deep_learning import get_training_history_service
+
+        mock_model = MagicMock()
+        mock_model.id = 1
+        mock_model.model_name = "test_clf"
+        mock_model.created_on = None
+        mock_model.epochs = 10
+        mock_model.optimizer = "adam"
+        mock_model.metric = "accuracy"
+        mock_model.loss = "categorical_crossentropy"
+        mock_model.training_split = 80.0
+        mock_model.batch_size = 64
+
+        mock_db.exec.return_value.one.return_value = 1
+        mock_db.exec.return_value.all.return_value = [mock_model]
+
+        body, status_code = get_training_history_service(mock_db)
+        assert status_code == 200
+        assert body["success"] is True
+        assert len(body["data"]) == 1
+        assert body["data"][0]["batch_size"] == 64

@@ -74,6 +74,22 @@ def test_single_class_classification_target_is_blocking(tmp_path):
     assert "at least two classes" in issue["message"]
 
 
+def test_target_class_collapse_after_dropping_missing_rows_is_blocking(tmp_path):
+    # 'cat' row has missing f1, so it gets dropped, leaving only 'dog' in usable rows
+    body, status = _analyze(
+        tmp_path,
+        "f1,f2,label\n,2,cat\n1,2,dog\n3,4,dog\n",
+        target="label",
+        problem_type=1,
+    )
+    assert status == 200
+    assert body["data"]["can_train"] is False
+    issue = _issues(body["data"])["single_class_target"]
+    assert issue["blocking"] is True
+    assert issue["distinct_count"] == 1
+    assert "after dropping rows with missing feature values" in issue["message"]
+
+
 def test_constant_regression_target_remains_allowed(tmp_path):
     body, status = _analyze(
         tmp_path,

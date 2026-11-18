@@ -126,7 +126,7 @@ async def get_confusion_matrix(
     if analysis_type == "regression":
         raise HTTPException(
             status_code=400,
-            detail="Confusion matrix not available for regression models. Use /residual-plot instead.",
+            detail="Confusion matrix not available for regression models. Use /residuals instead.",
         )
     if analysis_type == "image_classification":
         raise HTTPException(

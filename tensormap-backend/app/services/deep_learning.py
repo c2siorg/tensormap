@@ -20,6 +20,7 @@ from app.services.code_generation import CodeGenerationError, generate_code
 from app.services.model_generation import model_generation
 from app.services.model_run import ModelRunError, model_run
 from app.shared.constants import (
+    CLASS_WEIGHT_MODE,
     CODE,
     DATASET,
     DL_MODEL,
@@ -238,6 +239,7 @@ def model_validate_service(db: Session, incoming: dict, project_id: uuid_pkg.UUI
         metric=code[DL_MODEL][MODEL_METRIC],
         epochs=code[DL_MODEL][MODEL_EPOCHS],
         loss=_default_loss(code[PROBLEM_TYPE]),
+        class_weight_mode=code[DL_MODEL].get(CLASS_WEIGHT_MODE),
         graph_json=_extract_graph(incoming),
         graph_ir=graph_ir_data,  # NEW: Dual-write to graph_ir
     )
@@ -492,6 +494,7 @@ def update_training_config_service(
     model.epochs = config["epochs"]
     model.batch_size = config.get("batch_size", 32)
     model.loss = loss_enum.value
+    model.class_weight_mode = config.get(CLASS_WEIGHT_MODE)
 
     try:
         db.add(model)
@@ -822,6 +825,7 @@ def get_training_history_service(
             "optimizer": m.optimizer,
             "metric": m.metric,
             "loss": m.loss,
+            "class_weight_mode": m.class_weight_mode,
             "training_split": m.training_split,
         }
         for m in models

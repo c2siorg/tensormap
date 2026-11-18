@@ -796,7 +796,7 @@ def _estimate_param_count(graph_ir: dict) -> int:
     from app.ir.analysis import analyze_graph
     from app.ir.schema import IRGraph
 
-    analysis = analyze_graph(IRGraph(**graph_ir))
+    analysis = analyze_graph(IRGraph.model_validate(graph_ir))
     if not analysis.complete:
         raise ValueError("; ".join(d.message for d in analysis.errors()) or "graph could not be analysed")
     return analysis.total_params
@@ -823,6 +823,7 @@ def get_training_history_service(
             "metric": m.metric,
             "loss": m.loss,
             "training_split": m.training_split,
+            "batch_size": m.batch_size,
         }
         for m in models
     ]
@@ -912,7 +913,7 @@ def get_model_graph_ir(model_id: int, session: Session) -> "IRGraph | None":  # 
     # Fast path: graph_ir column populated (new storage)
     if model.graph_ir is not None:
         try:
-            return IRGraph(**model.graph_ir)
+            return IRGraph.model_validate(model.graph_ir)
         except Exception as e:
             logger.warning("Failed to deserialize graph_ir for model %d: %s", model_id, str(e))
             # Fall through to legacy path

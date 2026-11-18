@@ -105,16 +105,18 @@ def generate_code(model_name: str, db: Session) -> str:
             MODEL_EPOCHS: model_configs.epochs,
             MODEL_LOSS: loss,
             MODEL_LOSS_EXPRESSION: _loss_expression(loss, from_logits=from_logits),
+            BATCH_SIZE: model_configs.batch_size or 32,
         },
     }
 
     if file.file_type == "zip":
         image_prop = db.exec(select(ImageProperties).where(ImageProperties.id == model_configs.file_id)).first()
         if image_prop:
+            effective_image_batch = model_configs.batch_size or image_prop.batch_size or 32
             data[DATASET].update(
                 {
                     IMG_SIZE: image_prop.image_size,
-                    BATCH_SIZE: image_prop.batch_size,
+                    BATCH_SIZE: effective_image_batch,
                     COLOR_MODE: image_prop.color_mode,
                     LABEL_MODE: image_prop.label_mode,
                 }

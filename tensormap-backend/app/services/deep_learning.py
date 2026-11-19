@@ -483,9 +483,56 @@ def update_training_config_service(
     ):
         return _resp(400, False, "Dataset file does not belong to this project")
 
+    file_type = getattr(data_file, "file_type", None)
+    if isinstance(file_type, str):
+        if problem_type_id == ProblemType.IMAGE_CLASSIFICATION and file_type != "zip":
+            return _resp(400, False, f"Image classification requires a ZIP image archive, but got '{file_type}'")
+        if problem_type_id != ProblemType.IMAGE_CLASSIFICATION and file_type != "csv":
+            return _resp(400, False, f"Tabular models require a CSV dataset, but got '{file_type}'")
+
+    if problem_type_id != ProblemType.IMAGE_CLASSIFICATION:
+        raw_target = config.get("target_field")
+        if not raw_target or not str(raw_target).strip():
+            return _resp(400, False, "Target field is required for tabular datasets")
+        target_field = str(raw_target).strip()
+        columns = getattr(data_file, "columns", None)
+        if isinstance(columns, (list, tuple)) and len(columns) > 0 and target_field not in columns:
+            return _resp(400, False, f"Target field '{target_field}' not found in dataset columns: {columns}")
+    else:
+        raw_target = config.get("target_field")
+        target_field = str(raw_target).strip() if raw_target else None
+
+    training_split = config.get("training_split")
+    if training_split is None:
+        return _resp(400, False, "Training split is required")
+    try:
+        ts = float(training_split)
+    except (ValueError, TypeError):
+        return _resp(400, False, f"training_split must be a number, got {training_split!r}")
+    if ts <= 0 or ts >= 100:
+        return _resp(400, False, f"training_split must be between 0 and 100, got {ts}")
+
+    epochs = config.get("epochs")
+    if epochs is not None:
+        try:
+            ep = int(epochs)
+            if ep <= 0:
+                return _resp(400, False, f"epochs must be a positive integer, got {ep}")
+        except (ValueError, TypeError):
+            return _resp(400, False, f"epochs must be an integer, got {epochs!r}")
+
+    batch_size = config.get("batch_size", 32)
+    if batch_size is not None:
+        try:
+            bs = int(batch_size)
+            if bs <= 0:
+                return _resp(400, False, f"batch_size must be a positive integer, got {bs}")
+        except (ValueError, TypeError):
+            return _resp(400, False, f"batch_size must be an integer, got {batch_size!r}")
+
     model.file_id = file_id
     model.model_type = problem_type_id
-    model.target_field = config.get("target_field")
+    model.target_field = target_field
     model.training_split = config["training_split"]
     model.optimizer = config["optimizer"]
     model.metric = config["metric"]

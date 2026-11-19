@@ -5,10 +5,12 @@ from fastapi.responses import JSONResponse
 from sqlmodel import Session
 
 from app.database import get_db
+from app.schemas.class_imbalance import ClassImbalanceResponse
 from app.schemas.data_process import (
     PreprocessRequest,
     TargetAddRequest,
 )
+from app.services.class_imbalance_service import class_imbalance_service
 from app.services.data_process import (
     add_target_service,
     delete_one_target_by_id_service,
@@ -145,3 +147,14 @@ def get_backup_status(file_id: uuid_pkg.UUID, db: Session = Depends(get_db)):
     """Check if a preprocessing backup exists for a CSV file and return its details."""
     body, status_code = get_dataset_backup_status_service(db, file_id=file_id)
     return JSONResponse(status_code=status_code, content=body)
+
+
+@router.get("/data/process/imbalance/{file_id}", response_model=ClassImbalanceResponse)
+def get_class_imbalance(
+    file_id: uuid_pkg.UUID,
+    target_field: str | None = Query(None, description="Target classification column to analyze"),
+    db: Session = Depends(get_db),
+):
+    """Diagnose class imbalance, entropy, and compute balanced class weights for a dataset."""
+    logger.debug("Inspecting class imbalance for file_id=%s, target_field=%s", file_id, target_field)
+    return class_imbalance_service.analyze_class_imbalance(db, file_id=file_id, target_field=target_field)

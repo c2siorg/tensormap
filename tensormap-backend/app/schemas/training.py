@@ -23,6 +23,11 @@ class TrainingStartRequest(BaseModel):
     lr: float | None = Field(default=None, gt=0)
     epochs: int | None = Field(default=None, gt=0)
     batch_size: int | None = Field(default=None, gt=0)
+    reduce_lr_on_plateau: bool | None = None
+    reduce_lr_patience: int | None = Field(default=None, ge=1)
+    reduce_lr_factor: float | None = Field(default=None, gt=0.0, lt=1.0)
+    reduce_lr_min_lr: float | None = Field(default=None, ge=0.0)
+    reduce_lr_monitor: str | None = None
 
 
 class TrainingJobResponse(BaseModel):

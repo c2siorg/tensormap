@@ -93,6 +93,16 @@ async def start_training(request: TrainingStartRequest, db: Session = Depends(ge
         "epochs": request.epochs or model.epochs,
         "batch_size": request.batch_size or model.batch_size,
     }
+    if request.reduce_lr_on_plateau:
+        hyperparams["reduce_lr_on_plateau"] = True
+        if request.reduce_lr_patience is not None:
+            hyperparams["reduce_lr_patience"] = request.reduce_lr_patience
+        if request.reduce_lr_factor is not None:
+            hyperparams["reduce_lr_factor"] = request.reduce_lr_factor
+        if request.reduce_lr_min_lr is not None:
+            hyperparams["reduce_lr_min_lr"] = request.reduce_lr_min_lr
+        if request.reduce_lr_monitor is not None:
+            hyperparams["reduce_lr_monitor"] = request.reduce_lr_monitor
     job = create_training_job(
         model_id=model.id,
         project_id=model.project_id,

@@ -254,6 +254,26 @@ describe("MetricsSummaryBar", () => {
 
     expect(screen.getByText("No validation data")).toBeTruthy();
   });
+
+  it("displays current learning rate when present", () => {
+    const currentMetrics: EpochMetric = {
+      epoch: 5,
+      loss: 0.3,
+      lr: 0.001,
+    };
+
+    render(
+      <MetricsSummaryBar
+        currentMetrics={currentMetrics}
+        bestEpoch={null}
+        currentEpoch={5}
+        totalEpochs={50}
+      />,
+    );
+
+    expect(screen.getByText("Learning Rate:")).toBeTruthy();
+    expect(screen.getByText("0.0010")).toBeTruthy();
+  });
 });
 
 describe("TrainingMetricsChart Integration", () => {

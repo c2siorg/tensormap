@@ -13,6 +13,7 @@ from app.services.data_process import (
     add_target_service,
     delete_one_target_by_id_service,
     get_all_targets_service,
+    get_class_imbalance_service,
     get_column_stats_service,
     get_correlation_matrix,
     get_data_metrics,
@@ -47,6 +48,18 @@ def get_dataset_quality(
         problem_type_id=problem_type_id,
         training_split=training_split,
     )
+    return JSONResponse(status_code=status_code, content=body)
+
+
+@router.get("/data/process/{file_id}/class-imbalance")
+@router.get("/data/process/class-imbalance/{file_id}")
+def get_class_imbalance(
+    file_id: uuid_pkg.UUID,
+    target_field: str | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Compute class distribution, entropy, Gini impurity, and balanced class weights."""
+    body, status_code = get_class_imbalance_service(db, file_id=file_id, target_field=target_field)
     return JSONResponse(status_code=status_code, content=body)
 
 

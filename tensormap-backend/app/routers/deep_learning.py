@@ -21,6 +21,7 @@ from app.services.deep_learning import (
     model_validate_service,
     update_training_config_service,
 )
+from app.services.model_profiler import profile_model_service
 from app.shared.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -103,6 +104,18 @@ async def delete_model(
     """Delete a saved model and its associated configuration records."""
     logger.info("Deleting model id=%s", model_id)
     body, status_code = delete_model_service(db, model_id=model_id)
+    return JSONResponse(status_code=status_code, content=body)
+
+
+@router.get("/model/{model_id}/profile")
+def get_model_profile(
+    model_id: int,
+    batch_size: int = Query(32, ge=1, le=1024),
+    db: Session = Depends(get_db),
+):
+    """Profile model layer parameters, memory footprint, and architectural diagnostics."""
+    logger.debug("Profiling model complexity: model_id=%s batch_size=%d", model_id, batch_size)
+    body, status_code = profile_model_service(db, model_id=model_id, batch_size=batch_size)
     return JSONResponse(status_code=status_code, content=body)
 
 

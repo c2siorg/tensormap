@@ -7,17 +7,14 @@
 import { useState, useEffect } from "react";
 import axios from "@/shared/Axios";
 import { BACKEND_MODEL_ANALYSIS } from "@/constants/Urls";
-import {
-  ConfusionMatrixData,
-  RegressionAnalysisData,
-  RocCurveData,
-} from "@/types/analysis";
+import { ConfusionMatrixData, RegressionAnalysisData, RocCurveData } from "@/types/analysis";
 import ConfusionMatrixPanel from "./ConfusionMatrixPanel";
 import ClassificationReportTable from "./ClassificationReportTable";
 import FeatureImportanceChart from "./FeatureImportanceChart";
 import PredictionExplorer from "./PredictionExplorer";
 import ResidualPlotPanel from "./ResidualPlotPanel";
 import RocPrCurvePanel from "./RocPrCurvePanel";
+import BatchEvaluationPanel from "./BatchEvaluationPanel";
 import { useFeatureImportancePoller } from "@/hooks/useFeatureImportancePoller";
 import logger from "@/shared/logger";
 
@@ -143,11 +140,7 @@ export default function AnalysisDashboard({ jobId }: AnalysisDashboardProps) {
           </div>
 
           {/* ROC & Precision-Recall Diagnostic Curves */}
-          <RocPrCurvePanel
-            data={rocData}
-            isLoading={isLoadingRoc}
-            error={rocError}
-          />
+          <RocPrCurvePanel data={rocData} isLoading={isLoadingRoc} error={rocError} />
 
           {/* Feature Importance */}
           {isLoadingFeatureImportance && (
@@ -155,7 +148,9 @@ export default function AnalysisDashboard({ jobId }: AnalysisDashboardProps) {
               <div className="flex items-center gap-3">
                 <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
                 <div>
-                  <p className="text-sm text-blue-800 font-medium">Computing feature importance...</p>
+                  <p className="text-sm text-blue-800 font-medium">
+                    Computing feature importance...
+                  </p>
                   <p className="text-xs text-blue-600">This may take up to 30 seconds</p>
                 </div>
               </div>
@@ -219,7 +214,9 @@ export default function AnalysisDashboard({ jobId }: AnalysisDashboardProps) {
               <div className="flex items-center gap-3">
                 <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
                 <div>
-                  <p className="text-sm text-blue-800 font-medium">Computing feature importance...</p>
+                  <p className="text-sm text-blue-800 font-medium">
+                    Computing feature importance...
+                  </p>
                   <p className="text-xs text-blue-600">This may take up to 30 seconds</p>
                 </div>
               </div>
@@ -242,6 +239,11 @@ export default function AnalysisDashboard({ jobId }: AnalysisDashboardProps) {
             />
           )}
         </>
+      )}
+
+      {/* Holdout Test Dataset Evaluation & Batch Scoring */}
+      {(analysisType === "classification" || analysisType === "regression") && (
+        <BatchEvaluationPanel jobId={jobId} problemType={analysisType} />
       )}
     </div>
   );

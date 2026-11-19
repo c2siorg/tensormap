@@ -17,8 +17,17 @@ export default function TrainingMetricsChart({
   totalEpochs,
   onComplete,
 }: TrainingMetricsChartProps) {
-  const { metrics, status, currentEpoch, cancel, cancelRequested, startedAt, error, isCompleted } =
-    useTrainingMetrics(jobId, totalEpochs);
+  const {
+    metrics,
+    status,
+    currentEpoch,
+    cancel,
+    cancelRequested,
+    startedAt,
+    error,
+    isCompleted,
+    bestCheckpoint,
+  } = useTrainingMetrics(jobId, totalEpochs);
 
   // Call onComplete when training finishes
   useEffect(() => {
@@ -48,17 +57,40 @@ export default function TrainingMetricsChart({
     return metrics.length > 0 ? metrics[metrics.length - 1] : null;
   }, [metrics]);
 
-  // Find best epoch (lowest val_loss)
+  // Find best epoch (optimal checkpoint or lowest val_loss)
   const bestEpoch = useMemo(() => {
+    if (bestCheckpoint) {
+      return {
+        epoch: bestCheckpoint.epoch,
+        metric: bestCheckpoint.metric,
+        value: bestCheckpoint.value,
+        val_loss: bestCheckpoint.value,
+      };
+    }
     const withValidation = metrics.filter((m) => m.val_loss != null);
-    if (withValidation.length === 0) return null;
-
-    const best = withValidation.reduce((prev, curr) =>
-      curr.val_loss! < prev.val_loss! ? curr : prev,
-    );
-
-    return { epoch: best.epoch, val_loss: best.val_loss! };
-  }, [metrics]);
+    if (withValidation.length > 0) {
+      const best = withValidation.reduce((prev, curr) =>
+        curr.val_loss! < prev.val_loss! ? curr : prev,
+      );
+      return {
+        epoch: best.epoch,
+        metric: "val_loss",
+        value: best.val_loss!,
+        val_loss: best.val_loss!,
+      };
+    }
+    const withLoss = metrics.filter((m) => m.loss != null);
+    if (withLoss.length > 0) {
+      const best = withLoss.reduce((prev, curr) => (curr.loss! < prev.loss! ? curr : prev));
+      return {
+        epoch: best.epoch,
+        metric: "loss",
+        value: best.loss!,
+        val_loss: best.loss!,
+      };
+    }
+    return null;
+  }, [bestCheckpoint, metrics]);
 
   return (
     <div className="space-y-6">

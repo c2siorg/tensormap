@@ -115,11 +115,24 @@ class MetricsCallback(tf.keras.callbacks.Callback):
             ),
         }
 
-        # Normalize and dynamically record all other metrics present in logs (e.g. mae, mse, precision, recall)
+        # Normalize and dynamically record all other metrics present in logs (e.g. mae, mse, lr, precision)
         handled_keys = {"epoch", "loss", "val_loss", "acc", "val_acc", "accuracy", "val_accuracy"}
         for k, v in logs.items():
             if isinstance(k, str) and k.strip() and k not in handled_keys:
                 payload[k] = _as_float(v)
+
+        # Ensure learning rate is captured if present on optimizer
+        if "lr" not in payload and self.model is not None:
+            with contextlib.suppress(Exception):
+                if hasattr(self.model, "optimizer"):
+                    opt = self.model.optimizer
+                    lr_val = getattr(opt, "learning_rate", getattr(opt, "lr", None))
+                    if lr_val is not None:
+                        import numpy as np
+
+                        val = float(lr_val.numpy()) if hasattr(lr_val, "numpy") else float(np.array(lr_val))
+                        if math.isfinite(val):
+                            payload["lr"] = val
 
         # 1. Persist each present metric as its own row.
         with self.session_factory() as session:

@@ -91,6 +91,7 @@ export function toEpochMetricUpdate(
     accuracy: isLegacyValidation ? null : event.accuracy,
     val_loss: isLegacyValidation ? (event.val_loss ?? event.loss) : event.val_loss,
     val_accuracy: isLegacyValidation ? (event.val_accuracy ?? event.accuracy) : event.val_accuracy,
+    lr: event.lr,
     phase: event.phase === "train" ? "train" : undefined,
     batch: isLegacyValidation ? undefined : event.batch,
     steps: isLegacyValidation ? undefined : event.steps,
@@ -111,6 +112,7 @@ function mergeDefinedValues(target: EpochMetric, incoming: EpochMetricUpdate): v
   if (incoming.accuracy != null) target.accuracy = incoming.accuracy;
   if (incoming.val_loss != null) target.val_loss = incoming.val_loss;
   if (incoming.val_accuracy != null) target.val_accuracy = incoming.val_accuracy;
+  if (incoming.lr != null) target.lr = incoming.lr;
   if (incoming.phase !== undefined) target.phase = incoming.phase;
   if (incoming.batch != null) target.batch = incoming.batch;
   if (incoming.steps != null) target.steps = incoming.steps;

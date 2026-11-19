@@ -263,23 +263,42 @@ def _helper_generate_json_model_file_location(model_name: str) -> str:
     return path
 
 
-def _build_training_callbacks(job_id: str | None) -> list[tf.keras.callbacks.Callback]:
+def _build_training_callbacks(
+    job_id: str | None,
+    hyperparams: dict | None = None,
+    has_validation: bool = True,
+) -> list[tf.keras.callbacks.Callback]:
     """Return the Keras callbacks for a run.
 
     Without a job_id (legacy/direct calls) we keep the text-based
     ``CustomProgressBar``. With a job_id we use the persistent ``MetricsCallback``
     (DB + room-scoped Socket.IO) plus ``CancellationCheckCallback``.
+    When reduce_lr_on_plateau is enabled in hyperparams, attaches
+    ``ReduceLROnPlateauCallback`` (Issue #558).
     """
     if job_id is None:
         return [CustomProgressBar()]
 
+    from app.callbacks.lr_schedulers import create_lr_scheduler_callback
     from app.services.training_service import make_session
 
     loop = _training_loop_ctx.get()
-    return [
+    callbacks: list[tf.keras.callbacks.Callback] = [
         MetricsCallback(job_id, make_session, sio, loop),
         CancellationCheckCallback(job_id, make_session),
     ]
+
+    lr_cb = create_lr_scheduler_callback(
+        job_id=job_id,
+        hyperparams=hyperparams,
+        has_validation=has_validation,
+        sio_instance=sio,
+        loop=loop,
+    )
+    if lr_cb is not None:
+        callbacks.append(lr_cb)
+
+    return callbacks
 
 
 def model_run(
@@ -377,7 +396,6 @@ def _should_skip_evaluation(callbacks: list[tf.keras.callbacks.Callback], model:
 
 
 def _run(model_name: str, db: Session, job_id: str | None = None) -> None:
-    callbacks = _build_training_callbacks(job_id)
     model_configs = db.exec(select(ModelBasic).where(ModelBasic.model_name == model_name)).first()
     if model_configs is None:
         raise ModelRunError(f"Model configuration not found: {model_name}")
@@ -477,6 +495,7 @@ def _run(model_name: str, db: Session, job_id: str | None = None) -> None:
     )
 
     if model_configs.model_type == ProblemType.IMAGE_CLASSIFICATION:
+        callbacks = _build_training_callbacks(job_id, hyperparams=hyperparams, has_validation=True)
         model.fit(
             train_data,
             validation_data=test_data,
@@ -501,6 +520,11 @@ def _run(model_name: str, db: Session, job_id: str | None = None) -> None:
                 and (not hasattr(x_testing, "__len__") or len(x_testing) > 0)
             )
             else None
+        )
+        callbacks = _build_training_callbacks(
+            job_id,
+            hyperparams=hyperparams,
+            has_validation=validation_data is not None,
         )
         model.fit(
             x_training,

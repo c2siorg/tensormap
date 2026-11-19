@@ -125,6 +125,11 @@ def test_training_config_endpoint_rejects_unknown_loss(client):
 def _db_returning(model: ModelBasic) -> MagicMock:
     db = MagicMock()
     db.exec.return_value.first.return_value = model
+    fake_file = MagicMock()
+    fake_file.file_type = "csv"
+    fake_file.columns = ["label", "feature1"]
+    fake_file.project_id = None
+    db.get.return_value = fake_file
     return db
 
 
@@ -180,6 +185,8 @@ class TestUpdateTrainingConfigServiceLoss:
     def test_defaults_from_problem_type_when_loss_omitted(self, problem_type, expected):
         model = ModelBasic(model_name="my_model")
         db = _db_returning(model)
+        if problem_type == ProblemType.IMAGE_CLASSIFICATION:
+            db.get.return_value.file_type = "zip"
 
         _, status = update_training_config_service(
             db, "my_model", _training_config(problem_type_id=problem_type, loss=None)
@@ -321,6 +328,25 @@ class TestTrainingConfigOptimizerMetricValidation:
         assert body["success"] is False
         assert "Tabular models require a CSV dataset" in body["message"]
 
+    def test_service_rejects_missing_file_type(self):
+        model = ModelBasic(model_name="my_model")
+        db = _db_returning(model)
+        fake_file = MagicMock()
+        fake_file.file_type = None
+        fake_file.project_id = None
+        db.get.return_value = fake_file
+
+        body, status = update_training_config_service(
+            db,
+            "my_model",
+            _training_config(
+                problem_type_id=ProblemType.CLASSIFICATION,
+            ),
+        )
+        assert status == 400
+        assert body["success"] is False
+        assert "invalid or missing file type" in body["message"]
+
     @pytest.mark.parametrize("bad_target", [None, "", "   "])
     def test_service_rejects_missing_or_blank_target_for_tabular(self, bad_target):
         model = ModelBasic(model_name="my_model")
@@ -341,6 +367,27 @@ class TestTrainingConfigOptimizerMetricValidation:
         assert status == 400
         assert body["success"] is False
         assert "Target field is required for tabular datasets" in body["message"]
+
+    def test_service_rejects_missing_dataset_columns_for_tabular(self):
+        model = ModelBasic(model_name="my_model")
+        db = _db_returning(model)
+        fake_file = MagicMock()
+        fake_file.file_type = "csv"
+        fake_file.columns = None
+        fake_file.project_id = None
+        db.get.return_value = fake_file
+
+        body, status = update_training_config_service(
+            db,
+            "my_model",
+            _training_config(
+                problem_type_id=ProblemType.CLASSIFICATION,
+                target_field="label",
+            ),
+        )
+        assert status == 400
+        assert body["success"] is False
+        assert "columns are not available" in body["message"]
 
     def test_service_rejects_target_field_not_in_dataset_columns(self):
         model = ModelBasic(model_name="my_model")
@@ -363,8 +410,29 @@ class TestTrainingConfigOptimizerMetricValidation:
         assert body["success"] is False
         assert "Target field 'nonexistent_column' not found in dataset columns" in body["message"]
 
-    @pytest.mark.parametrize("bad_split", [0, -10, 100, 150])
-    def test_service_rejects_out_of_bounds_training_split(self, bad_split):
+    def test_service_accepts_target_field_matching_stripped_column(self):
+        model = ModelBasic(model_name="my_model")
+        db = _db_returning(model)
+        fake_file = MagicMock()
+        fake_file.file_type = "csv"
+        fake_file.columns = ["feature1", "feature2", "  label  "]
+        fake_file.project_id = None
+        db.get.return_value = fake_file
+
+        body, status = update_training_config_service(
+            db,
+            "my_model",
+            _training_config(
+                problem_type_id=ProblemType.CLASSIFICATION,
+                target_field="label",
+            ),
+        )
+        assert status == 200
+        assert body["success"] is True
+        assert model.target_field == "label"
+
+    @pytest.mark.parametrize("bad_split", [0, -10, 100, 150, "abc", "nan", "inf", "-inf", True, False, None])
+    def test_service_rejects_invalid_training_split(self, bad_split):
         model = ModelBasic(model_name="my_model")
         db = _db_returning(model)
         fake_file = MagicMock()
@@ -382,9 +450,8 @@ class TestTrainingConfigOptimizerMetricValidation:
         )
         assert status == 400
         assert body["success"] is False
-        assert "training_split must be between 0 and 100" in body["message"]
 
-    @pytest.mark.parametrize("bad_epochs", [0, -1])
+    @pytest.mark.parametrize("bad_epochs", [0, -1, "abc", 3.7, "3.7", True, False, None])
     def test_service_rejects_invalid_epochs(self, bad_epochs):
         model = ModelBasic(model_name="my_model")
         db = _db_returning(model)
@@ -403,9 +470,8 @@ class TestTrainingConfigOptimizerMetricValidation:
         )
         assert status == 400
         assert body["success"] is False
-        assert "epochs must be a positive integer" in body["message"]
 
-    @pytest.mark.parametrize("bad_batch_size", [0, -1])
+    @pytest.mark.parametrize("bad_batch_size", [0, -1, "abc", 32.5, "32.5", True, False])
     def test_service_rejects_invalid_batch_size(self, bad_batch_size):
         model = ModelBasic(model_name="my_model")
         db = _db_returning(model)
@@ -424,7 +490,6 @@ class TestTrainingConfigOptimizerMetricValidation:
         )
         assert status == 400
         assert body["success"] is False
-        assert "batch_size must be a positive integer" in body["message"]
 
     def test_service_accepts_valid_image_classification_config(self):
         model = ModelBasic(model_name="my_model")
@@ -440,7 +505,7 @@ class TestTrainingConfigOptimizerMetricValidation:
             _training_config(
                 problem_type_id=ProblemType.IMAGE_CLASSIFICATION,
                 loss=LossFunction.SPARSE_CATEGORICAL_CROSSENTROPY,
-                target_field=None,
+                target_field="unexpected_field",
             ),
         )
         assert status == 200

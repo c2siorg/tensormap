@@ -798,3 +798,173 @@ def get_dataset_backup_status_service(db: Session, file_id: uuid_pkg.UUID) -> tu
         "Backup status retrieved successfully",
         {"has_backup": has_backup, "backup_size_bytes": backup_size},
     )
+
+
+def compute_class_imbalance(series: pd.Series, target_name: str = "target") -> dict:
+    """Compute class distribution metrics, entropy, Gini impurity, and balanced weights.
+
+    Parameters
+    ----------
+    series : pd.Series
+        Target column values (can contain nulls, strings, ints, or floats).
+    target_name : str
+        Name of the target column.
+
+    Returns
+    -------
+    dict
+        Dictionary containing counts, proportions, imbalance ratio, Shannon entropy,
+        normalized entropy, Gini impurity, severity categorization, balanced class
+        weights, and recommendations.
+    """
+    valid_series = series.dropna()
+    null_count = int(series.isnull().sum())
+    total_samples = len(valid_series)
+
+    if total_samples == 0:
+        raise ValueError(f"Target column '{target_name}' contains no valid (non-null) samples.")
+
+    value_counts = valid_series.value_counts(sort=True)
+    num_classes = len(value_counts)
+
+    if num_classes < 2:
+        raise ValueError(f"Target column '{target_name}' must have at least 2 distinct classes, found {num_classes}.")
+
+    if num_classes > 100:
+        raise ValueError(
+            f"Target column '{target_name}' has {num_classes} unique classes. "
+            "Class imbalance analysis is intended for discrete classification targets (maximum 100 classes)."
+        )
+
+    # Class details & balanced class weights: w_c = N / (K * N_c)
+    classes = []
+    class_weights = {}
+    for class_val, count in value_counts.items():
+        c_str = str(class_val)
+        c_count = int(count)
+        proportion = round(float(c_count / total_samples), 4)
+        weight = round(float(total_samples / (num_classes * c_count)), 4)
+        classes.append(
+            {
+                "class_name": c_str,
+                "count": c_count,
+                "proportion": proportion,
+                "weight": weight,
+            }
+        )
+        class_weights[c_str] = weight
+
+    majority_class = str(value_counts.index[0])
+    majority_count = int(value_counts.iloc[0])
+    minority_class = str(value_counts.index[-1])
+    minority_count = int(value_counts.iloc[-1])
+
+    imbalance_ratio = round(float(majority_count / minority_count), 4) if minority_count > 0 else float("inf")
+
+    # Shannon Entropy: H = - sum(p_i * ln(p_i))
+    # Normalized Entropy: H / ln(K), in [0, 1]
+    proportions = [count / total_samples for count in value_counts]
+    shannon_entropy = -sum(p * np.log(p) for p in proportions if p > 0)
+    max_entropy = np.log(num_classes)
+    normalized_entropy = float(shannon_entropy / max_entropy) if max_entropy > 0 else 1.0
+
+    # Gini Impurity: 1 - sum(p_i^2)
+    gini_impurity = 1.0 - sum(p**2 for p in proportions)
+
+    # Severity classification:
+    # balanced (< 1.5), mild_imbalance (1.5 <= r < 3.0),
+    # moderate_imbalance (3.0 <= r < 10.0), severe_imbalance (>= 10.0)
+    if imbalance_ratio < 1.5:
+        severity = "balanced"
+        recommendation = (
+            f"Class distribution is well-balanced (ratio {imbalance_ratio:.2f}:1). "
+            "Standard cross-entropy loss and unweighted optimization are recommended."
+        )
+    elif imbalance_ratio < 3.0:
+        severity = "mild_imbalance"
+        recommendation = (
+            f"Mild class imbalance detected (ratio {imbalance_ratio:.2f}:1). "
+            "Standard training should perform reliably, but monitor minority class precision and recall."
+        )
+    elif imbalance_ratio < 10.0:
+        severity = "moderate_imbalance"
+        recommendation = (
+            f"Moderate class imbalance detected (ratio {imbalance_ratio:.2f}:1). "
+            "Consider applying balanced class weights or evaluating model performance with PR-AUC and F1-score."
+        )
+    else:
+        severity = "severe_imbalance"
+        recommendation = (
+            f"Severe class imbalance detected (ratio {imbalance_ratio:.2f}:1). "
+            "Standard training risks majority-class collapse. Use balanced class weights, focal loss, or resampling."
+        )
+
+    return {
+        "target_field": target_name,
+        "total_samples": total_samples,
+        "null_count": null_count,
+        "num_classes": num_classes,
+        "imbalance_ratio": imbalance_ratio,
+        "majority_class": majority_class,
+        "minority_class": minority_class,
+        "shannon_entropy": round(float(shannon_entropy), 4),
+        "normalized_entropy": round(float(normalized_entropy), 4),
+        "gini_impurity": round(float(gini_impurity), 4),
+        "severity": severity,
+        "recommendation": recommendation,
+        "class_weights": class_weights,
+        "classes": classes,
+    }
+
+
+def get_class_imbalance_service(
+    db: Session,
+    file_id: uuid_pkg.UUID,
+    target_field: str | None = None,
+) -> tuple:
+    """Compute class imbalance analysis and balanced class weights for a dataset."""
+    file = db.exec(select(DataFile).where(DataFile.id == file_id)).first()
+    if not file:
+        return _resp(404, False, "Dataset file was not found")
+
+    csv_err = _require_csv_file(file, "class imbalance analysis")
+    if csv_err:
+        return csv_err
+
+    # Resolve target_field from parameter or database
+    target_name = target_field.strip() if target_field and target_field.strip() else None
+    if not target_name:
+        dp = db.exec(select(DataProcess).where(DataProcess.file_id == file_id)).first()
+        if dp and dp.target and dp.target.strip():
+            target_name = dp.target.strip()
+        else:
+            return _resp(
+                400,
+                False,
+                "Target field was not specified and no default target is set for this dataset",
+            )
+
+    file_path = _get_file_path(file)
+    try:
+        df = pd.read_csv(file_path)
+    except FileNotFoundError:
+        return _resp(500, False, f"File not found: {file_path}")
+    except pd.errors.EmptyDataError:
+        return _resp(400, False, "Dataset file is empty")
+    except Exception as e:
+        logger.exception("Error reading CSV for class imbalance: %s", str(e))
+        return _resp(500, False, f"Error reading CSV: {e}")
+
+    if target_name not in df.columns:
+        return _resp(400, False, f"Target column '{target_name}' not found in dataset columns")
+
+    try:
+        result = compute_class_imbalance(df[target_name], target_name=target_name)
+    except ValueError as e:
+        return _resp(400, False, str(e))
+    except Exception as e:
+        logger.exception("Failed to compute class imbalance: %s", str(e))
+        return _resp(500, False, f"Failed to compute class imbalance: {e}")
+
+    result["file_id"] = str(file_id)
+    return _resp(200, True, "Class imbalance analysis generated successfully", result)

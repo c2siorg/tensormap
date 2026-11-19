@@ -14,6 +14,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from scipy.special import expit, softmax
 from sklearn.metrics import (
     auc,
     average_precision_score,
@@ -42,7 +43,9 @@ def _resolve_classification_predictions(y_pred_raw: np.ndarray) -> tuple[np.ndar
 
     Handles multi-class models (softmax/logits over K classes, shape (N, K))
     as well as binary classification models with a single output unit (sigmoid/logit,
-    shape (N, 1) or (N,)).
+    shape (N, 1) or (N,)). Unnormalized logits (containing negative values, values > 1.0,
+    or rows not summing to 1.0) are transformed to valid probabilities via numerically
+    stable sigmoid (expit) or softmax.
 
     Returns:
         Tuple of (y_pred_classes, y_pred_probs):
@@ -50,12 +53,26 @@ def _resolve_classification_predictions(y_pred_raw: np.ndarray) -> tuple[np.ndar
         - y_pred_probs: 2D array of class probabilities (shape (N, K))
     """
     if y_pred_raw.ndim == 1 or (y_pred_raw.ndim == 2 and y_pred_raw.shape[1] == 1):
-        p1 = np.clip(y_pred_raw.flatten(), 0.0, 1.0)
+        raw = y_pred_raw.flatten()
+        has_logits = np.any(raw < 0.0) or np.any(raw > 1.0)
+        p1 = np.clip(expit(raw), 0.0, 1.0) if has_logits else np.clip(raw, 0.0, 1.0)
         p0 = 1.0 - p1
         y_pred_probs = np.column_stack([p0, p1])
         y_pred_classes = (p1 >= 0.5).astype(int)
     else:
-        y_pred_probs = y_pred_raw
+        is_prob = (
+            np.all(y_pred_raw >= 0.0)
+            and np.all(y_pred_raw <= 1.0)
+            and np.allclose(np.sum(y_pred_raw, axis=1), 1.0, atol=1e-2)
+        )
+        if is_prob:
+            y_pred_probs = np.clip(y_pred_raw, 0.0, 1.0)
+            row_sums = y_pred_probs.sum(axis=1, keepdims=True)
+            if not np.allclose(row_sums, 1.0, atol=1e-6):
+                row_sums = np.where(row_sums == 0, 1.0, row_sums)
+                y_pred_probs = y_pred_probs / row_sums
+        else:
+            y_pred_probs = softmax(y_pred_raw, axis=1)
         y_pred_classes = np.argmax(y_pred_probs, axis=1)
     return y_pred_classes, y_pred_probs
 

@@ -62,6 +62,16 @@ export default function MetricsSummaryBar({
                     </span>
                   </div>
                 )}
+                {currentMetrics.lr != null && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Learning Rate:</span>
+                    <span className="font-mono font-medium">
+                      {currentMetrics.lr < 1e-3
+                        ? currentMetrics.lr.toExponential(2)
+                        : currentMetrics.lr.toFixed(4)}
+                    </span>
+                  </div>
+                )}
               </div>
             ) : (
               <p className="text-sm text-gray-500">No data yet</p>

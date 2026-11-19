@@ -9,6 +9,7 @@ export interface EpochMetric {
   accuracy?: number;
   val_loss?: number;
   val_accuracy?: number;
+  lr?: number;
 
   phase?: "train";
   batch?: number;
@@ -23,13 +24,14 @@ export interface EpochMetric {
 /** Partial metric values received from a live event before normalization. */
 export type EpochMetricUpdate = Omit<
   Partial<EpochMetric>,
-  "epoch" | "loss" | "accuracy" | "val_loss" | "val_accuracy"
+  "epoch" | "loss" | "accuracy" | "val_loss" | "val_accuracy" | "lr"
 > & {
   epoch: number;
   loss?: number | null;
   accuracy?: number | null;
   val_loss?: number | null;
   val_accuracy?: number | null;
+  lr?: number | null;
 };
 
 export interface TrainingState {
@@ -55,6 +57,7 @@ export interface TrainingMetricsEvent {
   accuracy: number | null;
   val_loss: number | null;
   val_accuracy: number | null;
+  lr?: number | null;
   batch: number;
   steps: number;
   validation_batch: number;
@@ -92,6 +95,7 @@ export interface LegacyTrainingMetricsEvent {
   accuracy?: number | null;
   val_loss?: number | null;
   val_accuracy?: number | null;
+  lr?: number | null;
   phase?: "train" | "validation";
   batch?: number;
   steps?: number;
@@ -100,6 +104,14 @@ export interface LegacyTrainingMetricsEvent {
   job_id?: string;
   timestamp?: string;
   version?: never;
+}
+
+export interface TrainingLearningRateReducedEvent {
+  type: "learning_rate_reduced";
+  job_id: string;
+  epoch: number;
+  old_lr: number;
+  new_lr: number;
 }
 
 export interface LegacyTrainingCatchupEvent {
@@ -130,6 +142,7 @@ export type TrainingSocketEvent =
   | TrainingMetricsEvent
   | TrainingCatchupEvent
   | TrainingStatusEvent
+  | TrainingLearningRateReducedEvent
   | LegacyTrainingMetricsEvent
   | LegacyTrainingCatchupEvent
   | LegacyTrainingStatusEvent

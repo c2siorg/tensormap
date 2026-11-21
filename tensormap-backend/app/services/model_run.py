@@ -263,23 +263,34 @@ def _helper_generate_json_model_file_location(model_name: str) -> str:
     return path
 
 
-def _build_training_callbacks(job_id: str | None) -> list[tf.keras.callbacks.Callback]:
+def _build_training_callbacks(
+    job_id: str | None,
+    scheduler_type: str | None = None,
+    scheduler_config: dict[str, Any] | None = None,
+    initial_lr: float = 0.001,
+) -> list[tf.keras.callbacks.Callback]:
     """Return the Keras callbacks for a run.
 
     Without a job_id (legacy/direct calls) we keep the text-based
     ``CustomProgressBar``. With a job_id we use the persistent ``MetricsCallback``
-    (DB + room-scoped Socket.IO) plus ``CancellationCheckCallback``.
+    (DB + room-scoped Socket.IO) plus ``CancellationCheckCallback`` and dynamic
+    learning rate schedulers.
     """
     if job_id is None:
         return [CustomProgressBar()]
 
+    from app.callbacks.lr_schedulers import build_lr_scheduler_callback
     from app.services.training_service import make_session
 
     loop = _training_loop_ctx.get()
-    return [
-        MetricsCallback(job_id, make_session, sio, loop),
-        CancellationCheckCallback(job_id, make_session),
-    ]
+    cbs = build_lr_scheduler_callback(scheduler_type, scheduler_config, initial_lr=initial_lr)
+    cbs.extend(
+        [
+            MetricsCallback(job_id, make_session, sio, loop),
+            CancellationCheckCallback(job_id, make_session),
+        ]
+    )
+    return cbs
 
 
 def model_run(
@@ -377,7 +388,6 @@ def _should_skip_evaluation(callbacks: list[tf.keras.callbacks.Callback], model:
 
 
 def _run(model_name: str, db: Session, job_id: str | None = None) -> None:
-    callbacks = _build_training_callbacks(job_id)
     model_configs = db.exec(select(ModelBasic).where(ModelBasic.model_name == model_name)).first()
     if model_configs is None:
         raise ModelRunError(f"Model configuration not found: {model_name}")
@@ -391,6 +401,17 @@ def _run(model_name: str, db: Session, job_id: str | None = None) -> None:
     optimizer_name = hyperparams.get("optimizer") or model_configs.optimizer
     lr = hyperparams.get("lr")
     training_split = model_configs.training_split
+
+    sched_type = hyperparams.get("scheduler") or hyperparams.get("lr_scheduler")
+    sched_cfg = dict(hyperparams.get("scheduler_config") or {})
+    sched_cfg.setdefault("has_validation", (training_split < 100))
+
+    callbacks = _build_training_callbacks(
+        job_id,
+        scheduler_type=sched_type,
+        scheduler_config=sched_cfg,
+        initial_lr=float(lr) if lr else 0.001,
+    )
 
     # Issue #4: validate training params early for clear error messages
     _validate_training_params(

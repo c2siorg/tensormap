@@ -1,5 +1,7 @@
 import os
 import uuid
+import zipfile
+import zlib
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
@@ -577,6 +579,126 @@ class TestAddFileService:
         db.rollback.assert_called_once()
         mock_remove.assert_called_once()
         mock_rmtree.assert_called_once()
+
+    def test_zip_corrupted_archive_real_file_cleaned_up(self, tmp_path):
+        db = MagicMock()
+        fw = self._make_fw("real_corrupted.zip", size=30)
+        fw.save = MagicMock(side_effect=lambda path: self._write_file(path, "this is definitely not a zip file"))
+
+        with patch("app.services.data_upload.get_settings") as ms:
+            ms.return_value.max_content_length = 200 * 1024 * 1024
+            ms.return_value.upload_folder = str(tmp_path)
+
+            body, status = add_file_service(db, fw)
+
+        assert status == 400
+        assert body["success"] is False
+        assert "corrupted or not a valid zip" in body["message"].lower()
+        assert list(tmp_path.iterdir()) == []
+
+    @pytest.mark.parametrize(
+        "exc",
+        [
+            zipfile.BadZipFile("File is not a zip file"),
+            zlib.error("Error -3 while decompressing data"),
+            EOFError("Compressed file ended before end-of-stream marker"),
+            RuntimeError("File is encrypted, password required for extraction"),
+            NotImplementedError("That compression method is not supported"),
+        ],
+    )
+    def test_zip_invalid_or_corrupted_archive_exceptions_rejected(self, tmp_path, exc):
+        db = MagicMock()
+        fw = self._make_fw("corrupt_archive.zip", size=500)
+        fw.save = MagicMock(side_effect=lambda path: self._write_file(path, "dummy archive data"))
+
+        def _fake_extractall(target_dir):
+            os.makedirs(target_dir, exist_ok=True)
+            with open(os.path.join(target_dir, "partial.txt"), "w") as f:
+                f.write("partial content")
+            raise exc
+
+        mock_zf = MagicMock()
+        mock_zf.__enter__ = MagicMock(return_value=mock_zf)
+        mock_zf.__exit__ = MagicMock(return_value=False)
+        mock_zf.namelist.return_value = ["img.png"]
+        mock_info = MagicMock()
+        mock_info.file_size = 100
+        mock_zf.getinfo.return_value = mock_info
+        mock_zf.extractall.side_effect = _fake_extractall
+
+        with (
+            patch("app.services.data_upload.get_settings") as ms,
+            patch("app.services.data_upload.zipfile.ZipFile", return_value=mock_zf),
+        ):
+            ms.return_value.max_content_length = 200 * 1024 * 1024
+            ms.return_value.upload_folder = str(tmp_path)
+
+            body, status = add_file_service(db, fw)
+
+        assert status == 400
+        assert body["success"] is False
+        assert "corrupted or not a valid zip" in body["message"].lower()
+        assert list(tmp_path.iterdir()) == []
+
+    def test_zip_mid_extraction_os_error_cleans_up_partial_directory(self, tmp_path):
+        db = MagicMock()
+        fw = self._make_fw("dataset.zip", size=500)
+        fw.save = MagicMock(side_effect=lambda path: self._write_file(path, "dummy zip bytes"))
+
+        def _fake_extractall(target_dir):
+            os.makedirs(target_dir, exist_ok=True)
+            with open(os.path.join(target_dir, "partial.txt"), "w") as f:
+                f.write("partial content")
+            raise OSError("Disk I/O error during extraction")
+
+        mock_zf = MagicMock()
+        mock_zf.__enter__ = MagicMock(return_value=mock_zf)
+        mock_zf.__exit__ = MagicMock(return_value=False)
+        mock_zf.namelist.return_value = ["img.png"]
+        mock_info = MagicMock()
+        mock_info.file_size = 100
+        mock_zf.getinfo.return_value = mock_info
+        mock_zf.extractall.side_effect = _fake_extractall
+
+        with (
+            patch("app.services.data_upload.get_settings") as ms,
+            patch("app.services.data_upload.zipfile.ZipFile", return_value=mock_zf),
+        ):
+            ms.return_value.max_content_length = 200 * 1024 * 1024
+            ms.return_value.upload_folder = str(tmp_path)
+
+            body, status = add_file_service(db, fw)
+
+        assert status == 500
+        assert body["success"] is False
+        assert body["message"] == "Error extracting ZIP archive."
+        assert list(tmp_path.iterdir()) == []
+
+    def test_zip_os_error_during_directory_creation_cleans_up_uploaded_file(self, tmp_path):
+        db = MagicMock()
+        fw = self._make_fw("dataset.zip", size=500)
+        fw.save = MagicMock(side_effect=lambda path: self._write_file(path, "dummy zip bytes"))
+
+        orig_makedirs = os.makedirs
+
+        def _fake_makedirs(path, *args, **kwargs):
+            if str(path) != str(tmp_path):
+                raise OSError("Permission denied")
+            return orig_makedirs(path, *args, **kwargs)
+
+        with (
+            patch("app.services.data_upload.get_settings") as ms,
+            patch("app.services.data_upload.os.makedirs", side_effect=_fake_makedirs),
+        ):
+            ms.return_value.max_content_length = 200 * 1024 * 1024
+            ms.return_value.upload_folder = str(tmp_path)
+
+            body, status = add_file_service(db, fw)
+
+        assert status == 500
+        assert body["success"] is False
+        assert body["message"] == "Error extracting ZIP archive."
+        assert list(tmp_path.iterdir()) == []
 
 
 class TestGetAllFilesService:

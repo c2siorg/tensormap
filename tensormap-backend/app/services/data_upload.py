@@ -4,6 +4,7 @@ import os
 import shutil
 import uuid as uuid_pkg
 import zipfile
+import zlib
 from typing import Any
 
 import pandas as pd
@@ -95,28 +96,38 @@ def add_file_service(db: Session, file_wrapper: Any, project_id: uuid_pkg.UUID |
     if file_type_db == "zip":
         extract_dir_name = safe_filename.rsplit(".", 1)[0]
         extract_path = os.path.join(upload_folder, extract_dir_name)
-        os.makedirs(extract_path, exist_ok=True)
+
+        def _cleanup_extracted() -> None:
+            with contextlib.suppress(OSError):
+                os.remove(file_path)
+            shutil.rmtree(extract_path, ignore_errors=True)
 
         max_extracted = 2 * 1024 * 1024 * 1024  # 2 GB decompression-bomb limit
         total_extracted = 0
 
-        with zipfile.ZipFile(file_path, "r") as zf:
-            for member in zf.namelist():
-                member_path = os.path.realpath(os.path.join(extract_path, member))
-                if not member_path.startswith(os.path.realpath(extract_path) + os.sep):
-                    zf.close()
-                    os.remove(file_path)
-                    shutil.rmtree(extract_path, ignore_errors=True)
-                    return _resp(400, False, "Invalid ZIP: path traversal detected")
+        success = False
+        try:
+            os.makedirs(extract_path, exist_ok=True)
+            with zipfile.ZipFile(file_path, "r") as zf:
+                for member in zf.namelist():
+                    member_path = os.path.realpath(os.path.join(extract_path, member))
+                    if not member_path.startswith(os.path.realpath(extract_path) + os.sep):
+                        return _resp(400, False, "Invalid ZIP: path traversal detected")
 
-                total_extracted += zf.getinfo(member).file_size
-                if total_extracted > max_extracted:
-                    zf.close()
-                    os.remove(file_path)
-                    shutil.rmtree(extract_path, ignore_errors=True)
-                    return _resp(413, False, "ZIP too large after extraction. Maximum extracted size is 2 GB.")
+                    total_extracted += zf.getinfo(member).file_size
+                    if total_extracted > max_extracted:
+                        return _resp(413, False, "ZIP too large after extraction. Maximum extracted size is 2 GB.")
 
-            zf.extractall(extract_path)
+                zf.extractall(extract_path)
+            success = True
+        except (zipfile.BadZipFile, zlib.error, EOFError, RuntimeError, NotImplementedError, ValueError):
+            return _resp(400, False, "Could not extract ZIP archive. File is corrupted or not a valid ZIP.")
+        except OSError:
+            logger.exception("Filesystem error during ZIP extraction")
+            return _resp(500, False, "Error extracting ZIP archive.")
+        finally:
+            if not success:
+                _cleanup_extracted()
 
         logger.info("Extracted ZIP to %s", extract_path)
 
@@ -147,9 +158,7 @@ def add_file_service(db: Session, file_wrapper: Any, project_id: uuid_pkg.UUID |
         except SQLAlchemyError:
             db.rollback()
             logger.exception("Database error saving ZIP file record")
-            with contextlib.suppress(OSError):
-                os.remove(file_path)
-            shutil.rmtree(extract_path, ignore_errors=True)
+            _cleanup_extracted()
             return _resp(500, False, "Database error occurred while saving the file")
 
     # Cache column names and row count at upload time (CSV only)

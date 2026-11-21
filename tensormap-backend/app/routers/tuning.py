@@ -19,7 +19,12 @@ from app.models.training_job import TrainingJob, TrainingStatus
 from app.models.tuning_session import TuningSession, TuningStatus, TuningStrategy
 from app.schemas.tuning import TuningStartRequest
 from app.services.training_service import update_job_status
-from app.services.tuning_service import launch_tuning_session, tuning_service
+from app.services.tuning_service import (
+    check_tuning_concurrency_limit,
+    emit_tuning_cancellation,
+    launch_tuning_session,
+    tuning_service,
+)
 from app.shared.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -62,6 +67,9 @@ async def start_tuning(
     # Validate the whole search space so malformed/misconfigured inputs return
     # a clear 400 instead of silently failing or leaving the session stuck.
     tuning_service.validate_search_space(body.search_space, strategy)
+
+    # Enforce concurrency check immediately before creating session to prevent race windows
+    check_tuning_concurrency_limit(db)
 
     # Create the tuning session.
     session_obj = TuningSession(
@@ -176,12 +184,12 @@ def get_tuning_session(tuning_id: str, db: Session = Depends(get_db)) -> JSONRes
 
 
 @router.delete("/tuning/{tuning_id}", status_code=204)
-def cancel_tuning(tuning_id: str, db: Session = Depends(get_db)) -> Response:
+async def cancel_tuning(tuning_id: str, db: Session = Depends(get_db)) -> Response:
     """Cancel a tuning session.
 
     Sets the session status to CANCELLED and stamps completion timestamp.
     Running trials are also cancelled via the training cancellation mechanism
-    with completed_at timestamps.
+    with completed_at timestamps, and a real-time cancellation event is emitted.
     """
     ts = db.get(TuningSession, tuning_id)
     if ts is None:
@@ -204,6 +212,8 @@ def cancel_tuning(tuning_id: str, db: Session = Depends(get_db)) -> Response:
         ).all()
         for job in running_jobs:
             update_job_status(job.id, TrainingStatus.CANCELLED, db, error_message="Tuning session cancelled by user")
+
+        await emit_tuning_cancellation(tuning_id)
 
     return Response(status_code=204)
 

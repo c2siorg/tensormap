@@ -3,9 +3,9 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
-from sqlmodel import Session
+from sqlmodel import Session, select
 
-from app.models.data import DataFile
+from app.models.data import DataFile, DataProcess
 
 BASE = "/api/v1/data/upload/file"
 
@@ -129,3 +129,41 @@ def test_download_does_not_allow_database_disk_name_to_escape_upload_folder(
 
     assert response.status_code == 404
     assert outside_path.read_text(encoding="utf-8") == "feature,label\nsecret,1\n"
+
+
+def test_delete_file_endpoint_cascades_data_process(
+    client: TestClient, db_session: Session, tmp_path: Path, monkeypatch
+):
+    """Deleting a file via DELETE /api/v1/data/upload/file/{id} removes DataProcess target record without FK error."""
+    file_id = uuid.uuid4()
+    disk_name = f"{file_id}.csv"
+    file_path = tmp_path / disk_name
+    file_path.write_text("feature,target\n1,0\n", encoding="utf-8")
+
+    data_file = DataFile(
+        id=file_id,
+        file_name="dataset_with_target",
+        file_type="csv",
+        disk_name=disk_name,
+        columns=["feature", "target"],
+    )
+    data_process = DataProcess(
+        file_id=file_id,
+        target="target",
+    )
+    db_session.add(data_file)
+    db_session.add(data_process)
+    db_session.commit()
+
+    monkeypatch.setattr(
+        "app.services.data_upload.get_settings",
+        lambda: SimpleNamespace(upload_folder=str(tmp_path)),
+    )
+
+    response = client.delete(f"{BASE}/{file_id}")
+    assert response.status_code == 200
+    assert response.json()["success"] is True
+
+    assert db_session.exec(select(DataFile).where(DataFile.id == file_id)).first() is None
+    assert db_session.exec(select(DataProcess).where(DataProcess.file_id == file_id)).first() is None
+    assert not file_path.exists()

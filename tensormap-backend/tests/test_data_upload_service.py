@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.models.data import DataFile, ImageProperties
+from app.models.data import DataFile, DataProcess, ImageProperties
 from app.services.data_upload import (
     add_file_service,
     delete_one_file_by_id_service,
@@ -41,10 +41,11 @@ class TestDeleteOneFileById:
         assert body["success"] is False
 
     def test_happy_path_deletes_db_and_disk(self, mock_db, file_id, sample_file):
-        r1, r2 = MagicMock(), MagicMock()
+        r1, r2, r3 = MagicMock(), MagicMock(), MagicMock()
         r1.first.return_value = sample_file
         r2.all.return_value = []
-        mock_db.exec.side_effect = [r1, r2]
+        r3.all.return_value = []
+        mock_db.exec.side_effect = [r1, r2, r3]
 
         with (
             patch("app.services.data_upload.os.remove") as mock_remove,
@@ -55,15 +56,16 @@ class TestDeleteOneFileById:
 
         assert status == 200
         assert body["success"] is True
-        mock_db.delete.assert_called_once_with(sample_file)
+        mock_db.delete.assert_any_call(sample_file)
         mock_db.commit.assert_called_once()
         mock_remove.assert_called_once()
 
     def test_disk_removed_after_db_commit(self, mock_db, file_id, sample_file):
-        r1, r2 = MagicMock(), MagicMock()
+        r1, r2, r3 = MagicMock(), MagicMock(), MagicMock()
         r1.first.return_value = sample_file
         r2.all.return_value = []
-        mock_db.exec.side_effect = [r1, r2]
+        r3.all.return_value = []
+        mock_db.exec.side_effect = [r1, r2, r3]
 
         call_order = []
         mock_db.commit.side_effect = lambda: call_order.append("commit")
@@ -79,10 +81,11 @@ class TestDeleteOneFileById:
 
     def test_db_delete_failure_does_not_remove_disk(self, mock_db, file_id, sample_file):
         """If db.commit() raises, the disk file must NOT be removed."""
-        r1, r2 = MagicMock(), MagicMock()
+        r1, r2, r3 = MagicMock(), MagicMock(), MagicMock()
         r1.first.return_value = sample_file
         r2.all.return_value = []
-        mock_db.exec.side_effect = [r1, r2]
+        r3.all.return_value = []
+        mock_db.exec.side_effect = [r1, r2, r3]
         mock_db.commit.side_effect = SQLAlchemyError("DB commit failed")
 
         removed = []
@@ -101,10 +104,11 @@ class TestDeleteOneFileById:
         mb1, mb2 = MagicMock(), MagicMock()
         mb1.file_id = file_id
         mb2.file_id = file_id
-        r1, r2 = MagicMock(), MagicMock()
+        r1, r2, r3 = MagicMock(), MagicMock(), MagicMock()
         r1.first.return_value = sample_file
         r2.all.return_value = [mb1, mb2]
-        mock_db.exec.side_effect = [r1, r2]
+        r3.all.return_value = []
+        mock_db.exec.side_effect = [r1, r2, r3]
 
         with (
             patch("app.services.data_upload.os.remove"),
@@ -124,11 +128,12 @@ class TestDeleteOneFileById:
         zip_file.file_type = "zip"
 
         img_props = MagicMock()
-        r1, r2, r3 = MagicMock(), MagicMock(), MagicMock()
+        r1, r2, r3, r4 = MagicMock(), MagicMock(), MagicMock(), MagicMock()
         r1.first.return_value = zip_file
         r2.all.return_value = []
         r3.first.return_value = img_props
-        mock_db.exec.side_effect = [r1, r2, r3]
+        r4.all.return_value = []
+        mock_db.exec.side_effect = [r1, r2, r3, r4]
 
         with (
             patch("app.services.data_upload.os.remove"),
@@ -142,6 +147,27 @@ class TestDeleteOneFileById:
         assert body["success"] is True
         mock_db.delete.assert_any_call(img_props)
         mock_db.delete.assert_any_call(zip_file)
+        mock_db.commit.assert_called_once()
+
+    def test_deletes_data_process_record_for_file(self, mock_db, file_id, sample_file):
+        dp = MagicMock()
+        r1, r2, r3 = MagicMock(), MagicMock(), MagicMock()
+        r1.first.return_value = sample_file
+        r2.all.return_value = []
+        r3.all.return_value = [dp]
+        mock_db.exec.side_effect = [r1, r2, r3]
+
+        with (
+            patch("app.services.data_upload.os.remove"),
+            patch("app.services.data_upload.get_settings") as mock_settings,
+        ):
+            mock_settings.return_value.upload_folder = "/tmp"
+            body, status = delete_one_file_by_id_service(mock_db, file_id)
+
+        assert status == 200
+        assert body["success"] is True
+        mock_db.delete.assert_any_call(dp)
+        mock_db.delete.assert_any_call(sample_file)
         mock_db.commit.assert_called_once()
 
     def test_zip_file_deletion_succeeds_with_foreign_keys(self, tmp_path):
@@ -192,6 +218,53 @@ class TestDeleteOneFileById:
         with Session(engine) as session:
             assert session.exec(select(DataFile).where(DataFile.id == test_file_id)).first() is None
             assert session.exec(select(ImageProperties).where(ImageProperties.id == test_file_id)).first() is None
+
+    def test_deletes_csv_with_associated_data_process_fk_enforced(self, tmp_path):
+        from sqlalchemy import create_engine, event
+        from sqlmodel import Session, SQLModel, select
+
+        engine = create_engine("sqlite:///:memory:")
+
+        @event.listens_for(engine, "connect")
+        def set_sqlite_pragma(dbapi_connection, connection_record):
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA foreign_keys=ON")
+            cursor.close()
+
+        SQLModel.metadata.create_all(engine)
+
+        test_file_id = uuid.uuid4()
+        with Session(engine) as session:
+            df = DataFile(
+                id=test_file_id,
+                file_name="tabular_dataset",
+                file_type="csv",
+                disk_name="tabular_dataset.csv",
+                columns=["age", "salary"],
+                row_count=100,
+            )
+            dp = DataProcess(
+                file_id=test_file_id,
+                target="salary",
+            )
+            session.add(df)
+            session.add(dp)
+            session.commit()
+
+        with (
+            Session(engine) as session,
+            patch("app.services.data_upload.get_settings") as mock_settings,
+            patch("app.services.data_upload.os.remove"),
+        ):
+            mock_settings.return_value.upload_folder = str(tmp_path)
+            body, status = delete_one_file_by_id_service(session, test_file_id)
+
+        assert status == 200
+        assert body["success"] is True
+
+        with Session(engine) as session:
+            assert session.exec(select(DataFile).where(DataFile.id == test_file_id)).first() is None
+            assert session.exec(select(DataProcess).where(DataProcess.file_id == test_file_id)).first() is None
 
 
 class TestAddFileService:

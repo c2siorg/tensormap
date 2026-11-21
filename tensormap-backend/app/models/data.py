@@ -53,7 +53,9 @@ class DataProcess(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     target: str = Field(max_length=50, nullable=False)
     file_id: uuid_pkg.UUID = Field(
-        sa_column=Column(PgUUID(as_uuid=True), ForeignKey("data_file.id"), index=True, nullable=False)
+        sa_column=Column(
+            PgUUID(as_uuid=True), ForeignKey("data_file.id", ondelete="CASCADE"), index=True, nullable=False
+        )
     )
     created_on: datetime | None = Field(default=None, sa_column=Column(DateTime, server_default=func.now()))
     updated_on: datetime | None = Field(

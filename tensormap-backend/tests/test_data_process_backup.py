@@ -175,10 +175,11 @@ class TestStorageLeakCleanupOnDelete:
         pd.DataFrame({"x": [1]}).to_csv(file_path, index=False)
         pd.DataFrame({"x": [1]}).to_csv(bak_path, index=False)
 
-        r1, r2 = MagicMock(), MagicMock()
+        r1, r2, r3 = MagicMock(), MagicMock(), MagicMock()
         r1.first.return_value = sample_file
         r2.all.return_value = []
-        mock_db.exec.side_effect = [r1, r2]
+        r3.all.return_value = []
+        mock_db.exec.side_effect = [r1, r2, r3]
 
         with patch("app.services.data_upload.get_settings") as mock_settings:
             mock_settings.return_value.upload_folder = str(tmp_path)

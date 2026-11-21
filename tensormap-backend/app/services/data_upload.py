@@ -13,7 +13,7 @@ from sqlmodel import Session, select
 from werkzeug.utils import secure_filename
 
 from app.config import get_settings
-from app.models import DataFile, ImageProperties, ModelBasic
+from app.models import DataFile, DataProcess, ImageProperties, ModelBasic
 from app.shared.csv_columns import read_csv_columns
 from app.shared.logging_config import get_logger
 
@@ -248,6 +248,12 @@ def delete_one_file_by_id_service(db: Session, file_id: uuid_pkg.UUID) -> tuple:
             image_props = db.exec(select(ImageProperties).where(ImageProperties.id == file_id)).first()
             if image_props:
                 db.delete(image_props)
+
+        # Delete associated DataProcess record so FK constraints
+        # do not block the DB delete across all database engines.
+        data_processes = db.exec(select(DataProcess).where(DataProcess.file_id == file_id)).all()
+        for dp in data_processes:
+            db.delete(dp)
 
         db.delete(file)
         db.commit()

@@ -91,23 +91,34 @@ def add_file_service(db: Session, file_wrapper: Any, project_id: uuid_pkg.UUID |
         max_extracted = 2 * 1024 * 1024 * 1024  # 2 GB decompression-bomb limit
         total_extracted = 0
 
-        with zipfile.ZipFile(file_path, "r") as zf:
-            for member in zf.namelist():
-                member_path = os.path.realpath(os.path.join(extract_path, member))
-                if not member_path.startswith(os.path.realpath(extract_path) + os.sep):
-                    zf.close()
-                    os.remove(file_path)
-                    shutil.rmtree(extract_path, ignore_errors=True)
-                    return _resp(400, False, "Invalid ZIP: path traversal detected")
+        try:
+            with zipfile.ZipFile(file_path, "r") as zf:
+                for member in zf.namelist():
+                    member_path = os.path.realpath(os.path.join(extract_path, member))
+                    if not member_path.startswith(os.path.realpath(extract_path) + os.sep):
+                        zf.close()
+                        os.remove(file_path)
+                        shutil.rmtree(extract_path, ignore_errors=True)
+                        return _resp(400, False, "Invalid ZIP: path traversal detected")
 
-                total_extracted += zf.getinfo(member).file_size
-                if total_extracted > max_extracted:
-                    zf.close()
-                    os.remove(file_path)
-                    shutil.rmtree(extract_path, ignore_errors=True)
-                    return _resp(413, False, "ZIP too large after extraction. Maximum extracted size is 2 GB.")
+                    total_extracted += zf.getinfo(member).file_size
+                    if total_extracted > max_extracted:
+                        zf.close()
+                        os.remove(file_path)
+                        shutil.rmtree(extract_path, ignore_errors=True)
+                        return _resp(413, False, "ZIP too large after extraction. Maximum extracted size is 2 GB.")
 
-            zf.extractall(extract_path)
+                zf.extractall(extract_path)
+        except zipfile.BadZipFile:
+            if os.path.exists(file_path):
+                os.remove(file_path)
+            shutil.rmtree(extract_path, ignore_errors=True)
+            return _resp(400, False, "Could not extract ZIP archive. File is corrupted or not a valid ZIP.")
+        except OSError:
+            if os.path.exists(file_path):
+                os.remove(file_path)
+            shutil.rmtree(extract_path, ignore_errors=True)
+            return _resp(400, False, "Error extracting ZIP archive. Upload rejected.")
 
         logger.info("Extracted ZIP to %s", extract_path)
 

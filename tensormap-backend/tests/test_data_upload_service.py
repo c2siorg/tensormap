@@ -1,5 +1,6 @@
 import os
 import uuid
+import zipfile
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
@@ -412,6 +413,91 @@ class TestAddFileService:
         assert status == 400
         assert body["success"] is False
         assert "traversal" in body["message"].lower()
+
+    def test_zip_corrupted_archive_rejected(self, tmp_path):
+        db = MagicMock()
+        fw = MagicMock()
+        fw.filename = "corrupted.zip"
+        fw.file.seek = MagicMock()
+        fw.file.tell = MagicMock(return_value=100)
+        fw.save = MagicMock()
+
+        with (
+            patch("app.services.data_upload.get_settings") as ms,
+            patch("app.services.data_upload.os.makedirs"),
+            patch(
+                "app.services.data_upload.zipfile.ZipFile",
+                side_effect=zipfile.BadZipFile("File is not a zip file"),
+            ),
+            patch("app.services.data_upload.os.path.exists", return_value=True),
+            patch("app.services.data_upload.os.remove") as mock_remove,
+            patch("app.services.data_upload.shutil.rmtree") as mock_rmtree,
+        ):
+            ms.return_value.max_content_length = 200 * 1024 * 1024
+            ms.return_value.upload_folder = str(tmp_path)
+
+            body, status = add_file_service(db, fw)
+
+        assert status == 400
+        assert body["success"] is False
+        assert "corrupted or not a valid zip" in body["message"].lower()
+        mock_remove.assert_called_once()
+        mock_rmtree.assert_called_once()
+
+    def test_zip_os_error_during_extraction_rejected(self, tmp_path):
+        db = MagicMock()
+        fw = MagicMock()
+        fw.filename = "broken.zip"
+        fw.file.seek = MagicMock()
+        fw.file.tell = MagicMock(return_value=100)
+        fw.save = MagicMock()
+
+        with (
+            patch("app.services.data_upload.get_settings") as ms,
+            patch("app.services.data_upload.os.makedirs"),
+            patch(
+                "app.services.data_upload.zipfile.ZipFile",
+                side_effect=OSError("Disk read error"),
+            ),
+            patch("app.services.data_upload.os.path.exists", return_value=True),
+            patch("app.services.data_upload.os.remove") as mock_remove,
+            patch("app.services.data_upload.shutil.rmtree") as mock_rmtree,
+        ):
+            ms.return_value.max_content_length = 200 * 1024 * 1024
+            ms.return_value.upload_folder = str(tmp_path)
+
+            body, status = add_file_service(db, fw)
+
+        assert status == 400
+        assert body["success"] is False
+        assert "error extracting zip" in body["message"].lower()
+        mock_remove.assert_called_once()
+        mock_rmtree.assert_called_once()
+
+    def test_zip_corrupted_archive_real_file_cleaned_up(self, tmp_path):
+        db = MagicMock()
+        fw = MagicMock()
+        fw.filename = "real_corrupted.zip"
+        fw.file.seek = MagicMock()
+        fw.file.tell = MagicMock(return_value=30)
+
+        def _save(target_path):
+            with open(target_path, "wb") as f:
+                f.write(b"this is definitely not a zip file")
+
+        fw.save = MagicMock(side_effect=_save)
+
+        with patch("app.services.data_upload.get_settings") as ms:
+            ms.return_value.max_content_length = 200 * 1024 * 1024
+            ms.return_value.upload_folder = str(tmp_path)
+
+            body, status = add_file_service(db, fw)
+
+        assert status == 400
+        assert body["success"] is False
+        assert "corrupted or not a valid zip" in body["message"].lower()
+        remaining = list(tmp_path.iterdir())
+        assert len(remaining) == 0
 
 
 class TestGetAllFilesService:

@@ -585,6 +585,30 @@ class TestGetAllFilesService:
         assert status == 200
         assert body["data"][0]["fields"] == []
         assert body["data"][0]["row_count"] == 0
+        assert body["data"][0]["error"] is False
+
+    def test_csv_with_empty_fields_has_error_flag(self):
+        db = MagicMock()
+        f = MagicMock()
+        f.id = uuid.uuid4()
+        f.file_name = "corrupt"
+        f.file_type = "csv"
+        f.disk_name = "corrupt.csv"
+        f.columns = []
+        f.row_count = 0
+
+        db.exec.side_effect = [
+            MagicMock(one=MagicMock(return_value=1)),
+            MagicMock(all=MagicMock(return_value=[f])),
+        ]
+
+        with patch("app.services.data_upload.get_settings") as ms:
+            ms.return_value.upload_folder = "/tmp"
+            body, status = get_all_files_service(db)
+
+        assert status == 200
+        assert body["data"][0]["fields"] == []
+        assert body["data"][0]["error"] is True
 
     def test_empty_result_set(self):
         db = MagicMock()

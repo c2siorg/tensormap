@@ -238,7 +238,7 @@ def get_all_files_service(
                     "file_id": str(file.id),
                     "fields": fields,
                     "row_count": row_count,
-                    "error": fields == [],
+                    "error": file.file_type == "csv" and fields == [],
                 }
             )
         body = {"success": True, "message": "Saved files found successfully", "data": data}

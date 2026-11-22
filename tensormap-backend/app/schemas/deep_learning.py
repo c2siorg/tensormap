@@ -14,7 +14,7 @@ class DatasetConfig(BaseModel):
 
     file_id: uuid_pkg.UUID
     target_field: str | None = None  # null for image classification
-    training_split: float = Field(gt=0, le=100)
+    training_split: float = Field(gt=0, lt=100)
 
 
 class DLModelConfig(BaseModel):
@@ -102,7 +102,7 @@ class TrainingConfigRequest(BaseModel):
     model_name: str = Field(min_length=1)
     file_id: uuid_pkg.UUID
     target_field: str | None = None
-    training_split: float = Field(gt=0, le=100)
+    training_split: float = Field(gt=0, lt=100)
     problem_type_id: int = Field(ge=1, le=3)
     optimizer: Optimizer
     metric: Metric

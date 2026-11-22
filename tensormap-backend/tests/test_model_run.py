@@ -135,6 +135,19 @@ class TestRunCodeServiceOnFailure:
             result, _ = run_code_service(db, "my_model")
         assert result["success"] is False
 
+    def test_returns_400_when_training_split_not_configured(self):
+        db = MagicMock()
+        model = MagicMock()
+        model.file_id = "some-file-id"
+        model.epochs = 10
+        model.training_split = None
+        db.exec.return_value.first.return_value = model
+
+        result, status_code = run_code_service(db, "my_model")
+        assert status_code == 400
+        assert result["success"] is False
+        assert "Training configuration not set" in result["message"]
+
 
 class TestGetCodeServiceOnFailure:
     def test_returns_http_400_when_generate_code_raises_value_error(self):

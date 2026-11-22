@@ -1,7 +1,7 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { RecoilRoot } from "recoil";
+import { RecoilRoot, useSetRecoilState } from "recoil";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import DataProcess from "../DataProcess";
 import { projectFiles } from "../../../shared/atoms";
@@ -158,6 +158,42 @@ describe("DataProcess Container", () => {
       // Option 2: ZIP file "mnist.zip (ZIP - Image Dataset)"
       expect(options[1].textContent).toBe("iris.csv");
       expect(options[2].textContent).toBe("mnist.zip (ZIP - Image Dataset)");
+    });
+  });
+
+  it("resets selection when the currently selected file is removed from files", async () => {
+    let updateFiles;
+    function Wrapper() {
+      const setFiles = useSetRecoilState(projectFiles);
+      updateFiles = setFiles;
+      return (
+        <MemoryRouter initialEntries={["/workspace/p1/data-process"]}>
+          <Routes>
+            <Route path="/workspace/:projectId/data-process" element={<DataProcess />} />
+          </Routes>
+        </MemoryRouter>
+      );
+    }
+    render(
+      <RecoilRoot
+        initializeState={({ set }) => {
+          set(projectFiles, [CSV_FILE, SECOND_CSV_FILE]);
+        }}
+      >
+        <Wrapper />
+      </RecoilRoot>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Display Dataset: csv-1")).toBeTruthy();
+    });
+
+    act(() => {
+      updateFiles([SECOND_CSV_FILE]);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Display Dataset: csv-2")).toBeTruthy();
     });
   });
 });

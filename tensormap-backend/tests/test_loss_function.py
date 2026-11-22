@@ -281,3 +281,168 @@ class TestTrainingConfigOptimizerMetricValidation:
         assert status == 400
         assert body["success"] is False
         assert "Dataset file does not belong to this project" in body["message"]
+
+    def test_service_rejects_csv_dataset_for_image_classification(self):
+        model = ModelBasic(model_name="my_model")
+        db = _db_returning(model)
+        fake_file = MagicMock()
+        fake_file.file_type = "csv"
+        fake_file.project_id = None
+        db.get.return_value = fake_file
+
+        body, status = update_training_config_service(
+            db,
+            "my_model",
+            _training_config(
+                problem_type_id=ProblemType.IMAGE_CLASSIFICATION,
+                loss=LossFunction.SPARSE_CATEGORICAL_CROSSENTROPY,
+            ),
+        )
+        assert status == 400
+        assert body["success"] is False
+        assert "Image classification requires a ZIP image archive" in body["message"]
+
+    def test_service_rejects_zip_dataset_for_tabular_classification(self):
+        model = ModelBasic(model_name="my_model")
+        db = _db_returning(model)
+        fake_file = MagicMock()
+        fake_file.file_type = "zip"
+        fake_file.project_id = None
+        db.get.return_value = fake_file
+
+        body, status = update_training_config_service(
+            db,
+            "my_model",
+            _training_config(
+                problem_type_id=ProblemType.CLASSIFICATION,
+            ),
+        )
+        assert status == 400
+        assert body["success"] is False
+        assert "Tabular models require a CSV dataset" in body["message"]
+
+    @pytest.mark.parametrize("bad_target", [None, "", "   "])
+    def test_service_rejects_missing_or_blank_target_for_tabular(self, bad_target):
+        model = ModelBasic(model_name="my_model")
+        db = _db_returning(model)
+        fake_file = MagicMock()
+        fake_file.file_type = "csv"
+        fake_file.project_id = None
+        db.get.return_value = fake_file
+
+        body, status = update_training_config_service(
+            db,
+            "my_model",
+            _training_config(
+                problem_type_id=ProblemType.CLASSIFICATION,
+                target_field=bad_target,
+            ),
+        )
+        assert status == 400
+        assert body["success"] is False
+        assert "Target field is required for tabular datasets" in body["message"]
+
+    def test_service_rejects_target_field_not_in_dataset_columns(self):
+        model = ModelBasic(model_name="my_model")
+        db = _db_returning(model)
+        fake_file = MagicMock()
+        fake_file.file_type = "csv"
+        fake_file.columns = ["feature1", "feature2", "label"]
+        fake_file.project_id = None
+        db.get.return_value = fake_file
+
+        body, status = update_training_config_service(
+            db,
+            "my_model",
+            _training_config(
+                problem_type_id=ProblemType.CLASSIFICATION,
+                target_field="nonexistent_column",
+            ),
+        )
+        assert status == 400
+        assert body["success"] is False
+        assert "Target field 'nonexistent_column' not found in dataset columns" in body["message"]
+
+    @pytest.mark.parametrize("bad_split", [0, -10, 100, 150])
+    def test_service_rejects_out_of_bounds_training_split(self, bad_split):
+        model = ModelBasic(model_name="my_model")
+        db = _db_returning(model)
+        fake_file = MagicMock()
+        fake_file.file_type = "csv"
+        fake_file.columns = ["a", "b", "label"]
+        fake_file.project_id = None
+        db.get.return_value = fake_file
+
+        body, status = update_training_config_service(
+            db,
+            "my_model",
+            _training_config(
+                training_split=bad_split,
+            ),
+        )
+        assert status == 400
+        assert body["success"] is False
+        assert "training_split must be between 0 and 100" in body["message"]
+
+    @pytest.mark.parametrize("bad_epochs", [0, -1])
+    def test_service_rejects_invalid_epochs(self, bad_epochs):
+        model = ModelBasic(model_name="my_model")
+        db = _db_returning(model)
+        fake_file = MagicMock()
+        fake_file.file_type = "csv"
+        fake_file.columns = ["a", "b", "label"]
+        fake_file.project_id = None
+        db.get.return_value = fake_file
+
+        body, status = update_training_config_service(
+            db,
+            "my_model",
+            _training_config(
+                epochs=bad_epochs,
+            ),
+        )
+        assert status == 400
+        assert body["success"] is False
+        assert "epochs must be a positive integer" in body["message"]
+
+    @pytest.mark.parametrize("bad_batch_size", [0, -1])
+    def test_service_rejects_invalid_batch_size(self, bad_batch_size):
+        model = ModelBasic(model_name="my_model")
+        db = _db_returning(model)
+        fake_file = MagicMock()
+        fake_file.file_type = "csv"
+        fake_file.columns = ["a", "b", "label"]
+        fake_file.project_id = None
+        db.get.return_value = fake_file
+
+        body, status = update_training_config_service(
+            db,
+            "my_model",
+            _training_config(
+                batch_size=bad_batch_size,
+            ),
+        )
+        assert status == 400
+        assert body["success"] is False
+        assert "batch_size must be a positive integer" in body["message"]
+
+    def test_service_accepts_valid_image_classification_config(self):
+        model = ModelBasic(model_name="my_model")
+        db = _db_returning(model)
+        fake_file = MagicMock()
+        fake_file.file_type = "zip"
+        fake_file.project_id = None
+        db.get.return_value = fake_file
+
+        body, status = update_training_config_service(
+            db,
+            "my_model",
+            _training_config(
+                problem_type_id=ProblemType.IMAGE_CLASSIFICATION,
+                loss=LossFunction.SPARSE_CATEGORICAL_CROSSENTROPY,
+                target_field=None,
+            ),
+        )
+        assert status == 200
+        assert body["success"] is True
+        assert model.target_field is None

@@ -5,6 +5,7 @@ the request/persistence behaviour without spinning up real Keras runs.
 """
 
 from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock, patch
 
 import numpy as np
 import pytest
@@ -14,6 +15,7 @@ from app.models.data import DataFile
 from app.models.ml import ModelBasic
 from app.models.project import Project
 from app.models.training_job import TrainingJob, TrainingStatus
+from app.models.training_metric import TrainingMetric
 from app.models.tuning_session import TuningSession, TuningStrategy
 from app.models.tuning_session import TuningStatus as TuningSessionStatus
 from app.services.tuning_service import (
@@ -535,11 +537,74 @@ class TestCancelTuning:
         model = _seed_model(db_session, "tuning_model")
         ts = _seed_tuning_session(db_session, model.id, status=TuningSessionStatus.COMPLETED)
 
-        resp = client.delete(f"{BASE}/tuning/{ts.id}")
+        with patch("app.socketio_instance.sio.emit", new_callable=AsyncMock) as mock_sio_emit:
+            resp = client.delete(f"{BASE}/tuning/{ts.id}")
+
         assert resp.status_code == 204
+        mock_sio_emit.assert_not_called()
 
         db_session.refresh(ts)
         assert ts.status == TuningSessionStatus.COMPLETED  # unchanged
+
+    def test_cancel_tuning_emits_socket_progress_event(self, client, db_session):
+        """DELETE emits tuning_complete event with status=cancelled to tuning:{session_id} room."""
+        model = _seed_model(db_session, "tuning_model")
+        ts = _seed_tuning_session(db_session, model.id, status=TuningSessionStatus.RUNNING)
+
+        with patch("app.socketio_instance.sio.emit", new_callable=AsyncMock) as mock_sio_emit:
+            resp = client.delete(f"{BASE}/tuning/{ts.id}")
+
+        assert resp.status_code == 204
+        mock_sio_emit.assert_awaited_once()
+
+        call_args, call_kwargs = mock_sio_emit.call_args
+        assert call_args[0] == "tuning_progress"
+        assert call_args[1]["type"] == "tuning_complete"
+        assert call_args[1]["status"] == "cancelled"
+        assert call_kwargs["room"] == f"tuning:{ts.id}"
+        assert call_kwargs["namespace"] == "/dl-result"
+
+    def test_cancel_tuning_emits_events_for_running_jobs_and_preserves_best_metric(self, client, db_session):
+        """DELETE emits cancellation for running child jobs and preserves best job and metric if available."""
+        model = _seed_model(db_session, "tuning_model")
+        best_job = _seed_job(db_session, model.id, TrainingStatus.COMPLETED)
+        metric_row = TrainingMetric(
+            job_id=best_job.id,
+            epoch=1,
+            metric_name="val_accuracy",
+            metric_value=0.9125,
+        )
+        db_session.add(metric_row)
+
+        ts = _seed_tuning_session(
+            db_session,
+            model.id,
+            status=TuningSessionStatus.RUNNING,
+            best_job_id=best_job.id,
+        )
+
+        running_job = _seed_job(db_session, model.id, TrainingStatus.RUNNING, tuning_session_id=ts.id)
+        db_session.commit()
+
+        with patch("app.socketio_instance.sio.emit", new_callable=AsyncMock) as mock_sio_emit:
+            resp = client.delete(f"{BASE}/tuning/{ts.id}")
+
+        assert resp.status_code == 204
+        assert mock_sio_emit.await_count == 2
+
+        # First call is for running trial job
+        job_call_args, job_call_kwargs = mock_sio_emit.call_args_list[0]
+        assert job_call_kwargs["room"] == running_job.id
+        assert job_call_args[1]["status"] == "cancelled"
+
+        # Second call is for tuning session
+        ts_call_args, ts_call_kwargs = mock_sio_emit.call_args_list[1]
+        assert ts_call_args[0] == "tuning_progress"
+        assert ts_call_args[1]["type"] == "tuning_complete"
+        assert ts_call_args[1]["status"] == "cancelled"
+        assert ts_call_args[1]["best_job_id"] == best_job.id
+        assert ts_call_args[1]["best_metric"] == 0.9125
+        assert ts_call_kwargs["room"] == f"tuning:{ts.id}"
 
 
 class TestApplyBest:

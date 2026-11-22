@@ -16,11 +16,15 @@ from app.database import get_db
 from app.exceptions import AppException
 from app.models.ml import ModelBasic
 from app.models.training_job import TrainingJob, TrainingStatus
+from app.models.training_metric import TrainingMetric
 from app.models.tuning_session import TuningSession, TuningStatus, TuningStrategy
 from app.schemas.tuning import TuningStartRequest
 from app.services.training_service import update_job_status
 from app.services.tuning_service import check_tuning_concurrency_limit, launch_tuning_session, tuning_service
+from app.shared.constants import SOCKETIO_DL_NAMESPACE, SOCKETIO_LISTENER
 from app.shared.logging_config import get_logger
+from app.shared.training_events import training_event
+from app.socketio_instance import sio
 
 logger = get_logger(__name__)
 
@@ -127,8 +131,6 @@ def get_tuning_session(tuning_id: str, db: Session = Depends(get_db)) -> JSONRes
         # Get the target metric for this job.
         metric_val = None
         if job.status.value == "completed":
-            from app.models.training_metric import TrainingMetric
-
             row = db.exec(
                 select(TrainingMetric)
                 .where(TrainingMetric.job_id == job.id, TrainingMetric.metric_name == ts.metric)
@@ -179,12 +181,13 @@ def get_tuning_session(tuning_id: str, db: Session = Depends(get_db)) -> JSONRes
 
 
 @router.delete("/tuning/{tuning_id}", status_code=204)
-def cancel_tuning(tuning_id: str, db: Session = Depends(get_db)) -> Response:
+async def cancel_tuning(tuning_id: str, db: Session = Depends(get_db)) -> Response:
     """Cancel a tuning session.
 
     Sets the session status to CANCELLED and stamps completion timestamp.
     Running trials are also cancelled via the training cancellation mechanism
-    with completed_at timestamps.
+    with completed_at timestamps. Emits real-time Socket.IO cancellation events
+    to the tuning session room and any active trial rooms.
     """
     ts = db.get(TuningSession, tuning_id)
     if ts is None:
@@ -207,6 +210,41 @@ def cancel_tuning(tuning_id: str, db: Session = Depends(get_db)) -> Response:
         ).all()
         for job in running_jobs:
             update_job_status(job.id, TrainingStatus.CANCELLED, db, error_message="Tuning session cancelled by user")
+            try:
+                await sio.emit(
+                    SOCKETIO_LISTENER,
+                    training_event(job.id, "status", status="cancelled"),
+                    room=job.id,
+                    namespace=SOCKETIO_DL_NAMESPACE,
+                )
+            except Exception:
+                logger.warning("Failed to emit cancellation event to room for job %s", job.id)
+
+        best_metric = None
+        if ts.best_job_id:
+            row = db.exec(
+                select(TrainingMetric)
+                .where(TrainingMetric.job_id == ts.best_job_id, TrainingMetric.metric_name == ts.metric)
+                .order_by(TrainingMetric.epoch.desc())
+                .limit(1)
+            ).first()
+            if row:
+                best_metric = row.metric_value
+
+        try:
+            await sio.emit(
+                "tuning_progress",
+                {
+                    "type": "tuning_complete",
+                    "status": "cancelled",
+                    "best_job_id": ts.best_job_id,
+                    "best_metric": best_metric,
+                },
+                room=f"tuning:{tuning_id}",
+                namespace=SOCKETIO_DL_NAMESPACE,
+            )
+        except Exception:
+            logger.warning("Failed to emit tuning cancellation event for session %s", tuning_id)
 
     return Response(status_code=204)
 

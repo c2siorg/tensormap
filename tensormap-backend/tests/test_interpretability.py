@@ -799,7 +799,43 @@ def test_resolve_classification_predictions_binary_and_multiclass():
     raw_multi = np.array([[0.1, 0.7, 0.2], [0.8, 0.1, 0.1], [0.2, 0.3, 0.5]], dtype=np.float32)
     classes_m, probs_m = _resolve_classification_predictions(raw_multi)
     assert np.array_equal(classes_m, np.array([1, 0, 2]))
-    assert np.array_equal(probs_m, raw_multi)
+    assert np.allclose(probs_m, raw_multi)
+
+    # Binary raw logits (negative and values > 1.0)
+    from scipy.special import expit, softmax
+
+    raw_logits_2d = np.array([[-2.5], [0.0], [1.8], [-0.3]], dtype=np.float32)
+    classes_logits, probs_logits = _resolve_classification_predictions(raw_logits_2d)
+    expected_p1 = expit(raw_logits_2d.flatten())
+    assert np.allclose(probs_logits[:, 1], expected_p1, atol=1e-5)
+    assert np.allclose(probs_logits[:, 0], 1.0 - expected_p1, atol=1e-5)
+    assert np.all(probs_logits >= 0.0) and np.all(probs_logits <= 1.0)
+    assert np.array_equal(classes_logits, (expected_p1 >= 0.5).astype(int))
+
+    # Binary 1D raw logits
+    raw_logits_1d = np.array([-1.2, 2.4, 0.0, -0.05], dtype=np.float32)
+    classes_1d_log, probs_1d_log = _resolve_classification_predictions(raw_logits_1d)
+    expected_p1_1d = expit(raw_logits_1d)
+    assert np.allclose(probs_1d_log[:, 1], expected_p1_1d, atol=1e-5)
+    assert np.allclose(probs_1d_log[:, 0], 1.0 - expected_p1_1d, atol=1e-5)
+    assert np.array_equal(classes_1d_log, (expected_p1_1d >= 0.5).astype(int))
+
+    # Multi-class raw logits (containing negative values)
+    raw_multi_logits = np.array([[2.5, -1.0, 0.5], [-0.5, 3.2, 1.1], [0.0, 0.0, 2.0]], dtype=np.float32)
+    classes_ml, probs_ml = _resolve_classification_predictions(raw_multi_logits)
+    expected_probs_ml = softmax(raw_multi_logits, axis=1)
+    assert np.allclose(probs_ml, expected_probs_ml, atol=1e-5)
+    assert np.allclose(probs_ml.sum(axis=1), 1.0, atol=1e-5)
+    assert np.all(probs_ml >= 0.0) and np.all(probs_ml <= 1.0)
+    assert np.array_equal(classes_ml, np.argmax(expected_probs_ml, axis=1))
+
+    # Multi-class raw logits without negative numbers but not summing to 1.0
+    raw_multi_unnorm = np.array([[1.0, 1.0, 1.0], [2.0, 1.0, 0.0]], dtype=np.float32)
+    classes_unnorm, probs_unnorm = _resolve_classification_predictions(raw_multi_unnorm)
+    expected_probs_unnorm = softmax(raw_multi_unnorm, axis=1)
+    assert np.allclose(probs_unnorm, expected_probs_unnorm, atol=1e-5)
+    assert np.allclose(probs_unnorm.sum(axis=1), 1.0, atol=1e-5)
+    assert np.array_equal(classes_unnorm, np.argmax(expected_probs_unnorm, axis=1))
 
     # Ground truth resolution
     y_1d = np.array([0, 1, 0])

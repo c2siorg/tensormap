@@ -21,6 +21,7 @@ from app.models.tuning_session import TuningStatus as TuningSessionStatus
 from app.services.tuning_service import (
     TuningService,
     check_tuning_concurrency_limit,
+    tuning_service,
 )
 
 BASE = "/api/v1/model"
@@ -421,6 +422,52 @@ class TestStartTuning:
         )
         assert resp.status_code == 400
         assert resp.json()["success"] is False
+
+    def test_grid_search_invalid_search_space_validates_before_generating_combinations(
+        self, client, db_session, monkeypatch
+    ):
+        """validate_search_space executes before generate_grid_combinations so invalid inputs fail upfront."""
+        _seed_model(db_session, "tuning_model")
+        called = False
+
+        def _record_call(*_args, **_kwargs):
+            nonlocal called
+            called = True
+            return [{}]
+
+        monkeypatch.setattr(tuning_service, "generate_grid_combinations", _record_call)
+
+        resp = client.post(
+            f"{BASE}/tuning/tuning_model",
+            json={
+                "model_name": "tuning_model",
+                "strategy": "grid",
+                "search_space": {},
+            },
+        )
+        assert resp.status_code == 400
+        assert resp.json()["success"] is False
+        assert "search_space must be a non-empty object" in resp.json()["message"]
+        assert not called, "generate_grid_combinations was invoked before validate_search_space"
+
+    def test_malformed_search_space_with_oversized_grid_validates_schema_first(self, client, db_session):
+        """Schema validation occurs before grid size calculation, returning schema error instead of limit error."""
+        _seed_model(db_session, "tuning_model")
+        resp = client.post(
+            f"{BASE}/tuning/tuning_model",
+            json={
+                "model_name": "tuning_model",
+                "strategy": "grid",
+                "search_space": {
+                    "batch_size": list(range(100)),
+                    "optimizer": "adam",
+                },
+            },
+        )
+        assert resp.status_code == 400
+        assert resp.json()["success"] is False
+        assert "optimizer" in resp.json()["message"]
+        assert "must be a non-empty list" in resp.json()["message"]
 
     def test_empty_list_value_400(self, client, db_session):
         """POST with an empty list value returns 400 instead of a zero-trial session."""

@@ -589,7 +589,7 @@ def run_code_service(db: Session, model_name: str, project_id: uuid_pkg.UUID | N
     model = db.exec(select(ModelBasic).where(ModelBasic.model_name == model_name)).first()
     if not model:
         return _resp(404, False, "Model not found")
-    if model.file_id is None or model.epochs is None:
+    if model.file_id is None or model.epochs is None or model.training_split is None:
         return _resp(400, False, "Training configuration not set. Please configure training parameters first.")
     try:
         model_run(model_name, db, loop=loop)

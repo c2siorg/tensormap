@@ -58,17 +58,18 @@ async def start_tuning(
     # Reject early if we're already at the concurrency limit (raises 429).
     check_tuning_concurrency_limit(db)
 
-    # Validate grid search size upfront.
     strategy = TuningStrategy(body.strategy)
+
+    # Validate the whole search space so malformed/misconfigured inputs return
+    # a clear 400 instead of silently failing or leaving the session stuck.
+    tuning_service.validate_search_space(body.search_space, strategy)
+
+    # Calculate trial count for grid search or take requested max_trials
     if strategy == TuningStrategy.GRID:
         combos = tuning_service.generate_grid_combinations(body.search_space)
         n_trials = len(combos)
     else:
         n_trials = body.max_trials
-
-    # Validate the whole search space so malformed/misconfigured inputs return
-    # a clear 400 instead of silently failing or leaving the session stuck.
-    tuning_service.validate_search_space(body.search_space, strategy)
 
     # Create the tuning session.
     session_obj = TuningSession(

@@ -26,6 +26,12 @@ function PreprocessData({ fileId, updateFileList }) {
   const [fetchError, setFetchError] = useState(null);
 
   useEffect(() => {
+    setTransformations([]);
+    if (!fileId) {
+      setData(null);
+      setFetchError(null);
+      return;
+    }
     const fetchData = async () => {
       try {
         setFetchError(null);
@@ -105,7 +111,7 @@ function PreprocessData({ fileId, updateFileList }) {
 }
 
 PreprocessData.propTypes = {
-  fileId: PropTypes.string.isRequired,
+  fileId: PropTypes.string,
   updateFileList: PropTypes.func.isRequired,
 };
 

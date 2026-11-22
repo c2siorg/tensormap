@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import AnalysisDashboard from "../AnalysisDashboard";
 import axios from "@/shared/Axios";
 
@@ -155,6 +155,114 @@ describe("AnalysisDashboard", () => {
 
     await waitFor(() => {
       expect(screen.getByText(/Server error/)).toBeInTheDocument();
+    });
+  });
+
+  it("renders export controls when analysis is loaded", async () => {
+    (axios.get as any).mockImplementation((url: string) => {
+      if (url.includes("roc-curve")) return Promise.resolve(mockRocCurveResponse);
+      return Promise.resolve(mockClassificationResponse);
+    });
+
+    render(<AnalysisDashboard jobId="test-job-123" />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Export Analysis/i })).toBeInTheDocument();
+      expect(screen.getByRole("combobox", { name: /Export format/i })).toBeInTheDocument();
+    });
+  });
+
+  it("handles successful json export download", async () => {
+    const createObjectURLMock = vi.fn().mockReturnValue("blob:mock-url");
+    const revokeObjectURLMock = vi.fn();
+    window.URL.createObjectURL = createObjectURLMock;
+    window.URL.revokeObjectURL = revokeObjectURLMock;
+
+    (axios.get as any).mockImplementation((url: string) => {
+      if (url.includes("/export")) {
+        return Promise.resolve({ data: '{"status":"ok"}' });
+      }
+      if (url.includes("roc-curve")) return Promise.resolve(mockRocCurveResponse);
+      return Promise.resolve(mockClassificationResponse);
+    });
+
+    render(<AnalysisDashboard jobId="test-job-123" />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Export Analysis/i })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /Export Analysis/i }));
+
+    await waitFor(() => {
+      expect(axios.get).toHaveBeenCalledWith(
+        expect.stringContaining("/test-job-123/export?format=json"),
+        { responseType: "blob" },
+      );
+      expect(createObjectURLMock).toHaveBeenCalled();
+      expect(revokeObjectURLMock).toHaveBeenCalled();
+    });
+  });
+
+  it("handles format change and csv export", async () => {
+    const createObjectURLMock = vi.fn().mockReturnValue("blob:mock-url");
+    const revokeObjectURLMock = vi.fn();
+    window.URL.createObjectURL = createObjectURLMock;
+    window.URL.revokeObjectURL = revokeObjectURLMock;
+
+    (axios.get as any).mockImplementation((url: string) => {
+      if (url.includes("/export")) {
+        return Promise.resolve({ data: "analysis,field,type,value\n" });
+      }
+      if (url.includes("roc-curve")) return Promise.resolve(mockRocCurveResponse);
+      return Promise.resolve(mockClassificationResponse);
+    });
+
+    render(<AnalysisDashboard jobId="test-job-123" />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("combobox", { name: /Export format/i })).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByRole("combobox", { name: /Export format/i }), {
+      target: { value: "csv" },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /Export Analysis/i }));
+
+    await waitFor(() => {
+      expect(axios.get).toHaveBeenCalledWith(
+        expect.stringContaining("/test-job-123/export?format=csv"),
+        { responseType: "blob" },
+      );
+    });
+  });
+
+  it("displays error notification when export fails", async () => {
+    (axios.get as any).mockImplementation((url: string) => {
+      if (url.includes("/export")) {
+        return Promise.reject({
+          response: {
+            data: { detail: "Analysis results are not available for export yet" },
+          },
+        });
+      }
+      if (url.includes("roc-curve")) return Promise.resolve(mockRocCurveResponse);
+      return Promise.resolve(mockClassificationResponse);
+    });
+
+    render(<AnalysisDashboard jobId="test-job-123" />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Export Analysis/i })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /Export Analysis/i }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Analysis results are not available for export yet/),
+      ).toBeInTheDocument();
     });
   });
 });

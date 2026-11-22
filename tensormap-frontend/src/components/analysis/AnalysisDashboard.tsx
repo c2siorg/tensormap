@@ -37,6 +37,62 @@ export default function AnalysisDashboard({ jobId }: AnalysisDashboardProps) {
   const [rocError, setRocError] = useState<string | null>(null);
   const [isLoadingType, setIsLoadingType] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [exportFormat, setExportFormat] = useState<"json" | "csv">("json");
+  const [isExporting, setIsExporting] = useState<boolean>(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+
+  const handleExport = async () => {
+    setIsExporting(true);
+    setExportError(null);
+    try {
+      const response = await axios.get(
+        `${BACKEND_MODEL_ANALYSIS}/${jobId}/export?format=${exportFormat}`,
+        { responseType: "blob" }
+      );
+      const blob = new Blob([response.data], {
+        type: exportFormat === "json" ? "application/json" : "text/csv",
+      });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute("download", `analysis-${jobId}.${exportFormat}`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err: any) {
+      logger.error("Failed to export analysis:", err);
+      let parsedDetail: string | null = null;
+      if (err.response?.data) {
+        try {
+          let errorData = err.response.data;
+          if (errorData instanceof Blob) {
+            const text = await errorData.text();
+            errorData = JSON.parse(text);
+          } else if (typeof errorData === "string") {
+            try {
+              errorData = JSON.parse(errorData);
+            } catch {
+              // ignore
+            }
+          }
+          if (errorData && typeof errorData === "object" && errorData.detail) {
+            parsedDetail = errorData.detail;
+          }
+        } catch {
+          // ignore
+        }
+      }
+      setExportError(
+        parsedDetail ||
+          err.response?.data?.detail ||
+          err.message ||
+          "Failed to export analysis"
+      );
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   // Feature importance polling
   const {
@@ -128,6 +184,43 @@ export default function AnalysisDashboard({ jobId }: AnalysisDashboardProps) {
 
   return (
     <div className="space-y-6">
+      {/* Export Toolbar */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 bg-white border border-gray-200 rounded-lg shadow-sm">
+        <div>
+          <h2 className="text-lg font-semibold text-gray-800">Model Analysis</h2>
+          <p className="text-xs text-gray-500">
+            Export diagnostic metrics and summary results for offline reporting
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <select
+            value={exportFormat}
+            onChange={(e) => setExportFormat(e.target.value as "json" | "csv")}
+            disabled={isExporting}
+            className="text-sm border border-gray-300 rounded-md px-2.5 py-1.5 bg-white text-gray-700 shadow-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+            aria-label="Export format"
+          >
+            <option value="json">JSON</option>
+            <option value="csv">CSV</option>
+          </select>
+          <button
+            onClick={handleExport}
+            disabled={isExporting}
+            className="inline-flex items-center px-3 py-1.5 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isExporting ? "Exporting..." : "Export Analysis"}
+          </button>
+        </div>
+      </div>
+
+      {exportError && (
+        <div className="p-3 bg-red-50 border border-red-200 rounded-md">
+          <p className="text-sm text-red-700">
+            <strong>Export Error:</strong> {exportError}
+          </p>
+        </div>
+      )}
+
       {/* Classification Analysis */}
       {analysisType === "classification" && confusionData && (
         <>

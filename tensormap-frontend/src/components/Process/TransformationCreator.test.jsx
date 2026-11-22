@@ -60,9 +60,7 @@ describe("TransformationCreator", () => {
       <TransformationCreator features={sampleFeatures} onAdd={handleAdd} />,
     );
 
-    rerender(
-      <TransformationCreator features={["price", "bedrooms"]} onAdd={handleAdd} />,
-    );
+    rerender(<TransformationCreator features={["price", "bedrooms"]} onAdd={handleAdd} />);
 
     const button = screen.getByRole("button", { name: /add transformation/i });
     await user.click(button);

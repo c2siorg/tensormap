@@ -1522,3 +1522,21 @@ def test_regression_analysis_r2_none_when_undefined(regression_job, db_session, 
 
     assert result_const["r2"] is None
     assert np.isclose(result_const["mae"], 0.1)
+
+
+def test_load_test_data_complete_rejects_non_csv():
+    """_load_test_data_complete raises ValueError when dataset is not a CSV file."""
+    mock_session = MagicMock()
+    mock_job = MagicMock()
+    mock_job.model_id = 1
+    mock_model = MagicMock()
+    mock_model.file_id = uuid4()
+    mock_model.model_name = "image_model"
+    mock_file = MagicMock()
+    mock_file.file_type = "zip"
+
+    mock_session.get.side_effect = [mock_job, mock_model, mock_file]
+
+    service = InterpretabilityService()
+    with pytest.raises(ValueError, match="Analysis is only supported for tabular CSV datasets, but got 'zip'"):
+        service._load_test_data_complete("job-123", mock_session)

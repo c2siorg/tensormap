@@ -413,6 +413,9 @@ class InterpretabilityService:
         if not data_file:
             raise ValueError(f"Data file not found for model {model.model_name}")
 
+        if data_file.file_type != "csv":
+            raise ValueError(f"Analysis is only supported for tabular CSV datasets, but got '{data_file.file_type}'")
+
         upload_folder = get_settings().upload_folder
         file_path = f"{upload_folder}/{data_file.disk_name}"
 

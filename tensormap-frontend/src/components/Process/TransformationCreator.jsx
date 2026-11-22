@@ -22,9 +22,19 @@ function TransformationCreator({ features, onAdd }) {
     "Drop Missing Rows",
     "Fill Missing Values",
   ];
-  const [selectedFeature, setSelectedFeature] = useState(features[0]);
+  const [selectedFeature, setSelectedFeature] = useState(features[0] || "");
   const [selectedTransformation, setSelectedTransformation] = useState(transformations[0]);
   const [disabledButton, setDisabledButton] = useState(true);
+
+  useEffect(() => {
+    if (features.length > 0) {
+      if (!selectedFeature || !features.includes(selectedFeature)) {
+        setSelectedFeature(features[0]);
+      }
+    } else {
+      setSelectedFeature("");
+    }
+  }, [features, selectedFeature]);
 
   useEffect(() => {
     if (selectedFeature && selectedTransformation) setDisabledButton(false);

@@ -34,4 +34,42 @@ describe("TransformationCreator", () => {
       transformation: "One Hot Encoding",
     });
   });
+
+  it("updates selectedFeature when features prop loads asynchronously", async () => {
+    const user = userEvent.setup();
+    const handleAdd = vi.fn();
+    const { rerender } = render(<TransformationCreator features={[]} onAdd={handleAdd} />);
+
+    const button = screen.getByRole("button", { name: /add transformation/i });
+    expect(button).toBeDisabled();
+
+    rerender(<TransformationCreator features={sampleFeatures} onAdd={handleAdd} />);
+    expect(button).not.toBeDisabled();
+
+    await user.click(button);
+    expect(handleAdd).toHaveBeenCalledWith({
+      feature: "sepal_length",
+      transformation: "One Hot Encoding",
+    });
+  });
+
+  it("updates selectedFeature when features list changes to different columns", async () => {
+    const user = userEvent.setup();
+    const handleAdd = vi.fn();
+    const { rerender } = render(
+      <TransformationCreator features={sampleFeatures} onAdd={handleAdd} />,
+    );
+
+    rerender(
+      <TransformationCreator features={["price", "bedrooms"]} onAdd={handleAdd} />,
+    );
+
+    const button = screen.getByRole("button", { name: /add transformation/i });
+    await user.click(button);
+
+    expect(handleAdd).toHaveBeenCalledWith({
+      feature: "price",
+      transformation: "One Hot Encoding",
+    });
+  });
 });

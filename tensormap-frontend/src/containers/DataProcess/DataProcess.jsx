@@ -24,12 +24,14 @@ function DataProcess() {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    if (files.length > 0 && !selectedFileId) {
-      const firstCsv = files.find((f) => f.file_type === "csv");
-      setSelectedFileId(String(firstCsv ? firstCsv.file_id : files[0].file_id));
-    }
     if (files.length === 0) {
       setSelectedFileId(null);
+    } else if (
+      !selectedFileId ||
+      !files.some((f) => String(f.file_id) === String(selectedFileId))
+    ) {
+      const firstCsv = files.find((f) => f.file_type === "csv");
+      setSelectedFileId(String(firstCsv ? firstCsv.file_id : files[0].file_id));
     }
     setIsLoading(false);
   }, [files, selectedFileId]);
@@ -38,7 +40,12 @@ function DataProcess() {
     getAllFiles(projectId)
       .then((response) => {
         setFiles(response);
-        if (response.length > 0 && !selectedFileId) {
+        if (response.length === 0) {
+          setSelectedFileId(null);
+        } else if (
+          !selectedFileId ||
+          !response.some((f) => String(f.file_id) === String(selectedFileId))
+        ) {
           const firstCsv = response.find((f) => f.file_type === "csv");
           setSelectedFileId(String(firstCsv ? firstCsv.file_id : response[0].file_id));
         }

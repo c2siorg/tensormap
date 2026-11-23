@@ -25,6 +25,7 @@ from app.services.data_process import (
     revert_data_process_service,
 )
 from app.services.dataset_quality import analyze_dataset_quality
+from app.services.schema_inference_service import infer_dataset_schema_service
 from app.shared.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -60,6 +61,18 @@ def get_class_imbalance(
 ):
     """Compute class distribution, entropy, Gini impurity, and balanced class weights."""
     body, status_code = get_class_imbalance_service(db, file_id=file_id, target_field=target_field)
+    return JSONResponse(status_code=status_code, content=body)
+
+
+@router.get("/data/process/schema/{file_id}")
+def infer_dataset_schema(
+    file_id: uuid_pkg.UUID,
+    sample_size: int = Query(1000, ge=10, le=50000),
+    db: Session = Depends(get_db),
+):
+    """Infers semantic column types, detects dates and keys, and suggests pre-processing actions."""
+    logger.debug("Inferring dataset schema: file_id=%s sample_size=%d", file_id, sample_size)
+    body, status_code = infer_dataset_schema_service(db, file_id=file_id, sample_size=sample_size)
     return JSONResponse(status_code=status_code, content=body)
 
 

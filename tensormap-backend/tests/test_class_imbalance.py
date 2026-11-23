@@ -276,3 +276,31 @@ def test_api_route_class_imbalance_both_paths(client: TestClient, db_session, tm
         assert data2["success"] is True
         assert data2["data"]["target_field"] == "label"
         assert data2["data"]["imbalance_ratio"] == 3.0
+
+        # Path 3: /api/v1/data/process/imbalance/{file_id}?target_field=label
+        resp3 = client.get(f"/api/v1/data/process/imbalance/{file_id}?target_field=label")
+        assert resp3.status_code == 200
+        data3 = resp3.json()
+        assert data3["success"] is True
+        assert data3["data"]["target_field"] == "label"
+        assert data3["data"]["imbalance_ratio"] == 3.0
+
+
+def test_compute_class_imbalance_rejects_continuous_float_target():
+    """Verify ValueError is raised when series contains continuous float regression values."""
+    series = pd.Series([0.15, 0.28, 0.42, 0.99, 1.34, 2.56, 3.88])
+    with pytest.raises(ValueError, match="continuous regression variable"):
+        compute_class_imbalance(series, target_name="continuous_target")
+
+
+def test_compute_class_imbalance_accepts_integral_float_target_with_nans():
+    """Verify float series containing integral numbers and NaNs is treated as discrete classification."""
+    series = pd.Series([0.0] * 50 + [1.0] * 50 + [np.nan] * 5)
+    result = compute_class_imbalance(series, target_name="float_labels")
+
+    assert result["total_samples"] == 100
+    assert result["null_count"] == 5
+    assert result["num_classes"] == 2
+    assert result["severity"] == "balanced"
+    assert "0" in result["class_weights"]
+    assert "1" in result["class_weights"]

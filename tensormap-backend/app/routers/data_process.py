@@ -54,6 +54,7 @@ def get_dataset_quality(
 
 @router.get("/data/process/{file_id}/class-imbalance")
 @router.get("/data/process/class-imbalance/{file_id}")
+@router.get("/data/process/imbalance/{file_id}")
 def get_class_imbalance(
     file_id: uuid_pkg.UUID,
     target_field: str | None = Query(None),

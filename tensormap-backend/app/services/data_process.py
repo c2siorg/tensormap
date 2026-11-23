@@ -888,6 +888,12 @@ def compute_class_imbalance(series: pd.Series, target_name: str = "target") -> d
     if total_samples == 0:
         raise ValueError(f"Target column '{target_name}' contains no valid (non-null) samples.")
 
+    if pd.api.types.is_float_dtype(valid_series) and not (valid_series % 1 == 0).all():
+        raise ValueError(
+            f"Class imbalance analysis requires a discrete classification target, but '{target_name}' "
+            "appears to be a continuous regression variable."
+        )
+
     value_counts = valid_series.value_counts(sort=True)
     num_classes = len(value_counts)
 
@@ -904,7 +910,10 @@ def compute_class_imbalance(series: pd.Series, target_name: str = "target") -> d
     classes = []
     class_weights = {}
     for class_val, count in value_counts.items():
-        c_str = str(class_val)
+        if isinstance(class_val, (float, np.floating)) and float(class_val).is_integer():
+            c_str = str(int(class_val))
+        else:
+            c_str = str(class_val)
         c_count = int(count)
         proportion = round(float(c_count / total_samples), 4)
         weight = round(float(total_samples / (num_classes * c_count)), 4)
@@ -918,10 +927,20 @@ def compute_class_imbalance(series: pd.Series, target_name: str = "target") -> d
         )
         class_weights[c_str] = weight
 
-    majority_class = str(value_counts.index[0])
+    majority_raw = value_counts.index[0]
     majority_count = int(value_counts.iloc[0])
-    minority_class = str(value_counts.index[-1])
+    minority_raw = value_counts.index[-1]
     minority_count = int(value_counts.iloc[-1])
+    majority_class = (
+        str(int(majority_raw))
+        if isinstance(majority_raw, (float, np.floating)) and float(majority_raw).is_integer()
+        else str(majority_raw)
+    )
+    minority_class = (
+        str(int(minority_raw))
+        if isinstance(minority_raw, (float, np.floating)) and float(minority_raw).is_integer()
+        else str(minority_raw)
+    )
 
     imbalance_ratio = round(float(majority_count / minority_count), 4) if minority_count > 0 else float("inf")
 

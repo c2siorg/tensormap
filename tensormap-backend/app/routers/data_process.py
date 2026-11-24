@@ -21,6 +21,7 @@ from app.services.data_process import (
     get_feature_distribution_service,
     get_file_data,
     get_one_target_by_id_service,
+    get_vif_metrics,
     preprocess_data,
     revert_data_process_service,
 )
@@ -122,6 +123,13 @@ async def get_feature_distribution(file_id: uuid_pkg.UUID, db: Session = Depends
 async def get_correlation(file_id: uuid_pkg.UUID, db: Session = Depends(get_db)):
     """Return the pairwise correlation matrix for all numeric columns in a CSV file."""
     body, status_code = get_correlation_matrix(db, file_id=file_id)
+    return JSONResponse(status_code=status_code, content=body)
+
+
+@router.get("/data/process/vif/{file_id}")
+async def get_vif(file_id: uuid_pkg.UUID, db: Session = Depends(get_db)):
+    """Return Variance Inflation Factor (VIF) and multicollinearity diagnostics for a CSV file."""
+    body, status_code = get_vif_metrics(db, file_id=file_id)
     return JSONResponse(status_code=status_code, content=body)
 
 

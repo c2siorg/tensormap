@@ -24,6 +24,7 @@ from app.services.data_process import (
     preprocess_data,
     revert_data_process_service,
 )
+from app.services.dataset_drift import compute_dataset_drift
 from app.services.dataset_quality import analyze_dataset_quality
 from app.shared.logging_config import get_logger
 
@@ -60,6 +61,29 @@ def get_class_imbalance(
 ):
     """Compute class distribution, entropy, Gini impurity, and balanced class weights."""
     body, status_code = get_class_imbalance_service(db, file_id=file_id, target_field=target_field)
+    return JSONResponse(status_code=status_code, content=body)
+
+
+@router.get("/data/process/drift/{file_id}")
+def get_dataset_drift(
+    file_id: uuid_pkg.UUID,
+    baseline_file_id: uuid_pkg.UUID | None = Query(None),
+    training_split: float = Query(0.8, ge=0.1, le=0.9),
+    split_strategy: str = Query("sequential", pattern="^(sequential|random)$"),
+    seed: int = Query(42),
+    alpha: float = Query(0.05, ge=0.001, le=0.5),
+    db: Session = Depends(get_db),
+):
+    """Profile dataset drift and covariate shift for a tabular dataset."""
+    body, status_code = compute_dataset_drift(
+        db,
+        file_id=file_id,
+        baseline_file_id=baseline_file_id,
+        training_split=training_split,
+        split_strategy=split_strategy,
+        seed=seed,
+        alpha=alpha,
+    )
     return JSONResponse(status_code=status_code, content=body)
 
 

@@ -9,6 +9,7 @@ import SelectFileModal from "../../components/Process/SelectFileModal";
 import PreprocessData from "../../components/Process/PreprocessData";
 import CorrelationHeatmap from "../../components/Process/CorrelationHeatmap";
 import FeatureDistributionPanel from "../../components/Process/FeatureDistributionPanel";
+import DatasetDriftPanel from "../../components/Process/DatasetDriftPanel";
 import { getAllFiles } from "../../services/FileServices";
 import { projectFiles } from "../../shared/atoms";
 import logger from "../../shared/logger";
@@ -160,6 +161,7 @@ function DataProcess() {
                     <CorrelationHeatmap fileId={selectedFileId} />
                   </CardContent>
                 </Card>
+                <DatasetDriftPanel fileId={selectedFileId} files={files} />
               </div>
             )
           )}

@@ -25,7 +25,6 @@ from sqlmodel import Session
 from app.database import get_db
 from app.models.training_job import TrainingJob, TrainingStatus
 from app.services.interpretability import InterpretabilityService
-from app.shared.enums import ProblemType
 from app.shared.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -109,23 +108,10 @@ def get_analysis_type(job_id: str, session: Session) -> str:
     Raises:
         HTTPException: 404 if job or model not found
     """
-    from app.models.ml import ModelBasic
-
-    job = session.get(TrainingJob, job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Training job not found")
-
-    model = session.get(ModelBasic, job.model_id)
-    if not model:
-        raise HTTPException(status_code=404, detail="Model not found")
-
-    type_map = {
-        ProblemType.CLASSIFICATION: "classification",
-        ProblemType.REGRESSION: "regression",
-        ProblemType.IMAGE_CLASSIFICATION: "image_classification",
-    }
-
-    return type_map.get(model.model_type, "classification")
+    try:
+        return _service.get_analysis_type(job_id, session)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.get("/{job_id}/confusion-matrix")
@@ -160,17 +146,12 @@ async def get_confusion_matrix(
     # Verify job exists and is completed
     _verify_job_completed(job_id, db)
 
-    # Task-type routing: confusion matrix not available for regression or image classification
+    # Task-type routing: confusion matrix not available for regression
     analysis_type = get_analysis_type(job_id, db)
     if analysis_type == "regression":
         raise HTTPException(
             status_code=400,
             detail="Confusion matrix not available for regression models. Use /residuals instead.",
-        )
-    if analysis_type == "image_classification":
-        raise HTTPException(
-            status_code=400,
-            detail="Confusion matrix not available for image classification models.",
         )
 
     # Check if result was already cached
@@ -238,11 +219,6 @@ async def get_roc_curve(
         raise HTTPException(
             status_code=400,
             detail="ROC and Precision-Recall curves are only available for classification models.",
-        )
-    if analysis_type == "image_classification":
-        raise HTTPException(
-            status_code=400,
-            detail="ROC and Precision-Recall curves are not available for image classification models.",
         )
 
     cached = _service.cache.get_cached(job_id, "roc_curve", db)
@@ -313,11 +289,6 @@ async def get_calibration_curve(
         raise HTTPException(
             status_code=400,
             detail="Calibration curve analysis is only available for classification models.",
-        )
-    if analysis_type == "image_classification":
-        raise HTTPException(
-            status_code=400,
-            detail="Calibration curves are not available for image classification models.",
         )
 
     cache_key = f"calibration_curve_{n_bins}"

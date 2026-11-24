@@ -265,4 +265,28 @@ describe("AnalysisDashboard", () => {
       ).toBeInTheDocument();
     });
   });
+
+  it("mounts correct panels for image_classification type without tabular-only panels", async () => {
+    const mockImageResponse = {
+      data: {
+        ...mockClassificationResponse.data,
+        analysis_type: "image_classification",
+      },
+    };
+
+    (axios.get as any).mockImplementation((url: string) => {
+      if (url.includes("roc-curve")) return Promise.resolve(mockRocCurveResponse);
+      return Promise.resolve(mockImageResponse);
+    });
+
+    render(<AnalysisDashboard jobId="test-job-img" />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Confusion Matrix")).toBeInTheDocument();
+      expect(screen.getByText("Classification Report")).toBeInTheDocument();
+    });
+
+    expect(screen.queryByText("Feature Importance")).not.toBeInTheDocument();
+    expect(screen.queryByText("Prediction Explorer")).not.toBeInTheDocument();
+  });
 });

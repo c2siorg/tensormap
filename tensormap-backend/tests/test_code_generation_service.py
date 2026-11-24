@@ -16,9 +16,10 @@ _tf_stub = MagicMock()
 sys.modules.setdefault("tensorflow", _tf_stub)
 sys.modules.setdefault("flatten_json", MagicMock())
 
-from jinja2 import Environment, FileSystemLoader  # noqa: E402
+from jinja2 import Environment, FileSystemLoader, TemplateError, TemplateNotFound, TemplateSyntaxError  # noqa: E402
 
 from app.services.code_generation import (  # noqa: E402
+    CodeGenerationError,
     _file_location,
     _loss_expression,
     _map_template,
@@ -821,3 +822,53 @@ class TestGenerateCodeBatchSize:
 
         code = generate_code("image_model", mock_db)
         assert "batch_size = 128" in code
+
+
+class TestTemplateErrorHandling:
+    """Tests for Jinja2 template loading and rendering error handling."""
+
+    @patch("app.services.code_generation.Environment")
+    def test_template_not_found_raises_code_generation_error(self, mock_env, mock_db):
+        model = _make_model(ProblemType.CLASSIFICATION)
+        file = _make_file(file_type="csv", file_name="iris.csv")
+        mock_db.exec.return_value.first.side_effect = [model, file]
+
+        mock_env.return_value.get_template.side_effect = TemplateNotFound("nonexistent_template.py")
+
+        with pytest.raises(CodeGenerationError) as exc_info:
+            generate_code("test_model", mock_db)
+
+        assert exc_info.value.status_code == 500
+        assert "Code template not found: nonexistent_template.py" in str(exc_info.value)
+
+    @patch("app.services.code_generation.Environment")
+    def test_template_syntax_error_raises_code_generation_error(self, mock_env, mock_db):
+        model = _make_model(ProblemType.CLASSIFICATION)
+        file = _make_file(file_type="csv", file_name="iris.csv")
+        mock_db.exec.return_value.first.side_effect = [model, file]
+
+        mock_env.return_value.get_template.side_effect = TemplateSyntaxError(
+            "unexpected end of template", 10, filename="broken_template.py"
+        )
+
+        with pytest.raises(CodeGenerationError) as exc_info:
+            generate_code("test_model", mock_db)
+
+        assert exc_info.value.status_code == 500
+        assert "Template syntax error: unexpected end of template" in str(exc_info.value)
+
+    @patch("app.services.code_generation.Environment")
+    def test_template_render_error_raises_code_generation_error(self, mock_env, mock_db):
+        model = _make_model(ProblemType.CLASSIFICATION)
+        file = _make_file(file_type="csv", file_name="iris.csv")
+        mock_db.exec.return_value.first.side_effect = [model, file]
+
+        mock_template = MagicMock()
+        mock_template.render.side_effect = TemplateError("render failure in variable lookup")
+        mock_env.return_value.get_template.return_value = mock_template
+
+        with pytest.raises(CodeGenerationError) as exc_info:
+            generate_code("test_model", mock_db)
+
+        assert exc_info.value.status_code == 500
+        assert "Template rendering failed: render failure in variable lookup" in str(exc_info.value)

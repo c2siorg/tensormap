@@ -579,8 +579,9 @@ def get_code_service(db: Session, model_name: str, project_id: uuid_pkg.UUID | N
     except ValueError as e:
         return _resp(400, False, str(e))
     except CodeGenerationError as e:
+        status_code = getattr(e, "status_code", 404)
         logger.error("Code generation failed: %s", str(e))
-        return _resp(404, False, str(e))
+        return _resp(status_code, False, str(e))
     return {"content": python_code, "file_name": model_name + ".py"}, 200
 
 

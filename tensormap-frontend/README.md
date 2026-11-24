@@ -6,7 +6,7 @@ TensorMap is a web application that allows users to create machine learning algo
 
 ### Installation instructions
 
-To use the TensorMap Frontend App, you need to have Node.js and NPM (Node Package Manager) installed on your system. Follow the steps below to install and run the TensorMap Frontend App:
+To use the TensorMap Frontend App, you need to have Node.js (>= 22.12.0) and NPM installed on your system. Follow the steps below to install and run the TensorMap Frontend App:
 
 1.  Install the dependencies by running `npm install` in the project directory.
 2.  Start the development server by running `npm start` in the project directory.
@@ -25,4 +25,4 @@ Follow the steps below to create your machine learning algorithm:
 
 ## Testing
 
-For the front end, `Jest` is used for testing. All the configurations and sample tests are added in the `test` directory located inside the `root` directory. To run the tests simply run `npm run test` in the terminal.
+For the front end, `Vitest` is used for testing. Test suites are organized beside their components under `tests/`, `__tests__/`, or inside `src/test/`. To run the tests, run `npm test` (or `npm run test:watch` for watch mode) in the terminal.

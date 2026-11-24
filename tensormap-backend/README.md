@@ -58,21 +58,46 @@ docker run -d \
 │   ├── socketio_instance.py  # Async Socket.IO server
 │   ├── models/
 │   │   ├── data.py           # DataFile, DataProcess, ImageProperties
-│   │   └── ml.py             # ModelBasic, ModelConfigs, ModelResults
+│   │   ├── ml.py             # ModelBasic, ModelConfigs
+│   │   ├── project.py        # Project
+│   │   ├── training_job.py   # TrainingJob, TrainingStatus
+│   │   ├── training_metric.py# TrainingMetric
+│   │   └── tuning_session.py # TuningSession, TuningStatus, TuningStrategy
 │   ├── schemas/
-│   │   ├── data_process.py   # Request validation schemas
-│   │   └── deep_learning.py
+│   │   ├── data_process.py   # Request validation schemas for data processing
+│   │   ├── deep_learning.py  # Model and training config schemas
+│   │   ├── project.py        # Project schemas
+│   │   ├── training.py       # Training job schemas
+│   │   └── tuning.py         # Hyperparameter tuning schemas
 │   ├── routers/
-│   │   ├── data_upload.py    # /data/upload endpoints
+│   │   ├── analysis.py       # /model/analysis post-training interpretability endpoints
 │   │   ├── data_process.py   # /data/process endpoints
-│   │   └── deep_learning.py  # /model endpoints
+│   │   ├── data_upload.py    # /data/upload endpoints
+│   │   ├── deep_learning.py  # /model architecture and code gen endpoints
+│   │   ├── export.py         # /model/export format and download endpoints
+│   │   ├── health.py         # /health and /ready probe endpoints
+│   │   ├── layers.py         # /layers registry and graph validation/analysis
+│   │   ├── project.py        # /project CRUD endpoints
+│   │   ├── training.py       # /model training jobs, metrics, and comparison endpoints
+│   │   └── tuning.py         # /model/tuning hyperparameter tuning endpoints
 │   ├── services/
-│   │   ├── data_upload.py    # File upload business logic
-│   │   ├── data_process.py   # Data processing business logic
-│   │   ├── deep_learning.py  # Model validation/execution logic
-│   │   ├── model_generation.py  # ReactFlow graph to Keras JSON
 │   │   ├── code_generation.py   # Jinja2 TF code generation
-│   │   └── model_run.py      # Model training execution
+│   │   ├── data_process.py   # Data processing and transformation logic
+│   │   ├── data_upload.py    # File upload and extraction business logic
+│   │   ├── dataset_quality.py# Dataset quality profiling and validation
+│   │   ├── deep_learning.py  # Model validation and configuration logic
+│   │   ├── interpretability.py # Confusion matrix, ROC, feature importance
+│   │   ├── model_export.py   # SavedModel, TFLite, ONNX, and Keras exports
+│   │   ├── model_generation.py # ReactFlow graph to Keras JSON
+│   │   ├── model_profiler.py # Layer complexity and parameter profiling
+│   │   ├── model_run.py      # Background model training execution
+│   │   ├── project.py        # Project management business logic
+│   │   ├── reproducibility.py# Environment and data snapshot capture
+│   │   ├── training_service.py # Training job orchestration and metrics persistence
+│   │   └── tuning_service.py # Grid/random search hyperparameter tuning
+│   ├── callbacks/            # Keras training callbacks (metrics, cancellation, checkpoint)
+│   ├── ir/                   # Intermediate Representation schema, translator, and analysis
+│   ├── layers/               # Dynamic layer registry and specifications
 │   └── shared/
 │       ├── constants.py
 │       ├── enums.py

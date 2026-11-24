@@ -10,13 +10,17 @@ A web application for visually creating machine learning algorithms via drag-and
 - Drag-and-drop neural network design using ReactFlow
 - Reverse engineer visual models to TensorFlow Python code
 - Real-time model training with live progress via WebSocket
-- CSV and image dataset upload and preprocessing
-- Correlation matrix visualization and target field selection
+- Automated hyperparameter tuning (Grid and Random search) with real-time trial progression
+- Post-training model evaluation and interpretability (confusion matrix, ROC curves, feature importance, probability calibration, and exportable reports)
+- Multi-format model export (SavedModel, TFLite, ONNX, and Keras)
+- CSV and image dataset upload, validation, and preprocessing with undo/revert support
+- Dataset quality profiler and target class imbalance analyzer
+- Multi-run training job comparison charts
 - Live model check: inferred output shapes and parameter counts on every layer, with problems pointed at the layer that causes them (see [graph analysis](tensormap-backend/docs/GRAPH_ANALYSIS.md))
 
 ## Prerequisites
 
-- [Node.js](https://nodejs.org/) >= 18
+- [Node.js](https://nodejs.org/) >= 22.12.0
 - Python 3.12+
 - PostgreSQL
 - [Docker](https://docs.docker.com/get-docker/) (optional, for containerized setup)

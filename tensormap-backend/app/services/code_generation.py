@@ -8,6 +8,7 @@ from app.models import DataFile, ImageProperties, ModelBasic
 from app.services.model_run import _emits_logits
 from app.shared.constants import (
     BATCH_SIZE,
+    CLASS_WEIGHT_MODE,
     CODE_TEMPLATE_FOLDER,
     COLOR_MODE,
     DATASET,
@@ -106,6 +107,7 @@ def generate_code(model_name: str, db: Session) -> str:
             MODEL_LOSS: loss,
             MODEL_LOSS_EXPRESSION: _loss_expression(loss, from_logits=from_logits),
             BATCH_SIZE: model_configs.batch_size or 32,
+            CLASS_WEIGHT_MODE: model_configs.class_weight_mode,
         },
     }
 

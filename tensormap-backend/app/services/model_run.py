@@ -5,6 +5,7 @@ import json
 import os
 from typing import Any
 
+import numpy as np
 import pandas as pd
 import tensorflow as tf
 from sqlmodel import Session, select
@@ -57,6 +58,66 @@ def _validate_training_params(batch_size, epochs, training_split):
                 errors.append(f"training_split must be between 0 and 100, got {ts}")
     if errors:
         raise ValueError("Invalid training parameters: " + "; ".join(errors))
+
+
+def compute_balanced_class_weights(y: Any) -> dict[int, float] | None:
+    """Compute balanced class weights inversely proportional to class frequencies.
+
+    Formula: weight_c = N_samples / (n_classes * count(y == c))
+    Supports 1D integer/float arrays, 1D string/object label series/arrays,
+    and 2D one-hot encoded arrays/DataFrames. Returns dict mapping class index (int) to weight (float).
+    """
+    if y is None:
+        return None
+
+    # Extract numpy array from pandas Series/DataFrame or sequence
+    y_arr = y.values if hasattr(y, "values") else np.asarray(y)
+
+    if y_arr.size == 0:
+        return None
+
+    # Handle 2D one-hot encoded targets (e.g. from pd.get_dummies or to_categorical)
+    if y_arr.ndim == 2 and y_arr.shape[1] > 1:
+        counts = np.sum(y_arr, axis=0)
+        n_samples = float(y_arr.shape[0])
+        n_classes = float(y_arr.shape[1])
+        if n_classes <= 1 or n_samples == 0:
+            return None
+        weights: dict[int, float] = {}
+        for c in range(int(n_classes)):
+            cnt = float(counts[c])
+            if cnt > 0:
+                weights[c] = round(float(n_samples / (n_classes * cnt)), 4)
+        return weights
+
+    # Flatten 1D or (N, 1) array
+    y_flat = y_arr.ravel()
+    n_samples = float(len(y_flat))
+    if n_samples == 0:
+        return None
+
+    # Check if labels are non-numeric (strings or objects)
+    if y_flat.dtype.kind in {"U", "S", "O"}:
+        unique_classes, inverse_indices = np.unique(y_flat, return_inverse=True)
+        classes = np.arange(len(unique_classes))
+        counts = np.bincount(inverse_indices)
+    else:
+        classes, counts = np.unique(y_flat, return_counts=True)
+
+    n_classes = float(len(classes))
+    if n_classes <= 1:
+        return None
+
+    weights = {}
+    for c, count in zip(classes, counts, strict=False):
+        if count > 0:
+            try:
+                class_idx = int(c)
+            except (ValueError, TypeError):
+                continue
+            weights[class_idx] = round(float(n_samples / (n_classes * float(count))), 4)
+
+    return weights if weights else None
 
 
 # Keras loss classes keyed by the name stored on ModelBasic.loss.
@@ -494,6 +555,50 @@ def _run(model_name: str, db: Session, job_id: str | None = None) -> None:
         metrics=[model_configs.metric],
     )
 
+    class_weights = None
+    if getattr(model_configs, "class_weight_mode", None) == "balanced":
+        try:
+            if model_configs.model_type == ProblemType.CLASSIFICATION:
+                y_arr = y_training.values if hasattr(y_training, "values") else np.array(y_training)
+                if y_arr.ndim > 1 and y_arr.shape[1] > 1:
+                    y_arr = np.argmax(y_arr, axis=1)
+                elif y_arr.ndim > 1:
+                    y_arr = y_arr.ravel()
+                class_weights = compute_balanced_class_weights(y_arr)
+            elif model_configs.model_type == ProblemType.IMAGE_CLASSIFICATION:
+                class_dirs = sorted(
+                    [
+                        d
+                        for d in os.listdir(directory)
+                        if os.path.isdir(os.path.join(directory, d)) and not d.startswith(".")
+                    ]
+                )
+                if len(class_dirs) > 1:
+                    class_counts = []
+                    for c_name in class_dirs:
+                        c_path = os.path.join(directory, c_name)
+                        count = sum(1 for f in os.scandir(c_path) if f.is_file() and not f.name.startswith("."))
+                        class_counts.append(count)
+                    total_samples = float(sum(class_counts))
+                    n_classes = float(len(class_dirs))
+                    if total_samples > 0 and n_classes > 1:
+                        class_weights = {
+                            i: round(float(total_samples / (n_classes * cnt)), 4)
+                            for i, cnt in enumerate(class_counts)
+                            if cnt > 0
+                        }
+            if class_weights is None:
+                raise ModelRunError(
+                    f"Cannot compute balanced class weights for model '{model_name}': "
+                    "dataset must contain at least two classes with positive sample counts."
+                )
+            logger.info("Using balanced class weights for model '%s': %s", model_name, class_weights)
+        except ModelRunError:
+            raise
+        except Exception as e:
+            logger.exception("Failed to compute balanced class weights for model '%s'", model_name)
+            raise ModelRunError(f"Failed to compute balanced class weights: {e}") from e
+
     if model_configs.model_type == ProblemType.IMAGE_CLASSIFICATION:
         callbacks = _build_training_callbacks(job_id, hyperparams=hyperparams, has_validation=True)
         model.fit(
@@ -501,6 +606,7 @@ def _run(model_name: str, db: Session, job_id: str | None = None) -> None:
             validation_data=test_data,
             epochs=epochs,
             callbacks=callbacks,
+            class_weight=class_weights,
             verbose=0,
         )
         if _should_skip_evaluation(callbacks, model):
@@ -533,6 +639,7 @@ def _run(model_name: str, db: Session, job_id: str | None = None) -> None:
             epochs=epochs,
             batch_size=effective_batch_size,
             callbacks=callbacks,
+            class_weight=class_weights,
             verbose=0,
         )
         if _should_skip_evaluation(callbacks, model):

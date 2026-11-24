@@ -35,8 +35,38 @@ def deep_learning_model():
         metrics=["{{data.dl_model.metric}}"],
     )
 
+    class_weight_mode = "{{data.dl_model.class_weight_mode}}"
+    class_weights = None
+    if class_weight_mode == "balanced":
+        if hasattr(y_training, "ndim") and y_training.ndim > 1 and y_training.shape[1] > 1:
+            y_counts = np.sum(np.asarray(y_training), axis=0)
+            n_samples = float(len(y_training))
+            n_classes = float(y_training.shape[1])
+            class_weights = {
+                int(c): float(n_samples / (n_classes * count)) for c, count in enumerate(y_counts) if count > 0
+            }
+        else:
+            y_flat = np.asarray(y_training).ravel()
+            if y_flat.dtype.kind in {"U", "S", "O"}:
+                _, inv = np.unique(y_flat, return_inverse=True)
+                counts = np.bincount(inv)
+                classes = np.arange(len(counts))
+            else:
+                classes, counts = np.unique(y_flat, return_counts=True)
+            n_samples = float(len(y_flat))
+            n_classes = float(len(classes))
+            class_weights = {
+                int(c): float(n_samples / (n_classes * count))
+                for c, count in zip(classes, counts, strict=False)
+                if count > 0
+            }
+
     history = model.fit(
-        x_training, y_training, epochs={{data.dl_model.epochs}}, batch_size={{data.dl_model.batch_size}}
+        x_training,
+        y_training,
+        epochs={{data.dl_model.epochs}},
+        batch_size={{data.dl_model.batch_size}},
+        class_weight=class_weights,
     )
 
     test_loss, test_acc = model.evaluate(x_testing, y_testing, verbose=2)

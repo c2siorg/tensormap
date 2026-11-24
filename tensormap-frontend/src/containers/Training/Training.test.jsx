@@ -176,6 +176,31 @@ describe("Training page loss function", () => {
       metric: "mse",
     });
   });
+
+  it("allows selecting balanced class weighting and passes it to updateTrainingConfig", async () => {
+    const user = userEvent.setup();
+    renderTraining();
+    await selectSavedModel(user);
+
+    await pickOption(user, "Dataset File", "iris.csv");
+    await pickOption(user, "Problem Type", "Multi class classification");
+    await pickOption(user, "Result Metrics", "Accuracy");
+    await user.type(screen.getByPlaceholderText("Select from list or enter field name"), "species");
+    await user.type(screen.getByPlaceholderText("Number of epochs"), "5");
+    await user.type(screen.getByPlaceholderText("Batch size"), "32");
+    await user.type(screen.getByPlaceholderText("e.g. 0.8"), "0.8");
+
+    await pickOption(user, "Class Weighting", "Balanced (Inverse Frequency)");
+    expect(selectTrigger("Class Weighting")).toHaveTextContent("Balanced (Inverse Frequency)");
+
+    await user.click(screen.getByRole("button", { name: "Save Configuration" }));
+
+    await waitFor(() => expect(updateTrainingConfig).toHaveBeenCalledTimes(1));
+    expect(updateTrainingConfig.mock.calls[0][0]).toMatchObject({
+      model_name: "demo",
+      class_weight_mode: "balanced",
+    });
+  });
 });
 
 describe("Training page dataset quality gating", () => {

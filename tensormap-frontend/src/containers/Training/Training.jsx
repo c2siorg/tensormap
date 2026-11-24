@@ -141,6 +141,7 @@ export default function Training() {
     epochs: "",
     batch_size: "",
     training_split: "",
+    class_weight_mode: "none",
   });
   // Until a problem type is chosen every loss is listed; afterwards only the ones that fit it.
   const problemLossGroup = problemTypeOptions.find(
@@ -489,6 +490,7 @@ export default function Training() {
       metric: trainingConfig.metric,
       epochs: Number(trainingConfig.epochs),
       batch_size: trainingConfig.batch_size ? Number(trainingConfig.batch_size) : 32,
+      class_weight_mode: trainingConfig.class_weight_mode === "balanced" ? "balanced" : null,
       project_id: projectId || null,
     };
     const submittedConfigKey = getTrainingConfigKey(selectedModel, trainingConfig);
@@ -992,6 +994,25 @@ export default function Training() {
                 {validationErrors.training_split && (
                   <p className="text-sm text-red-500">{validationErrors.training_split}</p>
                 )}
+              </div>
+
+              <div className="space-y-1">
+                <Label>Class Weighting</Label>
+                <Select
+                  value={trainingConfig.class_weight_mode || "none"}
+                  onValueChange={(v) => {
+                    setTrainingConfig((prev) => ({ ...prev, class_weight_mode: v }));
+                    setConfigSaved(false);
+                  }}
+                >
+                  <SelectTrigger aria-label="Class Weighting">
+                    <SelectValue placeholder="Select class weighting" />
+                  </SelectTrigger>
+                  <SelectContent className="z-[9999] bg-white shadow-lg border backdrop-blur-sm">
+                    <SelectItem value="none">None (Standard)</SelectItem>
+                    <SelectItem value="balanced">Balanced (Inverse Frequency)</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
 

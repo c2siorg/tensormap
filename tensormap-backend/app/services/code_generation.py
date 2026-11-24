@@ -1,7 +1,7 @@
 import json
 import os
 
-from jinja2 import Environment, FileSystemLoader
+from jinja2 import Environment, FileSystemLoader, TemplateError, TemplateNotFound, TemplateSyntaxError
 from sqlmodel import Session, select
 
 from app.models import DataFile, ImageProperties, ModelBasic
@@ -35,9 +35,11 @@ logger = get_logger(__name__)
 
 
 class CodeGenerationError(Exception):
-    """Raised when code generation cannot proceed due to missing data."""
+    """Raised when code generation cannot proceed due to missing data or template errors."""
 
-    pass
+    def __init__(self, message: str, status_code: int = 404):
+        super().__init__(message)
+        self.status_code = status_code
 
 
 def _model_emits_logits(model_name: str, model_configs: ModelBasic) -> bool:
@@ -127,9 +129,18 @@ def generate_code(model_name: str, db: Session) -> str:
     logger.debug("Generating code for model type: %s", model_configs.model_type)
     template_loader = FileSystemLoader(searchpath=TEMPLATE_ROOT)
     template_env = Environment(loader=template_loader)
-    template = template_env.get_template(_map_template(model_configs.model_type))
-
-    return template.render(data=data)
+    try:
+        template = template_env.get_template(_map_template(model_configs.model_type))
+        return template.render(data=data)
+    except TemplateNotFound as e:
+        logger.error("Template not found for model %r: %s", model_name, e)
+        raise CodeGenerationError(f"Code template not found: {e.name}", status_code=500) from e
+    except TemplateSyntaxError as e:
+        logger.error("Template syntax error in %s:%s: %s", e.filename, e.lineno, e.message)
+        raise CodeGenerationError(f"Template syntax error: {e.message}", status_code=500) from e
+    except TemplateError as e:
+        logger.error("Template render error for model %r: %s", model_name, e)
+        raise CodeGenerationError(f"Template rendering failed: {e}", status_code=500) from e
 
 
 def _map_template(problem_type_id: int | None) -> str:

@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from app.models.training_job import TrainingJob
+from app.services.code_generation import CodeGenerationError
 from app.services.deep_learning import get_code_service, run_code_service
 from app.services.model_run import (
     ModelRunError,
@@ -164,6 +165,30 @@ class TestGetCodeServiceOnFailure:
 
         assert result["success"] is False
         assert result["message"] == "file missing"
+
+    def test_returns_http_500_when_generate_code_raises_code_generation_error_with_500(self):
+        db = MagicMock()
+        with patch(
+            "app.services.deep_learning.generate_code",
+            side_effect=CodeGenerationError("Template rendering failed", 500),
+        ):
+            result, status_code = get_code_service(db, "my_model")
+
+        assert status_code == 500
+        assert result["success"] is False
+        assert result["message"] == "Template rendering failed"
+
+    def test_returns_http_404_when_generate_code_raises_code_generation_error_default(self):
+        db = MagicMock()
+        with patch(
+            "app.services.deep_learning.generate_code",
+            side_effect=CodeGenerationError("Model not found: my_model"),
+        ):
+            result, status_code = get_code_service(db, "my_model")
+
+        assert status_code == 404
+        assert result["success"] is False
+        assert result["message"] == "Model not found: my_model"
 
 
 class TestHelperGenerateFileLocation:

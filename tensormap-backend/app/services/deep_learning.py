@@ -20,6 +20,7 @@ from app.services.code_generation import CodeGenerationError, generate_code
 from app.services.model_generation import model_generation
 from app.services.model_run import ModelRunError, model_run
 from app.shared.constants import (
+    CLASS_WEIGHT_MODE,
     CODE,
     DATASET,
     DL_MODEL,
@@ -238,6 +239,7 @@ def model_validate_service(db: Session, incoming: dict, project_id: uuid_pkg.UUI
         metric=code[DL_MODEL][MODEL_METRIC],
         epochs=code[DL_MODEL][MODEL_EPOCHS],
         loss=_default_loss(code[PROBLEM_TYPE]),
+        class_weight_mode=code[DL_MODEL].get(CLASS_WEIGHT_MODE),
         graph_json=_extract_graph(incoming),
         graph_ir=graph_ir_data,  # NEW: Dual-write to graph_ir
     )
@@ -534,6 +536,24 @@ def update_training_config_service(
     else:
         bs = 32
 
+    raw_class_weight_mode = config.get(CLASS_WEIGHT_MODE)
+    if raw_class_weight_mode is not None:
+        if raw_class_weight_mode != "balanced":
+            return _resp(
+                400,
+                False,
+                f"class_weight_mode must be 'balanced' or null, got {raw_class_weight_mode!r}",
+            )
+        if problem_type_id == ProblemType.REGRESSION:
+            return _resp(
+                400,
+                False,
+                "Class weighting is only supported for classification models, not regression.",
+            )
+        class_weight_mode = "balanced"
+    else:
+        class_weight_mode = None
+
     model.file_id = file_id
     model.model_type = problem_type_id
     model.target_field = target_field
@@ -543,6 +563,7 @@ def update_training_config_service(
     model.epochs = ep
     model.batch_size = bs
     model.loss = loss_enum.value
+    model.class_weight_mode = class_weight_mode
 
     try:
         db.add(model)

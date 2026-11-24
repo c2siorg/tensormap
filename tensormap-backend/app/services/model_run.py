@@ -5,6 +5,7 @@ import json
 import os
 from typing import Any
 
+import numpy as np
 import pandas as pd
 import tensorflow as tf
 from sqlmodel import Session, select
@@ -243,6 +244,97 @@ def _model_result(message: str, test: int) -> None:
         logger.warning("No running event loop for Socket.IO emit: %s", message)
 
 
+def compute_balanced_class_weights(y: Any) -> dict[int, float]:
+    """Compute balanced class weights inversely proportional to class frequencies.
+
+    Formula:
+        w_c = N_samples / (n_classes * count(y == c))
+
+    Handles:
+        - 1D integer/categorical array or pandas Series
+        - 2D one-hot encoded array or DataFrame (e.g. from pd.get_dummies)
+
+    Returns:
+        Dictionary mapping integer class index (0..K-1) -> float weight.
+
+    Raises:
+        ValueError: If y is empty, contains fewer than 2 distinct classes, or any class has 0 samples.
+    """
+    if y is None:
+        raise ValueError("Cannot compute class weights: target data is None")
+
+    y_arr = y.values if hasattr(y, "values") else np.asarray(y)
+
+    if y_arr.size == 0:
+        raise ValueError("Cannot compute class weights on empty target data")
+
+    # If 2D one-hot encoded matrix, reduce to 1D integer class indices
+    if y_arr.ndim == 2:
+        if y_arr.shape[1] < 2:
+            raise ValueError(f"Balanced class weighting requires at least 2 distinct classes, got {y_arr.shape[1]}")
+        y_classes = np.argmax(y_arr, axis=1)
+    elif y_arr.ndim == 1:
+        y_classes = y_arr
+    else:
+        raise ValueError(f"Expected 1D or 2D target array, got ndim={y_arr.ndim}")
+
+    classes, counts = np.unique(y_classes, return_counts=True)
+    n_classes = len(classes)
+    if n_classes < 2:
+        raise ValueError(f"Balanced class weighting requires at least 2 distinct classes, got {n_classes}")
+
+    n_samples = len(y_classes)
+    weights: dict[int, float] = {}
+    for cls, count in zip(classes, counts, strict=True):
+        if count == 0:
+            raise ValueError(f"Class {cls} has 0 samples, cannot compute balanced weight")
+        weights[int(cls)] = round(float(n_samples / (n_classes * count)), 6)
+
+    return weights
+
+
+def compute_image_balanced_class_weights(directory: str) -> dict[int, float]:
+    """Compute balanced class weights for an image classification dataset directory.
+
+    Scans subdirectory class folders without decoding image files, matching Keras
+    alphabetical class index ordering.
+
+    Formula:
+        w_c = N_samples / (n_classes * count(y == c))
+
+    Returns:
+        Dictionary mapping integer class index (0..K-1) -> float weight.
+
+    Raises:
+        ValueError: If directory does not exist, has fewer than 2 class directories,
+                    or any class directory contains 0 valid images.
+    """
+    if not os.path.isdir(directory):
+        raise ValueError(f"Image dataset directory not found: {directory}")
+
+    valid_exts = {".jpg", ".jpeg", ".png", ".bmp", ".gif"}
+    subdirs = sorted([d.name for d in os.scandir(directory) if d.is_dir()])
+    if len(subdirs) < 2:
+        raise ValueError(f"Balanced class weighting requires at least 2 class directories, found {len(subdirs)}")
+
+    class_counts = []
+    for s in subdirs:
+        class_path = os.path.join(directory, s)
+        count = sum(
+            1 for f in os.scandir(class_path) if f.is_file() and os.path.splitext(f.name)[1].lower() in valid_exts
+        )
+        if count == 0:
+            raise ValueError(f"Class directory '{s}' contains 0 valid images")
+        class_counts.append(count)
+
+    total_samples = sum(class_counts)
+    n_classes = len(subdirs)
+    weights: dict[int, float] = {
+        i: round(float(total_samples / (n_classes * count)), 6) for i, count in enumerate(class_counts)
+    }
+    return weights
+
+
 def _helper_generate_file_location(db: Session, file_id) -> str:
     """Resolve the on-disk path for a dataset file by its DB ID."""
     upload_folder = get_settings().upload_folder
@@ -432,6 +524,12 @@ def _run(model_name: str, db: Session, job_id: str | None = None) -> None:
         training_split=training_split,
     )
 
+    if (
+        getattr(model_configs, "class_weight_mode", None) == "balanced"
+        and model_configs.model_type == ProblemType.REGRESSION
+    ):
+        raise ModelRunError("Class weighting is only supported for classification models, not regression.")
+
     if model_configs.model_type == ProblemType.IMAGE_CLASSIFICATION:
         image_properties = db.exec(select(ImageProperties).where(ImageProperties.id == model_configs.file_id)).first()
         if image_properties is None:
@@ -495,12 +593,21 @@ def _run(model_name: str, db: Session, job_id: str | None = None) -> None:
     )
 
     if model_configs.model_type == ProblemType.IMAGE_CLASSIFICATION:
+        class_weights = None
+        if getattr(model_configs, "class_weight_mode", None) == "balanced":
+            try:
+                class_weights = compute_image_balanced_class_weights(directory)
+                logger.info("Using balanced class weights for image classification: %s", class_weights)
+            except Exception as e:
+                raise ModelRunError(f"Failed to compute balanced class weights: {e}") from e
+
         callbacks = _build_training_callbacks(job_id, hyperparams=hyperparams, has_validation=True)
         model.fit(
             train_data,
             validation_data=test_data,
             epochs=epochs,
             callbacks=callbacks,
+            class_weight=class_weights,
             verbose=0,
         )
         if _should_skip_evaluation(callbacks, model):
@@ -512,6 +619,14 @@ def _run(model_name: str, db: Session, job_id: str | None = None) -> None:
         else:
             model.evaluate(test_data, callbacks=callbacks, verbose=0)
     else:
+        class_weights = None
+        if getattr(model_configs, "class_weight_mode", None) == "balanced":
+            try:
+                class_weights = compute_balanced_class_weights(y_training)
+                logger.info("Using balanced class weights for classification: %s", class_weights)
+            except Exception as e:
+                raise ModelRunError(f"Failed to compute balanced class weights: {e}") from e
+
         validation_data = (
             (x_testing, y_testing)
             if (
@@ -533,6 +648,7 @@ def _run(model_name: str, db: Session, job_id: str | None = None) -> None:
             epochs=epochs,
             batch_size=effective_batch_size,
             callbacks=callbacks,
+            class_weight=class_weights,
             verbose=0,
         )
         if _should_skip_evaluation(callbacks, model):

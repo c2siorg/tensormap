@@ -8,6 +8,7 @@ from app.models import DataFile, ImageProperties, ModelBasic
 from app.services.model_run import _emits_logits
 from app.shared.constants import (
     BATCH_SIZE,
+    CLASS_WEIGHT_MODE,
     CODE_TEMPLATE_FOLDER,
     COLOR_MODE,
     DATASET,
@@ -106,6 +107,7 @@ def generate_code(model_name: str, db: Session) -> str:
             MODEL_LOSS: loss,
             MODEL_LOSS_EXPRESSION: _loss_expression(loss, from_logits=from_logits),
             BATCH_SIZE: model_configs.batch_size or 32,
+            CLASS_WEIGHT_MODE: getattr(model_configs, "class_weight_mode", None),
         },
     }
 
@@ -127,7 +129,77 @@ def generate_code(model_name: str, db: Session) -> str:
     template_env = Environment(loader=template_loader)
     template = template_env.get_template(_map_template(model_configs.model_type))
 
-    return template.render(data=data)
+    rendered = template.render(data=data)
+    if getattr(model_configs, "class_weight_mode", None) == "balanced":
+        rendered = _inject_class_weights(
+            code=rendered,
+            problem_type_id=model_configs.model_type,
+            epochs=model_configs.epochs,
+            batch_size=model_configs.batch_size or 32,
+        )
+    return rendered
+
+
+def _inject_class_weights(code: str, problem_type_id: int | None, epochs: int, batch_size: int) -> str:
+    """Inject balanced class weighting calculation and model.fit class_weight parameter into generated code."""
+    if problem_type_id == ProblemType.CLASSIFICATION:
+        target_pattern = (
+            f"    history = model.fit(\n        x_training, y_training, epochs={epochs}, batch_size={batch_size}\n    )"
+        )
+        replacement = (
+            "    # Compute balanced class weights: w_c = N_samples / (n_classes * count(y == c))\n"
+            "    y_raw = y_training.values if hasattr(y_training, 'values') else np.asarray(y_training)\n"
+            "    if y_raw.ndim == 2:\n"
+            "        classes, counts = np.unique(np.argmax(y_raw, axis=1), return_counts=True)\n"
+            "    else:\n"
+            "        classes, counts = np.unique(y_raw, return_counts=True)\n"
+            "    n_samples = len(y_raw)\n"
+            "    n_classes = len(classes)\n"
+            "    class_weights = {\n"
+            "        int(c): float(n_samples / (n_classes * count)) for c, count in zip(classes, counts, strict=True)\n"
+            "    }\n"
+            "\n"
+            "    history = model.fit(\n"
+            "        x_training,\n"
+            "        y_training,\n"
+            f"        epochs={epochs},\n"
+            f"        batch_size={batch_size},\n"
+            "        class_weight=class_weights,\n"
+            "    )"
+        )
+        if target_pattern in code:
+            return code.replace(target_pattern, replacement, 1)
+
+    if problem_type_id == ProblemType.IMAGE_CLASSIFICATION:
+        target_pattern = f"    history = model.fit(train_data, epochs={epochs})"
+        replacement = (
+            "    import os\n"
+            "\n"
+            "    valid_exts = {'.jpg', '.jpeg', '.png', '.bmp', '.gif'}\n"
+            "    subdirs = sorted([d for d in os.listdir(directory) if os.path.isdir(os.path.join(directory, d))])\n"
+            "    class_counts = [\n"
+            "        sum(\n"
+            "            1 for f in os.listdir(os.path.join(directory, s))\n"
+            "            if os.path.splitext(f)[1].lower() in valid_exts\n"
+            "        )\n"
+            "        for s in subdirs\n"
+            "    ]\n"
+            "    total_samples = sum(class_counts)\n"
+            "    n_classes = len(subdirs)\n"
+            "    class_weights = {\n"
+            "        i: float(total_samples / (n_classes * count)) for i, count in enumerate(class_counts)\n"
+            "    }\n"
+            "\n"
+            "    history = model.fit(\n"
+            "        train_data,\n"
+            f"        epochs={epochs},\n"
+            "        class_weight=class_weights,\n"
+            "    )"
+        )
+        if target_pattern in code:
+            return code.replace(target_pattern, replacement, 1)
+
+    return code
 
 
 def _map_template(problem_type_id: int | None) -> str:

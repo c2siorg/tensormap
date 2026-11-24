@@ -141,6 +141,7 @@ export default function Training() {
     epochs: "",
     batch_size: "",
     training_split: "",
+    class_weight_mode: null,
   });
   // Until a problem type is chosen every loss is listed; afterwards only the ones that fit it.
   const problemLossGroup = problemTypeOptions.find(
@@ -489,6 +490,12 @@ export default function Training() {
       metric: trainingConfig.metric,
       epochs: Number(trainingConfig.epochs),
       batch_size: trainingConfig.batch_size ? Number(trainingConfig.batch_size) : 32,
+      class_weight_mode:
+        (Number(trainingConfig.problem_type_id) === 1 ||
+          Number(trainingConfig.problem_type_id) === 3) &&
+        trainingConfig.class_weight_mode === "balanced"
+          ? "balanced"
+          : null,
       project_id: projectId || null,
     };
     const submittedConfigKey = getTrainingConfigKey(selectedModel, trainingConfig);
@@ -783,6 +790,7 @@ export default function Training() {
                       ...prev,
                       problem_type_id: v,
                       loss: defaultLoss,
+                      class_weight_mode: Number(v) === 2 ? null : prev.class_weight_mode,
                     }));
                     updateValidationErrors("problem_type_id", v);
                     updateValidationErrors("loss", defaultLoss);
@@ -931,6 +939,34 @@ export default function Training() {
                   <p className="text-sm text-red-500">{validationErrors.metric}</p>
                 )}
               </div>
+
+              {(Number(trainingConfig.problem_type_id) === 1 ||
+                Number(trainingConfig.problem_type_id) === 3) && (
+                <div className="space-y-1">
+                  <Label>Class Imbalance Weighting</Label>
+                  <Select
+                    value={trainingConfig.class_weight_mode || "none"}
+                    onValueChange={(v) => {
+                      setTrainingConfig((prev) => ({
+                        ...prev,
+                        class_weight_mode: v === "none" ? null : v,
+                      }));
+                      setConfigSaved(false);
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select class weighting" />
+                    </SelectTrigger>
+                    <SelectContent className="z-[9999] bg-white shadow-lg border backdrop-blur-sm">
+                      <SelectItem value="none">Standard (Unweighted)</SelectItem>
+                      <SelectItem value="balanced">Balanced (Inverse Frequency)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Balances loss gradients inversely proportional to class frequencies.
+                  </p>
+                </div>
+              )}
 
               <div className="space-y-1">
                 <Label>Epochs</Label>

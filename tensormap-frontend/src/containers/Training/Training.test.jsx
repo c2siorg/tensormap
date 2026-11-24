@@ -315,3 +315,47 @@ describe("Training page dataset quality gating", () => {
     );
   });
 });
+
+describe("Training page class imbalance weighting", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getTrainingHistory.mockResolvedValue([SAVED_MODEL]);
+    getAllFiles.mockResolvedValue([CSV_FILE]);
+    updateTrainingConfig.mockResolvedValue({ success: true });
+  });
+
+  it("shows class imbalance weighting for classification and saves balanced mode", async () => {
+    const user = userEvent.setup();
+    renderTraining();
+    await selectSavedModel(user);
+    await pickOption(user, "Dataset File", "iris.csv");
+    await pickOption(user, "Problem Type", "Multi class classification");
+    await pickOption(user, "Result Metrics", "Accuracy");
+
+    expect(screen.getByText("Class Imbalance Weighting")).toBeInTheDocument();
+    await pickOption(user, "Class Imbalance Weighting", "Balanced (Inverse Frequency)");
+
+    await user.type(screen.getByPlaceholderText("Select from list or enter field name"), "sepal");
+    await user.type(screen.getByPlaceholderText("Number of epochs"), "5");
+    await user.type(screen.getByPlaceholderText("Batch size"), "32");
+    await user.type(screen.getByPlaceholderText("e.g. 0.8"), "0.8");
+
+    await user.click(screen.getByRole("button", { name: "Save Configuration" }));
+    await waitFor(() => expect(updateTrainingConfig).toHaveBeenCalledTimes(1));
+    expect(updateTrainingConfig.mock.calls[0][0]).toMatchObject({
+      model_name: "demo",
+      problem_type_id: 1,
+      class_weight_mode: "balanced",
+    });
+  });
+
+  it("hides class imbalance weighting when problem type is regression", async () => {
+    const user = userEvent.setup();
+    renderTraining();
+    await selectSavedModel(user);
+    await pickOption(user, "Dataset File", "iris.csv");
+    await pickOption(user, "Problem Type", "Linear Regression");
+
+    expect(screen.queryByText("Class Imbalance Weighting")).not.toBeInTheDocument();
+  });
+});

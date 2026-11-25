@@ -1231,3 +1231,137 @@ class InterpretabilityService:
         predictions.sort(key=lambda p: p["confidence"], reverse=True)
 
         return {"predictions": predictions}
+
+    # ------------------------------------------------------------------
+    # Prediction Uncertainty and Entropy Analysis
+    # ------------------------------------------------------------------
+
+    async def compute_prediction_uncertainty_async(
+        self, job_id: str, session: Session, top_n_ambiguous: int = 10
+    ) -> dict:
+        """Async wrapper — runs prediction uncertainty and entropy computation in thread pool.
+
+        Returns cached result if available.
+        """
+        cache_key = f"uncertainty_{top_n_ambiguous}"
+        cache = self.cache.get_cached(job_id, cache_key, session)
+        if cache:
+            return cache
+
+        result = await asyncio.to_thread(self._compute_prediction_uncertainty_sync, job_id, session, top_n_ambiguous)
+        self.cache.set_cached(job_id, cache_key, result, session)
+        return result
+
+    def _compute_prediction_uncertainty_sync(self, job_id: str, session: Session, top_n_ambiguous: int = 10) -> dict:
+        """Compute Shannon entropy, margin uncertainty, least confidence, and distribution profile.
+
+        Loads the trained model from exports, runs predictions on the test split,
+        and computes prediction uncertainty metrics.
+        """
+        import tensorflow as tf
+
+        model_path = EXPORTS_BASE / job_id / "model.keras"
+        model = tf.keras.models.load_model(model_path)
+
+        X_test, y_test, class_names = self._load_test_data(job_id, session)
+
+        y_pred = model.predict(X_test, verbose=0)
+        y_pred_classes, y_pred_probs = _resolve_classification_predictions(y_pred)
+        y_true_classes = _resolve_ground_truth_classes(y_test)
+
+        n_samples = len(y_true_classes)
+        num_classes = len(class_names) if len(class_names) > 1 else max(2, y_pred_probs.shape[1])
+
+        # 1. Shannon Entropy: H(p) = -sum(p * log2(p + eps))
+        eps = 1e-12
+        entropy_raw = -np.sum(y_pred_probs * np.log2(y_pred_probs + eps), axis=1)
+        max_entropy = np.log2(num_classes) if num_classes > 1 else 1.0
+        normalized_entropy = np.clip(entropy_raw / max_entropy, 0.0, 1.0)
+
+        # 2. Margin Uncertainty: 1.0 - (p_top1 - p_top2)
+        sorted_probs = np.sort(y_pred_probs, axis=1)
+        top1 = sorted_probs[:, -1]
+        top2 = sorted_probs[:, -2] if y_pred_probs.shape[1] > 1 else np.zeros_like(top1)
+        margin_uncertainty = np.clip(1.0 - (top1 - top2), 0.0, 1.0)
+
+        # 3. Least Confidence Uncertainty: (K / (K - 1)) * (1.0 - top1)
+        scaling = (num_classes / (num_classes - 1)) if num_classes > 1 else 1.0
+        least_confidence = np.clip(scaling * (1.0 - top1), 0.0, 1.0)
+
+        # 4. Summary Statistics
+        mean_entropy = _clean_metric(float(np.mean(normalized_entropy)))
+        median_entropy = _clean_metric(float(np.median(normalized_entropy)))
+        std_entropy = _clean_metric(float(np.std(normalized_entropy)))
+        p90_entropy = _clean_metric(float(np.percentile(normalized_entropy, 90)))
+        mean_margin = _clean_metric(float(np.mean(margin_uncertainty)))
+        mean_least_conf = _clean_metric(float(np.mean(least_confidence)))
+
+        # 5. Uncertainty Tiers: Low (<0.33), Moderate (0.33 to 0.67), High (>=0.67)
+        low_count = int(np.sum(normalized_entropy < 0.33))
+        mod_count = int(np.sum((normalized_entropy >= 0.33) & (normalized_entropy < 0.67)))
+        high_count = int(np.sum(normalized_entropy >= 0.67))
+
+        tiers = {
+            "low": {
+                "count": low_count,
+                "percentage": _clean_metric(float(low_count / n_samples * 100)),
+            },
+            "moderate": {
+                "count": mod_count,
+                "percentage": _clean_metric(float(mod_count / n_samples * 100)),
+            },
+            "high": {
+                "count": high_count,
+                "percentage": _clean_metric(float(high_count / n_samples * 100)),
+            },
+        }
+
+        # 6. Distribution Histogram (10 bins from 0.0 to 1.0)
+        counts, bin_edges = np.histogram(normalized_entropy, bins=10, range=(0.0, 1.0))
+        histogram = [
+            {
+                "bin_start": _clean_coord(bin_edges[i]),
+                "bin_end": _clean_coord(bin_edges[i + 1]),
+                "count": int(counts[i]),
+                "frequency": _clean_metric(float(counts[i] / n_samples)),
+            }
+            for i in range(len(counts))
+        ]
+
+        # 7. Top Ambiguous / Uncertain Samples
+        sorted_indices = np.argsort(-normalized_entropy)[: min(top_n_ambiguous, n_samples)]
+        ambiguous_samples = []
+        for idx in sorted_indices:
+            i = int(idx)
+            pred_c = int(y_pred_classes[i])
+            true_c = int(y_true_classes[i])
+            ambiguous_samples.append(
+                {
+                    "sample_index": i,
+                    "true_class": class_names[true_c] if true_c < len(class_names) else str(true_c),
+                    "predicted_class": class_names[pred_c] if pred_c < len(class_names) else str(pred_c),
+                    "predicted_probability": _clean_metric(float(top1[i])),
+                    "second_probability": _clean_metric(float(top2[i])),
+                    "entropy": _clean_metric(float(normalized_entropy[i])),
+                    "margin_uncertainty": _clean_metric(float(margin_uncertainty[i])),
+                    "is_correct": bool(pred_c == true_c),
+                }
+            )
+
+        return {
+            "summary": {
+                "mean_entropy": mean_entropy,
+                "median_entropy": median_entropy,
+                "std_entropy": std_entropy,
+                "p90_entropy": p90_entropy,
+                "mean_margin_uncertainty": mean_margin,
+                "mean_least_confidence": mean_least_conf,
+            },
+            "tiers": tiers,
+            "histogram": histogram,
+            "top_ambiguous_samples": ambiguous_samples,
+            "n_samples": n_samples,
+            "num_classes": num_classes,
+            "class_names": class_names,
+            "analysis_type": "classification",
+        }

@@ -11,6 +11,7 @@ Results are cached in training_job.analysis_cache JSON column.
 
 import asyncio
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -29,6 +30,8 @@ from sklearn.metrics import (
 )
 from sqlmodel import Session
 
+from app.models.ml import ModelBasic
+from app.models.training_job import TrainingJob
 from app.shared.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -245,19 +248,17 @@ class InterpretabilityService:
     # Data loading helpers
     # ------------------------------------------------------------------
 
-    def _load_test_data(self, job_id: str, session: Session) -> tuple[np.ndarray, np.ndarray, list[str]]:
-        """Loads test split of the dataset used for this training job.
+    def _load_split_dataset(
+        self, job_id: str, session: Session
+    ) -> tuple[np.ndarray, np.ndarray, list[str], list[str], pd.DataFrame]:
+        """Loads and prepares test split of the dataset used for a training job.
 
-        Finds data_file via: training_job → model_basic → data_file
-        Applies same preprocessing that was used during training
-        (shuffle with random_state=42, split at training_split / 100).
-
-        Args:
-            job_id: Training job ID
-            session: Database session
+        Finds data_file via: training_job -> model_basic -> data_file.
+        Applies same preprocessing used during training (dropna, shuffle random_state=42,
+        deterministic split at training_split).
 
         Returns:
-            Tuple of (X_test, y_test, class_names)
+            Tuple of (X_test, y_test, class_names, feature_names, raw_test_df)
         """
         from app.config import get_settings
         from app.models.data import DataFile
@@ -282,7 +283,6 @@ class InterpretabilityService:
         if data_file.file_type != "csv":
             raise ValueError(f"Analysis is only supported for tabular CSV datasets, but got '{data_file.file_type}'")
 
-        # Build file path (same logic as model_run._helper_generate_file_location)
         upload_folder = get_settings().upload_folder
         file_path = f"{upload_folder}/{data_file.disk_name}"
 
@@ -292,161 +292,63 @@ class InterpretabilityService:
         if target_field not in features.columns:
             raise ValueError(f"Target field '{target_field}' not found in dataset")
 
-        # Replicate exactly the same preprocessing as model_run._prepare_training_data
         features = features.dropna()
         features = features.sample(frac=1, random_state=42).reset_index(drop=True)
+
+        training_split = model.training_split if model.training_split else 80
+        split_index = int(len(features) * float(training_split) / 100)
+
+        if split_index >= len(features):
+            raise ValueError(
+                f"Training split of {training_split}% leaves no test samples in dataset with "
+                f"{len(features)} usable rows."
+            )
+
+        raw_test_df = features.iloc[split_index:].copy().reset_index(drop=True)
 
         X = features.drop(target_field, axis=1)
         y = features[target_field]
 
-        # Track original class names before encoding
         if not pd.api.types.is_numeric_dtype(y):
             class_names = list(pd.Categorical(y).categories)
             y = pd.Categorical(y).codes
         else:
             class_names = [str(c) for c in sorted(y.unique())]
 
-        training_split = model.training_split if model.training_split else 80
-        split_index = int(len(X) * float(training_split) / 100)
+        for col in X.columns:
+            if not pd.api.types.is_numeric_dtype(X[col]):
+                X[col] = pd.Categorical(X[col]).codes
 
-        X_test = X[split_index:].values.astype(np.float32)
-        y_test = y[split_index:].values if hasattr(y, "values") else y[split_index:]
+        feature_names = list(X.columns)
+        X_test = X.iloc[split_index:].values.astype(np.float32)
+        y_test = y.iloc[split_index:].values if hasattr(y, "iloc") else y[split_index:]
 
+        return X_test, y_test, class_names, feature_names, raw_test_df
+
+    def _load_test_data(self, job_id: str, session: Session) -> tuple[np.ndarray, np.ndarray, list[str]]:
+        """Loads test split of dataset returning (X_test, y_test, class_names)."""
+        X_test, y_test, class_names, _, _ = self._load_split_dataset(job_id, session)
         return X_test, y_test, class_names
 
     def _load_test_data_with_features(self, job_id: str, session: Session) -> tuple[np.ndarray, np.ndarray, list[str]]:
-        """Loads test split with feature names instead of class names.
-
-        Same data loading as _load_test_data but returns feature column names
-        for use with permutation feature importance.
-
-        Args:
-            job_id: Training job ID
-            session: Database session
-
-        Returns:
-            Tuple of (X_test, y_test, feature_names)
-        """
-        from app.config import get_settings
-        from app.models.data import DataFile
-        from app.models.ml import ModelBasic
-        from app.models.training_job import TrainingJob
-
-        job = session.get(TrainingJob, job_id)
-        if not job:
-            raise ValueError(f"Training job not found: {job_id}")
-
-        model = session.get(ModelBasic, job.model_id)
-        if not model:
-            raise ValueError(f"Model not found for job: {job_id}")
-
-        if not model.file_id:
-            raise ValueError(f"No dataset linked to model {model.model_name}")
-
-        data_file = session.get(DataFile, model.file_id)
-        if not data_file:
-            raise ValueError(f"Data file not found for model {model.model_name}")
-
-        if data_file.file_type != "csv":
-            raise ValueError(f"Analysis is only supported for tabular CSV datasets, but got '{data_file.file_type}'")
-
-        upload_folder = get_settings().upload_folder
-        file_path = f"{upload_folder}/{data_file.disk_name}"
-
-        features = pd.read_csv(file_path)
-
-        target_field = model.target_field
-        if target_field not in features.columns:
-            raise ValueError(f"Target field '{target_field}' not found in dataset")
-
-        features = features.dropna()
-        features = features.sample(frac=1, random_state=42).reset_index(drop=True)
-
-        X = features.drop(target_field, axis=1)
-        y = features[target_field]
-
-        if not pd.api.types.is_numeric_dtype(y):
-            y = pd.Categorical(y).codes
-
-        feature_names = list(X.columns)
-
-        training_split = model.training_split if model.training_split else 80
-        split_index = int(len(X) * float(training_split) / 100)
-
-        X_test = X[split_index:].values.astype(np.float32)
-        y_test = y[split_index:].values if hasattr(y, "values") else y[split_index:]
-
+        """Loads test split returning (X_test, y_test, feature_names)."""
+        X_test, y_test, _, feature_names, _ = self._load_split_dataset(job_id, session)
         return X_test, y_test, feature_names
 
     def _load_test_data_complete(
         self, job_id: str, session: Session
     ) -> tuple[np.ndarray, np.ndarray, list[str], list[str]]:
-        """Loads test split with both class names and feature names in a single pass.
-
-        Avoids duplicate CSV loading and preprocessing by returning all metadata
-        at once. Use this when you need both class_names and feature_names.
-
-        Args:
-            job_id: Training job ID
-            session: Database session
-
-        Returns:
-            Tuple of (X_test, y_test, class_names, feature_names)
-        """
-        from app.config import get_settings
-        from app.models.data import DataFile
-        from app.models.ml import ModelBasic
-        from app.models.training_job import TrainingJob
-
-        job = session.get(TrainingJob, job_id)
-        if not job:
-            raise ValueError(f"Training job not found: {job_id}")
-
-        model = session.get(ModelBasic, job.model_id)
-        if not model:
-            raise ValueError(f"Model not found for job: {job_id}")
-
-        if not model.file_id:
-            raise ValueError(f"No dataset linked to model {model.model_name}")
-
-        data_file = session.get(DataFile, model.file_id)
-        if not data_file:
-            raise ValueError(f"Data file not found for model {model.model_name}")
-
-        if data_file.file_type != "csv":
-            raise ValueError(f"Analysis is only supported for tabular CSV datasets, but got '{data_file.file_type}'")
-
-        upload_folder = get_settings().upload_folder
-        file_path = f"{upload_folder}/{data_file.disk_name}"
-
-        features = pd.read_csv(file_path)
-
-        target_field = model.target_field
-        if target_field not in features.columns:
-            raise ValueError(f"Target field '{target_field}' not found in dataset")
-
-        features = features.dropna()
-        features = features.sample(frac=1, random_state=42).reset_index(drop=True)
-
-        X = features.drop(target_field, axis=1)
-        y = features[target_field]
-
-        # Track original class names before encoding
-        if not pd.api.types.is_numeric_dtype(y):
-            class_names = list(pd.Categorical(y).categories)
-            y = pd.Categorical(y).codes
-        else:
-            class_names = [str(c) for c in sorted(y.unique())]
-
-        feature_names = list(X.columns)
-
-        training_split = model.training_split if model.training_split else 80
-        split_index = int(len(X) * float(training_split) / 100)
-
-        X_test = X[split_index:].values.astype(np.float32)
-        y_test = y[split_index:].values if hasattr(y, "values") else y[split_index:]
-
+        """Loads test split returning (X_test, y_test, class_names, feature_names)."""
+        X_test, y_test, class_names, feature_names, _ = self._load_split_dataset(job_id, session)
         return X_test, y_test, class_names, feature_names
+        return X_test, y_test, class_names, feature_names
+
+    def _load_test_data_with_raw_features(
+        self, job_id: str, session: Session
+    ) -> tuple[np.ndarray, np.ndarray, list[str], pd.DataFrame]:
+        """Loads test split returning (X_test, y_test, class_names, raw_test_df)."""
+        X_test, y_test, class_names, _, raw_test_df = self._load_split_dataset(job_id, session)
+        return X_test, y_test, class_names, raw_test_df
 
     # ------------------------------------------------------------------
     # Confusion matrix + classification report
@@ -1231,3 +1133,286 @@ class InterpretabilityService:
         predictions.sort(key=lambda p: p["confidence"], reverse=True)
 
         return {"predictions": predictions}
+
+    # ------------------------------------------------------------------
+    # Algorithmic Fairness & Demographic Parity Diagnostics
+    # ------------------------------------------------------------------
+
+    async def compute_fairness_audit_async(
+        self,
+        job_id: str,
+        sensitive_feature: str,
+        privileged_group: str | None,
+        session: Session,
+    ) -> dict:
+        """Compute algorithmic fairness and demographic parity metrics (async)."""
+        cache_key = f"fairness_{sensitive_feature}_{privileged_group or 'auto'}"
+        cached = self.cache.get_cached(job_id, cache_key, session)
+        if cached:
+            return cached
+
+        result = await asyncio.to_thread(
+            self._compute_fairness_audit_sync, job_id, sensitive_feature, privileged_group, session
+        )
+        self.cache.set_cached(job_id, cache_key, result, session)
+        return result
+
+    def _compute_fairness_audit_sync(
+        self,
+        job_id: str,
+        sensitive_feature: str,
+        privileged_group: str | None,
+        session: Session,
+    ) -> dict:
+        """Compute disparate impact and demographic disparity metrics (blocking)."""
+        import tensorflow as tf
+
+        model_path = EXPORTS_BASE / job_id / "model.keras"
+        if not model_path.exists():
+            raise FileNotFoundError(f"model.keras not found for job: {job_id}")
+        model = tf.keras.models.load_model(model_path)
+
+        job = session.get(TrainingJob, job_id)
+        if not job:
+            raise ValueError(f"Training job not found: {job_id}")
+        model_obj = session.get(ModelBasic, job.model_id)
+        if model_obj and model_obj.target_field and sensitive_feature == model_obj.target_field:
+            raise ValueError(f"Sensitive feature '{sensitive_feature}' cannot be the target column.")
+
+        X_test, y_test, class_names, raw_test_df = self._load_test_data_with_raw_features(job_id, session)
+
+        if len(class_names) != 2:
+            raise ValueError("Fairness audit is currently supported only for binary classification models.")
+
+        if sensitive_feature not in raw_test_df.columns:
+            available = list(raw_test_df.columns)
+            raise ValueError(f"Sensitive feature '{sensitive_feature}' not found in dataset. Available: {available}")
+
+        y_pred_raw = model.predict(X_test, verbose=0)
+        y_pred_classes, _ = _resolve_classification_predictions(y_pred_raw)
+        y_true_classes = _resolve_ground_truth_classes(y_test)
+
+        groups = raw_test_df[sensitive_feature].astype(str).values
+        unique_groups = sorted(list(set(groups)))
+
+        if len(unique_groups) < 2:
+            raise ValueError(
+                f"Sensitive feature '{sensitive_feature}' has only 1 unique group ({unique_groups}). "
+                "At least 2 groups are required for fairness comparison."
+            )
+        if len(unique_groups) > 30:
+            raise ValueError(
+                f"Sensitive feature '{sensitive_feature}' has {len(unique_groups)} unique values. "
+                "Fairness audit requires categorical demographic attributes with at most 30 unique subgroups."
+            )
+
+        # In binary classification, positive outcome is class 1 (or second class)
+        pos_label = 1 if (1 in y_true_classes or len(class_names) == 2) else y_true_classes[0]
+
+        group_metrics: dict[str, dict[str, Any]] = {}
+        for g in unique_groups:
+            mask = groups == g
+            n_g = int(np.sum(mask))
+            if n_g == 0:
+                continue
+
+            y_t_g = y_true_classes[mask]
+            y_p_g = y_pred_classes[mask]
+
+            pos_pred_count = int(np.sum(y_p_g == pos_label))
+            selection_rate = float(pos_pred_count / n_g) if n_g > 0 else 0.0
+
+            tp = int(np.sum((y_p_g == pos_label) & (y_t_g == pos_label)))
+            fp = int(np.sum((y_p_g == pos_label) & (y_t_g != pos_label)))
+            fn = int(np.sum((y_p_g != pos_label) & (y_t_g == pos_label)))
+            tn = int(np.sum((y_p_g != pos_label) & (y_t_g != pos_label)))
+
+            total_pos = tp + fn
+            total_neg = tn + fp
+
+            tpr = float(tp / total_pos) if total_pos > 0 else 0.0
+            fpr = float(fp / total_neg) if total_neg > 0 else 0.0
+            acc = float(np.mean(y_p_g == y_t_g)) if n_g > 0 else 0.0
+            precision = float(tp / (tp + fp)) if (tp + fp) > 0 else 0.0
+            f1 = float(2 * precision * tpr / (precision + tpr)) if (precision + tpr) > 0 else 0.0
+
+            group_metrics[g] = {
+                "group": g,
+                "sample_count": n_g,
+                "selection_rate": round(selection_rate, 4),
+                "accuracy": round(acc, 4),
+                "precision": round(precision, 4),
+                "recall": round(tpr, 4),
+                "f1_score": round(f1, 4),
+                "true_positive_rate": round(tpr, 4),
+                "false_positive_rate": round(fpr, 4),
+            }
+
+        # Resolve privileged group
+        if privileged_group is not None:
+            if privileged_group not in unique_groups:
+                msg = (
+                    f"Specified privileged group '{privileged_group}' not found in "
+                    f"sensitive feature values: {unique_groups}"
+                )
+                raise ValueError(msg)
+            priv_group = privileged_group
+        else:
+            priv_group = max(unique_groups, key=lambda g: group_metrics[g]["selection_rate"])
+
+        priv_m = group_metrics[priv_group]
+        priv_sr = priv_m["selection_rate"]
+        priv_tpr = priv_m["true_positive_rate"]
+        priv_fpr = priv_m["false_positive_rate"]
+
+        disparities: dict[str, dict[str, Any]] = {}
+        for g in unique_groups:
+            if g == priv_group:
+                continue
+            gm = group_metrics[g]
+            g_sr = gm["selection_rate"]
+            g_tpr = gm["true_positive_rate"]
+            g_fpr = gm["false_positive_rate"]
+
+            dir_val = round(float(g_sr / priv_sr), 4) if priv_sr > 0 else (1.0 if g_sr == 0 else 0.0)
+            dpd_val = round(float(g_sr - priv_sr), 4)
+            eod_val = round(float(g_tpr - priv_tpr), 4)
+            aod_val = round(float(0.5 * ((g_fpr - priv_fpr) + (g_tpr - priv_tpr))), 4)
+            passes_80 = bool(dir_val >= 0.8)
+
+            disparities[g] = {
+                "group": g,
+                "compared_to": priv_group,
+                "disparate_impact_ratio": dir_val,
+                "demographic_parity_difference": dpd_val,
+                "equal_opportunity_difference": eod_val,
+                "average_odds_difference": aod_val,
+                "passes_80_percent_rule": passes_80,
+            }
+
+        all_pass = all(d["passes_80_percent_rule"] for d in disparities.values()) if disparities else True
+
+        return {
+            "job_id": job_id,
+            "sensitive_feature": sensitive_feature,
+            "privileged_group": priv_group,
+            "group_metrics": group_metrics,
+            "disparities": disparities,
+            "overall_summary": {
+                "compliant_with_80_percent_rule": all_pass,
+                "groups_evaluated": len(unique_groups),
+                "total_samples": len(y_true_classes),
+            },
+        }
+
+    # ------------------------------------------------------------------
+    # Layer-wise Weight & Activation Diagnostics
+    # ------------------------------------------------------------------
+
+    async def compute_layer_diagnostics_async(self, job_id: str, session: Session) -> dict:
+        """Compute layer-wise weight statistics, sparsity, and health status (async)."""
+        cached = self.cache.get_cached(job_id, "layer_diagnostics", session)
+        if cached:
+            return cached
+
+        result = await asyncio.to_thread(self._compute_layer_diagnostics_sync, job_id, session)
+        self.cache.set_cached(job_id, "layer_diagnostics", result, session)
+        return result
+
+    def _compute_layer_diagnostics_sync(self, job_id: str, session: Session) -> dict:
+        """Analyze trainable weights for each layer in the trained model (blocking)."""
+        import tensorflow as tf
+
+        model_path = EXPORTS_BASE / job_id / "model.keras"
+        if not model_path.exists():
+            raise FileNotFoundError(f"model.keras not found for job: {job_id}")
+        model = tf.keras.models.load_model(model_path)
+
+        layers_diag: list[dict[str, Any]] = []
+        total_parameters = 0
+        healthy_count = 0
+        has_critical = False
+        has_warning = False
+
+        for layer in model.layers:
+            weights = layer.get_weights()
+            if not weights:
+                continue
+
+            param_count = sum(int(wt.size) for wt in weights)
+            total_parameters += param_count
+
+            # Inspect all weight tensors (kernels, biases, extra tensors) for NaN or Inf
+            has_non_finite = any(np.any(np.isnan(wt)) or np.any(np.isinf(wt)) for wt in weights)
+            has_exploding = any(np.max(np.abs(wt)) > 100.0 for wt in weights if wt.size > 0)
+            all_vanishing = all(np.linalg.norm(wt) < 1e-4 for wt in weights if wt.size > 0)
+
+            w = weights[0].flatten()
+            dead_ratio = float(np.mean(np.abs(w) < 1e-6))
+            l2_norm = float(np.linalg.norm(w))
+            w_mean = float(np.mean(w))
+            w_std = float(np.std(w))
+            w_min = float(np.min(w))
+            w_max = float(np.max(w))
+
+            if has_non_finite:
+                status = "NAN_OR_INF"
+                has_critical = True
+                histogram = []
+            else:
+                if all_vanishing:
+                    status = "VANISHING_WEIGHTS"
+                    has_warning = True
+                elif has_exploding:
+                    status = "EXPLODING_WEIGHTS"
+                    has_warning = True
+                elif dead_ratio > 0.8:
+                    status = "HIGH_SPARSITY"
+                    has_warning = True
+                else:
+                    status = "HEALTHY"
+                    healthy_count += 1
+
+                counts, bin_edges = np.histogram(w, bins=10)
+                histogram = [
+                    {
+                        "bin_start": round(float(bin_edges[i]), 4),
+                        "bin_end": round(float(bin_edges[i + 1]), 4),
+                        "count": int(counts[i]),
+                    }
+                    for i in range(len(counts))
+                ]
+
+            layer_info: dict[str, Any] = {
+                "layer_name": layer.name,
+                "layer_type": layer.__class__.__name__,
+                "shape": list(weights[0].shape),
+                "param_count": param_count,
+                "l2_norm": round(l2_norm, 4) if np.isfinite(l2_norm) else None,
+                "mean": round(w_mean, 4) if np.isfinite(w_mean) else None,
+                "std": round(w_std, 4) if np.isfinite(w_std) else None,
+                "min": round(w_min, 4) if np.isfinite(w_min) else None,
+                "max": round(w_max, 4) if np.isfinite(w_max) else None,
+                "dead_weights_ratio": round(dead_ratio, 4) if np.isfinite(dead_ratio) else None,
+                "status": status,
+                "histogram": histogram,
+            }
+
+            if len(weights) > 1:
+                b = weights[1].flatten()
+                bias_has_non_finite = np.any(np.isnan(b)) or np.any(np.isinf(b))
+                layer_info["bias_l2_norm"] = round(float(np.linalg.norm(b)), 4) if not bias_has_non_finite else None
+                layer_info["bias_mean"] = round(float(np.mean(b)), 4) if not bias_has_non_finite else None
+
+            layers_diag.append(layer_info)
+
+        overall_status = "CRITICAL" if has_critical else ("WARNING" if has_warning else "HEALTHY")
+
+        return {
+            "job_id": job_id,
+            "overall_status": overall_status,
+            "total_layers": len(layers_diag),
+            "healthy_layers": healthy_count,
+            "total_parameters": total_parameters,
+            "layers": layers_diag,
+        }

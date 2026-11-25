@@ -1,5 +1,6 @@
 from unittest.mock import MagicMock, patch
 
+import pandas as pd
 import pytest
 
 from app.models.training_job import TrainingJob
@@ -8,6 +9,7 @@ from app.services.model_run import (
     ModelRunError,
     _build_optimizer,
     _helper_generate_file_location,
+    _prepare_training_data,
     _run,
     _validate_training_params,
     model_run,
@@ -403,3 +405,35 @@ class TestTabularValidationData:
             assert calls[0].args == ("Evaluating...", 2)
             assert "Evaluation Results: Accuracy- 0.9000 Loss - 0.2500" in calls[1].args[0]
             assert calls[2].args == ("Finish", 4)
+
+
+class TestPrepareTrainingDataBoundaryChecks:
+    def test_prepare_training_data_raises_on_empty_dataset(self):
+        df = pd.DataFrame({"feat": [None, None], "target": [1, 2]})
+        with (
+            patch("app.services.model_run._model_result"),
+            pytest.raises(ValueError, match="No usable rows remaining in dataset"),
+        ):
+            _prepare_training_data(df, "target", training_split=80)
+
+    def test_prepare_training_data_raises_on_zero_training_samples(self):
+        # 5 rows with 5% split -> int(5 * 0.05) = 0 training samples
+        df = pd.DataFrame({"feat": [1, 2, 3, 4, 5], "target": [0, 1, 0, 1, 0]})
+        with (
+            patch("app.services.model_run._model_result"),
+            pytest.raises(ValueError, match="resulted in 0 training samples"),
+        ):
+            _prepare_training_data(df, "target", training_split=5)
+
+    def test_prepare_training_data_allows_100_percent_split_without_evaluation_samples(self):
+        df = pd.DataFrame({"feat": [1, 2, 3, 4], "target": [0, 1, 0, 1]})
+        with patch("app.services.model_run._model_result"):
+            x_tr, y_tr, x_te, y_te = _prepare_training_data(df, "target", training_split=100)
+            assert len(x_tr) == 4
+            assert len(x_te) == 0
+
+        df_one = pd.DataFrame({"feat": [1], "target": [0]})
+        with patch("app.services.model_run._model_result"):
+            x_tr, y_tr, x_te, y_te = _prepare_training_data(df_one, "target", training_split=100)
+            assert len(x_tr) == 1
+            assert len(x_te) == 0

@@ -371,6 +371,9 @@ def _prepare_training_data(features, target_field, training_split):
     features = features.dropna()
     logger.info("Data preparation: %d -> %d rows retained", original_rows, len(features))
 
+    if len(features) == 0:
+        raise ValueError("No usable rows remaining in dataset after removing missing values")
+
     if target_field not in features.columns:
         raise ValueError(f"Target field '{target_field}' not found in dataset after cleaning")
 
@@ -383,7 +386,21 @@ def _prepare_training_data(features, target_field, training_split):
     if not pd.api.types.is_numeric_dtype(y):
         y = pd.Categorical(y).codes
 
-    split_index = int(len(X) * float(training_split) / 100)
+    ts = float(training_split)
+    split_index = int(len(X) * ts / 100)
+
+    if split_index == 0:
+        raise ValueError(
+            f"Training split of {ts:.1f}% resulted in 0 training samples from {len(X)} usable rows. "
+            "Increase training split or provide a larger dataset."
+        )
+
+    if ts < 100 and split_index == len(X):
+        raise ValueError(
+            f"Training split of {ts:.1f}% resulted in 0 evaluation samples from {len(X)} usable rows. "
+            "Decrease training split or provide a larger dataset."
+        )
+
     return X[:split_index], y[:split_index], X[split_index:], y[split_index:]
 
 

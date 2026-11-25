@@ -37,9 +37,13 @@ def _paginated_resp(data: list, pagination: dict) -> tuple:
 
 
 def _get_file_path(file: DataFile) -> str:
-    """Resolve the on-disk path for a DataFile record."""
+    """Resolve the on-disk path for a DataFile record, enforcing directory containment."""
     settings = get_settings()
-    return f"{settings.upload_folder}/{file.disk_name}"
+    upload_folder = os.path.realpath(settings.upload_folder)
+    file_path = os.path.realpath(os.path.join(upload_folder, file.disk_name))
+    if not (file_path == upload_folder or file_path.startswith(upload_folder + os.sep)):
+        raise ValueError(f"Path traversal detected: {file.disk_name} resolves outside upload directory")
+    return file_path
 
 
 def _safe_float(v: Any) -> float | None:
@@ -704,7 +708,10 @@ def preprocess_data(db: Session, file_id: uuid_pkg.UUID, transformations: list) 
     if csv_err:
         return csv_err
 
-    file_path = _get_file_path(file)
+    try:
+        file_path = _get_file_path(file)
+    except ValueError as e:
+        return _resp(400, False, str(e))
 
     try:
         df = pd.read_csv(file_path)
@@ -804,7 +811,11 @@ def revert_data_process_service(db: Session, file_id: uuid_pkg.UUID) -> tuple:
     if file.file_type != "csv":
         return _resp(400, False, "Revert is only supported for CSV datasets")
 
-    file_path = _get_file_path(file)
+    try:
+        file_path = _get_file_path(file)
+    except ValueError as e:
+        return _resp(400, False, str(e))
+
     bak_path = file_path + ".bak"
 
     if not os.path.isfile(bak_path):
@@ -826,6 +837,24 @@ def revert_data_process_service(db: Session, file_id: uuid_pkg.UUID) -> tuple:
         file.row_count = sum(chunk.shape[0] for chunk in pd.read_csv(file_path, chunksize=10_000))
 
     db.add(file)
+
+    # Synchronize active target in DataProcess if it exists
+    target_record = db.exec(select(DataProcess).where(DataProcess.file_id == file_id)).first()
+    if (
+        isinstance(target_record, DataProcess)
+        and target_record.target
+        and file.columns
+        and target_record.target not in file.columns
+    ):
+        logger.info(
+            "Clearing invalid target '%s' after revert for file %s (available: %s)",
+            target_record.target,
+            file_id,
+            file.columns,
+        )
+        target_record.target = None
+        db.add(target_record)
+
     db.commit()
 
     return _resp(
@@ -850,7 +879,11 @@ def get_dataset_backup_status_service(db: Session, file_id: uuid_pkg.UUID) -> tu
             {"has_backup": False, "backup_size_bytes": None},
         )
 
-    file_path = _get_file_path(file)
+    try:
+        file_path = _get_file_path(file)
+    except ValueError as e:
+        return _resp(400, False, str(e))
+
     bak_path = file_path + ".bak"
 
     has_backup = os.path.isfile(bak_path)

@@ -312,6 +312,12 @@ class InterpretabilityService:
         X_test = X[split_index:].values.astype(np.float32)
         y_test = y[split_index:].values if hasattr(y, "values") else y[split_index:]
 
+        if len(X_test) == 0:
+            raise ValueError(
+                f"Evaluation partition has 0 samples with training_split={training_split}%. "
+                "Cannot compute interpretability metrics on an empty evaluation dataset."
+            )
+
         return X_test, y_test, class_names
 
     def _load_test_data_with_features(self, job_id: str, session: Session) -> tuple[np.ndarray, np.ndarray, list[str]]:
@@ -375,6 +381,12 @@ class InterpretabilityService:
 
         X_test = X[split_index:].values.astype(np.float32)
         y_test = y[split_index:].values if hasattr(y, "values") else y[split_index:]
+
+        if len(X_test) == 0:
+            raise ValueError(
+                f"Evaluation partition has 0 samples with training_split={training_split}%. "
+                "Cannot compute interpretability metrics on an empty evaluation dataset."
+            )
 
         return X_test, y_test, feature_names
 
@@ -445,6 +457,12 @@ class InterpretabilityService:
 
         X_test = X[split_index:].values.astype(np.float32)
         y_test = y[split_index:].values if hasattr(y, "values") else y[split_index:]
+
+        if len(X_test) == 0:
+            raise ValueError(
+                f"Evaluation partition has 0 samples with training_split={training_split}%. "
+                "Cannot compute interpretability metrics on an empty evaluation dataset."
+            )
 
         return X_test, y_test, class_names, feature_names
 

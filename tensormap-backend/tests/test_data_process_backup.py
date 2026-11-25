@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
-from app.models.data import DataFile
+from app.models.data import DataFile, DataProcess
 from app.services.data_process import (
     get_dataset_backup_status_service,
     preprocess_data,
@@ -132,6 +132,48 @@ class TestRevertPreprocessService:
         body, status = revert_data_process_service(mock_db, sample_file.id)
         assert status == 400
         assert "only supported for CSV" in body["message"]
+
+    def test_revert_fails_on_directory_traversal(self, mock_db, sample_file, tmp_path):
+        """Revert rejects paths resolving outside upload_folder."""
+        sample_file.disk_name = "../../outside.csv"
+        mock_db.exec.return_value.first.return_value = sample_file
+        with patch("app.services.data_process.get_settings") as mock_settings:
+            mock_settings.return_value.upload_folder = str(tmp_path)
+            body, status = revert_data_process_service(mock_db, sample_file.id)
+        assert status == 400
+        assert body["success"] is False
+        assert "Path traversal detected" in body["message"]
+
+    def test_revert_clears_target_when_not_in_reverted_columns(self, mock_db, sample_file, tmp_path):
+        """Revert clears active DataProcess target if not in restored columns."""
+        file_path = tmp_path / "data.csv"
+        bak_path = tmp_path / "data.csv.bak"
+        sample_file.disk_name = "data.csv"
+        pd.DataFrame({"a": [1]}).to_csv(file_path, index=False)
+        pd.DataFrame({"colA": [1], "colB": [2]}).to_csv(bak_path, index=False)
+
+        target_record = DataProcess(file_id=sample_file.id, target="deleted_col")
+
+        def side_effect_exec(stmt):
+            mock_first = MagicMock()
+            # If selecting DataFile return sample_file, if DataProcess return target_record
+            table_name = str(stmt)
+            if "data_file" in table_name.lower():
+                mock_first.first.return_value = sample_file
+            else:
+                mock_first.first.return_value = target_record
+            return mock_first
+
+        mock_db.exec.side_effect = side_effect_exec
+
+        with patch("app.services.data_process.get_settings") as mock_settings:
+            mock_settings.return_value.upload_folder = str(tmp_path)
+            body, status = revert_data_process_service(mock_db, sample_file.id)
+
+        assert status == 200
+        assert body["success"] is True
+        assert target_record.target is None
+        mock_db.add.assert_any_call(target_record)
 
 
 class TestGetDatasetBackupStatusService:

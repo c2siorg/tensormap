@@ -4,6 +4,7 @@ import uuid as uuid_pkg
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pandas as pd
 from sqlmodel import Session, select
 
@@ -118,6 +119,7 @@ def analyze_dataset_quality(
     empty_columns: list[str] = []
     constant_columns: list[dict[str, Any]] = []
     missing_total = 0
+    infinite_total = 0
     for column in frame.columns:
         values = frame[column]
         missing_count = int(values.isna().sum())
@@ -136,6 +138,25 @@ def analyze_dataset_quality(
                 count=missing_count,
                 percentage=round(percentage, 2),
             )
+
+        if pd.api.types.is_numeric_dtype(values):
+            inf_count = int(np.isinf(values).sum())
+            if inf_count:
+                infinite_total += inf_count
+                percentage = (inf_count / rows * 100) if rows else 0.0
+                add_issue(
+                    "infinite_values",
+                    "error",
+                    (
+                        f"Column '{column}' contains {inf_count} infinite value(s) ({percentage:.1f}%). "
+                        "Neural network layers cannot process non-finite numbers (inf / -inf). "
+                        "Replace or drop infinite values."
+                    ),
+                    [str(column)],
+                    count=inf_count,
+                    percentage=round(percentage, 2),
+                    blocking=True,
+                )
 
         distinct_count = int(values.nunique(dropna=True))
         if distinct_count == 0:
@@ -157,7 +178,9 @@ def analyze_dataset_quality(
                 distinct_count=distinct_count,
             )
 
-    usable_mask = ~frame.isna().any(axis=1) if columns else None
+    numeric_cols = frame.select_dtypes(include=[np.number]).columns
+    inf_mask = np.isinf(frame[numeric_cols]).any(axis=1) if len(numeric_cols) > 0 else False
+    usable_mask = (~frame.isna().any(axis=1)) & (~inf_mask) if columns else None
     usable_rows = int(usable_mask.sum()) if usable_mask is not None else 0
     if rows and usable_rows == 0:
         add_issue(
@@ -288,6 +311,7 @@ def analyze_dataset_quality(
             "usable_rows": usable_rows,
             "columns": columns,
             "missing_values": missing_total,
+            "infinite_values": infinite_total,
             "affected_missing_columns": len(missing_by_column),
             "constant_columns": len(constant_columns),
             "empty_columns": len(empty_columns),

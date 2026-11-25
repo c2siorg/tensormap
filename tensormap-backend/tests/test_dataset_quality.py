@@ -330,3 +330,40 @@ def test_boolean_feature_columns_are_blocking(tmp_path):
     report = body["data"]
     assert report["can_train"] is False
     assert "non_numeric_feature_columns" in _issues(report)
+
+
+def test_infinite_values_in_features_are_blocking(tmp_path):
+    body, status = _analyze(
+        tmp_path,
+        "feature,val,label\n0,1.5,1\n1,inf,0\n2,-inf,1\n3,4.2,0\n",
+        target="label",
+        problem_type=1,
+    )
+    assert status == 200
+    report = body["data"]
+    assert report["can_train"] is False
+    assert report["status"] == "blocked"
+    assert "infinite_values" in _issues(report)
+    issue = _issues(report)["infinite_values"]
+    assert issue["blocking"] is True
+    assert issue["columns"] == ["val"]
+    assert issue["count"] == 2
+    assert report["summary"]["infinite_values"] == 2
+
+
+def test_infinite_values_in_regression_target_are_blocking(tmp_path):
+    body, status = _analyze(
+        tmp_path,
+        "feature,target\n1.0,2.5\n2.0,inf\n3.0,4.1\n",
+        target="target",
+        problem_type=2,
+    )
+    assert status == 200
+    report = body["data"]
+    assert report["can_train"] is False
+    assert report["status"] == "blocked"
+    assert "infinite_values" in _issues(report)
+    issue = _issues(report)["infinite_values"]
+    assert issue["blocking"] is True
+    assert issue["columns"] == ["target"]
+    assert issue["count"] == 1

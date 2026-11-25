@@ -1,5 +1,7 @@
 from unittest.mock import MagicMock, patch
 
+import numpy as np
+import pandas as pd
 import pytest
 
 from app.models.training_job import TrainingJob
@@ -428,3 +430,27 @@ class TestTabularValidationData:
             assert calls[0].args == ("Evaluating...", 2)
             assert "Evaluation Results: Accuracy- 0.9000 Loss - 0.2500" in calls[1].args[0]
             assert calls[2].args == ("Finish", 4)
+
+    def test_prepare_training_data_removes_infinite_and_nan_values(self):
+        from app.services.model_run import _prepare_training_data
+
+        df = pd.DataFrame(
+            {
+                "feat1": [1.0, 2.0, np.inf, 4.0, 5.0, 6.0],
+                "feat2": [10.0, -np.inf, 30.0, np.nan, 50.0, 60.0],
+                "target": [0, 1, 0, 1, 0, 1],
+            }
+        )
+
+        with patch("app.services.model_run._model_result"):
+            x_train, y_train, x_test, y_test = _prepare_training_data(df, "target", training_split=60)
+
+        # Total 6 rows: row 1 has -inf, row 2 has inf, row 3 has nan ->
+        # 3 rows dropped, 3 clean rows retained (rows 0, 4, 5)
+        total_samples = len(x_train) + len(x_test)
+        assert total_samples == 3
+        # Ensure no infinite or NaN values exist in training and test splits
+        assert np.isfinite(x_train.values).all()
+        assert np.isfinite(x_test.values).all()
+        assert len(y_train) == len(x_train)
+        assert len(y_test) == len(x_test)

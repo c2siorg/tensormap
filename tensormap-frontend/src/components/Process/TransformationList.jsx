@@ -16,7 +16,10 @@ function TransformationList({ transformations, onDelete }) {
           {transformations.map((transformation, index) => (
             <tr key={index} className="border-b">
               <td className="border px-3 py-2">{transformation.feature}</td>
-              <td className="border px-3 py-2">{transformation.transformation}</td>
+              <td className="border px-3 py-2">
+                {transformation.transformation}
+                {transformation.params?.strategy ? ` (${transformation.params.strategy})` : ""}
+              </td>
               <td className="border px-3 py-2 text-center">
                 <Button variant="destructive" size="sm" onClick={() => onDelete(index)}>
                   Delete
@@ -35,6 +38,7 @@ TransformationList.propTypes = {
     PropTypes.shape({
       feature: PropTypes.string.isRequired,
       transformation: PropTypes.string.isRequired,
+      params: PropTypes.object,
     }),
   ).isRequired,
   onDelete: PropTypes.func.isRequired,

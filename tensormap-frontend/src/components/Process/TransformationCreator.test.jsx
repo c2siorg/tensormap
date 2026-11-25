@@ -70,4 +70,27 @@ describe("TransformationCreator", () => {
       transformation: "One Hot Encoding",
     });
   });
+
+  it("handles Fill Missing Values with default auto strategy in parameters", async () => {
+    const user = userEvent.setup();
+    const handleAdd = vi.fn();
+    render(<TransformationCreator features={sampleFeatures} onAdd={handleAdd} />);
+
+    // Select Fill Missing Values from dropdown
+    const triggers = screen.getAllByRole("combobox");
+    const transformTrigger = triggers[1];
+    await user.click(transformTrigger);
+
+    const option = await screen.findByRole("option", { name: "Fill Missing Values" });
+    await user.click(option);
+
+    const button = screen.getByRole("button", { name: /add transformation/i });
+    await user.click(button);
+
+    expect(handleAdd).toHaveBeenCalledWith({
+      feature: "sepal_length",
+      transformation: "Fill Missing Values",
+      params: { strategy: "auto" },
+    });
+  });
 });

@@ -276,6 +276,33 @@ def test_train_in_thread_skips_when_job_already_cancelled(training_session_facto
     assert event["status"] == "cancelled"
 
 
+def test_train_in_thread_emits_failure_event_on_exception(training_session_factory):
+    """_train_in_thread emits status='failed' Socket.IO event when model_run raises."""
+    from app.services.training_service import _train_in_thread
+
+    job_id = _seed_job(training_session_factory, status=TrainingStatus.RUNNING)
+    loop_mock = MagicMock()
+
+    with (
+        patch("app.services.training_service.make_session", training_session_factory),
+        patch("app.services.model_run.model_run", side_effect=RuntimeError("Dataset tensor shape mismatch")),
+        patch("app.callbacks.metrics_callback.schedule_room_emit") as mock_emit,
+    ):
+        _train_in_thread("test_model", job_id, loop=loop_mock)
+
+    mock_emit.assert_called_once()
+    event = mock_emit.call_args[0][3]
+    assert event["type"] == "status"
+    assert event["status"] == "failed"
+    assert event["job_id"] == job_id
+    assert event["phase"] is None
+    assert event["epoch"] is None
+    assert event["batch"] is None
+    assert event["steps"] is None
+    assert "Dataset tensor shape mismatch" in event["error"]
+    assert "Dataset tensor shape mismatch" in event["error_message"]
+
+
 def test_cancel_training_job_endpoint_emits_room_event(client, db_session):
     """DELETE /model/training-job/{id} transitions status and emits socket event to room."""
     from unittest.mock import AsyncMock

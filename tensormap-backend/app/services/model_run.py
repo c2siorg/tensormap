@@ -333,18 +333,21 @@ def _build_training_callbacks(
 
     Without a job_id (legacy/direct calls) we keep the text-based
     ``CustomProgressBar``. With a job_id we use the persistent ``MetricsCallback``
-    (DB + room-scoped Socket.IO) plus ``CancellationCheckCallback``.
+    (DB + room-scoped Socket.IO), ``CancellationCheckCallback``, and
+    ``BestModelCheckpointCallback`` to restore optimal weights at train end.
     When reduce_lr_on_plateau is enabled in hyperparams, attaches
     ``ReduceLROnPlateauCallback`` (Issue #558).
     """
     if job_id is None:
         return [CustomProgressBar()]
 
+    from app.callbacks.checkpoint_callback import BestModelCheckpointCallback
     from app.callbacks.lr_schedulers import create_lr_scheduler_callback
     from app.services.training_service import make_session
 
     loop = _training_loop_ctx.get()
     callbacks: list[tf.keras.callbacks.Callback] = [
+        BestModelCheckpointCallback(job_id, make_session, sio=sio, loop=loop),
         MetricsCallback(job_id, make_session, sio, loop),
         CancellationCheckCallback(job_id, make_session),
     ]

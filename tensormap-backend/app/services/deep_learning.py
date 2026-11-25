@@ -1,6 +1,7 @@
 import contextlib
 import copy
 import json
+import math
 import os
 import re
 import uuid as uuid_pkg
@@ -486,10 +487,14 @@ def update_training_config_service(
         return _resp(400, False, "Dataset file does not belong to this project")
 
     file_type = getattr(data_file, "file_type", None)
-    if isinstance(file_type, str):
-        if problem_type_id == ProblemType.IMAGE_CLASSIFICATION and file_type != "zip":
+    if not file_type or not isinstance(file_type, str):
+        return _resp(400, False, "Dataset file has an invalid or missing file type")
+
+    if problem_type_id == ProblemType.IMAGE_CLASSIFICATION:
+        if file_type != "zip":
             return _resp(400, False, f"Image classification requires a ZIP image archive, but got '{file_type}'")
-        if problem_type_id != ProblemType.IMAGE_CLASSIFICATION and file_type != "csv":
+    else:
+        if file_type != "csv":
             return _resp(400, False, f"Tabular models require a CSV dataset, but got '{file_type}'")
 
     if problem_type_id != ProblemType.IMAGE_CLASSIFICATION:
@@ -498,43 +503,46 @@ def update_training_config_service(
             return _resp(400, False, "Target field is required for tabular datasets")
         target_field = str(raw_target).strip()
         columns = getattr(data_file, "columns", None)
-        if isinstance(columns, (list, tuple)) and len(columns) > 0 and target_field not in columns:
+        if not columns or not isinstance(columns, (list, tuple)):
+            return _resp(400, False, "Dataset columns are not available to verify target field")
+        stripped_columns = [str(c).strip() for c in columns]
+        if target_field not in stripped_columns:
             return _resp(400, False, f"Target field '{target_field}' not found in dataset columns: {columns}")
     else:
-        raw_target = config.get("target_field")
-        target_field = str(raw_target).strip() if raw_target else None
+        target_field = None
 
     training_split = config.get("training_split")
-    if training_split is None:
-        return _resp(400, False, "Training split is required")
+    if training_split is None or isinstance(training_split, bool):
+        return _resp(400, False, "Training split is required and must be a valid number")
     try:
         ts = float(training_split)
     except (ValueError, TypeError):
         return _resp(400, False, f"training_split must be a number, got {training_split!r}")
-    if ts <= 0 or ts >= 100:
-        return _resp(400, False, f"training_split must be between 0 and 100, got {ts}")
+    if math.isnan(ts) or math.isinf(ts) or ts <= 0 or ts >= 100:
+        return _resp(400, False, f"training_split must be between 0 and 100, got {training_split!r}")
 
-    epochs = config.get("epochs")
-    if epochs is not None:
+    def _parse_pos_int(val: Any, field_name: str) -> tuple[int | None, str | None]:
+        if val is None or isinstance(val, bool):
+            return None, f"{field_name} must be a positive integer"
+        if isinstance(val, float):
+            return None, f"{field_name} must be an integer, got {val!r}"
+        if isinstance(val, str) and ("." in val or not val.strip().lstrip("-+").isdigit()):
+            return None, f"{field_name} must be an integer, got {val!r}"
         try:
-            ep = int(epochs)
-            if ep <= 0:
-                return _resp(400, False, f"epochs must be a positive integer, got {ep}")
+            num = int(val)
+            if num <= 0:
+                return None, f"{field_name} must be a positive integer, got {num}"
+            return num, None
         except (ValueError, TypeError):
-            return _resp(400, False, f"epochs must be an integer, got {epochs!r}")
-    else:
-        return _resp(400, False, "epochs is required")
+            return None, f"{field_name} must be an integer, got {val!r}"
 
-    batch_size = config.get("batch_size", 32)
-    if batch_size is not None:
-        try:
-            bs = int(batch_size)
-            if bs <= 0:
-                return _resp(400, False, f"batch_size must be a positive integer, got {bs}")
-        except (ValueError, TypeError):
-            return _resp(400, False, f"batch_size must be an integer, got {batch_size!r}")
-    else:
-        bs = 32
+    ep, err = _parse_pos_int(config.get("epochs"), "epochs")
+    if err:
+        return _resp(400, False, err)
+
+    bs, err = _parse_pos_int(config.get("batch_size", 32), "batch_size")
+    if err:
+        return _resp(400, False, err)
 
     model.file_id = file_id
     model.model_type = problem_type_id

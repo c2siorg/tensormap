@@ -326,21 +326,25 @@ def _helper_generate_json_model_file_location(model_name: str) -> str:
 
 def _build_training_callbacks(
     job_id: str | None,
-    hyperparams: dict | None = None,
+    hyperparams: dict[str, Any] | None = None,
     has_validation: bool = True,
+    initial_lr: float = 0.001,
+    total_epochs: int = 20,
 ) -> list[tf.keras.callbacks.Callback]:
     """Return the Keras callbacks for a run.
 
     Without a job_id (legacy/direct calls) we keep the text-based
     ``CustomProgressBar``. With a job_id we use the persistent ``MetricsCallback``
-    (DB + room-scoped Socket.IO) plus ``CancellationCheckCallback``.
-    When reduce_lr_on_plateau is enabled in hyperparams, attaches
-    ``ReduceLROnPlateauCallback`` (Issue #558).
+    (DB + room-scoped Socket.IO) plus ``CancellationCheckCallback`` and dynamic
+    learning rate schedulers.
     """
     if job_id is None:
         return [CustomProgressBar()]
 
-    from app.callbacks.lr_schedulers import create_lr_scheduler_callback
+    from app.callbacks.lr_schedulers import (
+        build_lr_scheduler_callback,
+        create_lr_scheduler_callback,
+    )
     from app.services.training_service import make_session
 
     loop = _training_loop_ctx.get()
@@ -349,15 +353,31 @@ def _build_training_callbacks(
         CancellationCheckCallback(job_id, make_session),
     ]
 
-    lr_cb = create_lr_scheduler_callback(
-        job_id=job_id,
-        hyperparams=hyperparams,
-        has_validation=has_validation,
-        sio_instance=sio,
-        loop=loop,
-    )
-    if lr_cb is not None:
-        callbacks.append(lr_cb)
+    hp = hyperparams or {}
+    scheduler_type = hp.get("scheduler") or hp.get("lr_scheduler")
+    if scheduler_type:
+        scheduler_config = dict(hp.get("scheduler_config") or {})
+        scheduler_config.setdefault("has_validation", has_validation)
+        scheduler_config.setdefault("total_epochs", total_epochs)
+        sched_cbs = build_lr_scheduler_callback(
+            scheduler_type=scheduler_type,
+            config=scheduler_config,
+            initial_lr=initial_lr,
+            job_id=job_id,
+            sio_instance=sio,
+            loop=loop,
+        )
+        callbacks.extend(sched_cbs)
+    else:
+        lr_cb = create_lr_scheduler_callback(
+            job_id=job_id,
+            hyperparams=hyperparams,
+            has_validation=has_validation,
+            sio_instance=sio,
+            loop=loop,
+        )
+        if lr_cb is not None:
+            callbacks.append(lr_cb)
 
     return callbacks
 
@@ -600,7 +620,13 @@ def _run(model_name: str, db: Session, job_id: str | None = None) -> None:
             raise ModelRunError(f"Failed to compute balanced class weights: {e}") from e
 
     if model_configs.model_type == ProblemType.IMAGE_CLASSIFICATION:
-        callbacks = _build_training_callbacks(job_id, hyperparams=hyperparams, has_validation=True)
+        callbacks = _build_training_callbacks(
+            job_id,
+            hyperparams=hyperparams,
+            has_validation=True,
+            initial_lr=float(lr) if lr else 0.001,
+            total_epochs=int(epochs) if epochs else 20,
+        )
         model.fit(
             train_data,
             validation_data=test_data,
@@ -631,6 +657,8 @@ def _run(model_name: str, db: Session, job_id: str | None = None) -> None:
             job_id,
             hyperparams=hyperparams,
             has_validation=validation_data is not None,
+            initial_lr=float(lr) if lr else 0.001,
+            total_epochs=int(epochs) if epochs else 20,
         )
         model.fit(
             x_training,

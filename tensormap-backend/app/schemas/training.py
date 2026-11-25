@@ -60,3 +60,32 @@ class TrainingJobSummary(BaseModel):
     status: str
     started_at: datetime | None = None
     completed_at: datetime | None = None
+
+
+class LRFinderRequest(BaseModel):
+    """Request parameters for the automated learning rate range test profiler."""
+
+    model_name: str = Field(min_length=1)
+    start_lr: float = Field(default=1e-6, gt=0.0)
+    end_lr: float = Field(default=1.0, gt=0.0)
+    num_batches: int = Field(default=50, ge=10, le=500)
+    batch_size: int | None = Field(default=None, ge=1)
+
+
+class LRFinderPoint(BaseModel):
+    learning_rate: float
+    loss: float
+
+
+class LRFinderData(BaseModel):
+    history: list[LRFinderPoint]
+    suggested_lr: float | None = None
+    min_loss: float | None = None
+    diverged: bool = False
+    num_batches_completed: int = 0
+
+
+class LRFinderResponse(BaseModel):
+    success: bool
+    message: str
+    data: LRFinderData

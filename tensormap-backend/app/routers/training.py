@@ -21,8 +21,14 @@ from app.database import get_db
 from app.exceptions import AppException
 from app.models.ml import ModelBasic
 from app.models.training_job import TrainingJob, TrainingStatus
-from app.schemas.training import JobReproducibilityResponse, TrainingStartRequest
+from app.schemas.training import (
+    JobReproducibilityResponse,
+    LRFinderRequest,
+    LRFinderResponse,
+    TrainingStartRequest,
+)
 from app.services.dataset_quality import analyze_dataset_quality
+from app.services.lr_finder import find_optimal_learning_rate
 from app.services.training_service import (
     check_concurrency_limit,
     create_training_job,
@@ -297,4 +303,25 @@ def compare_jobs(
     return JSONResponse(
         status_code=200,
         content=_envelope("Comparison data retrieved", {"jobs": result_jobs, "metric": metric}),
+    )
+
+
+@router.post("/lr-find", response_model=LRFinderResponse)
+async def run_learning_rate_finder(
+    request: LRFinderRequest,
+    db: Session = Depends(get_db),
+) -> JSONResponse:
+    """Run an automated learning rate range test profiler to discover the optimal learning rate."""
+    results = await run_in_threadpool(
+        find_optimal_learning_rate,
+        model_name=request.model_name,
+        db=db,
+        start_lr=request.start_lr,
+        end_lr=request.end_lr,
+        num_batches=request.num_batches,
+        batch_size=request.batch_size,
+    )
+    return JSONResponse(
+        status_code=200,
+        content=_envelope("Learning rate range test completed successfully", results),
     )

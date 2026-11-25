@@ -651,8 +651,12 @@ def _drop_missing_rows(df: pd.DataFrame, col: str, _params: dict | None) -> pd.D
 
 
 def _fill_missing(df: pd.DataFrame, col: str, params: dict | None) -> pd.DataFrame:
-    strategy = (params or {}).get("strategy", "mean")
-    if strategy in {"mean", "median"} and not pd.api.types.is_numeric_dtype(df[col]):
+    strategy = (params or {}).get("strategy")
+    is_numeric = pd.api.types.is_numeric_dtype(df[col])
+    if not strategy or strategy == "auto":
+        strategy = "mean" if is_numeric else "mode"
+
+    if strategy in {"mean", "median"} and not is_numeric:
         raise ValueError(
             f"Fill Missing Values with strategy='{strategy}' requires a numeric column, "
             f"but '{col}' has dtype '{df[col].dtype}'. Use strategy='mode' for categorical columns."
@@ -668,8 +672,13 @@ def _fill_missing(df: pd.DataFrame, col: str, params: dict | None) -> pd.DataFra
         df[col] = df[col].fillna(mode_vals[0])
     elif strategy == "mean":
         df[col] = df[col].fillna(df[col].mean())
+    elif strategy == "constant":
+        fill_val = (params or {}).get("fill_value")
+        if fill_val is None:
+            fill_val = 0 if is_numeric else "missing"
+        df[col] = df[col].fillna(fill_val)
     else:
-        raise ValueError(f"Unknown fill strategy '{strategy}'. Valid: 'mean', 'median', 'mode'")
+        raise ValueError(f"Unknown fill strategy '{strategy}'. Valid: 'auto', 'mean', 'median', 'mode', 'constant'")
     return df
 
 

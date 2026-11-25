@@ -260,6 +260,34 @@ class TestNumericColumnTypeChecks:
         with pytest.raises(ValueError, match="only missing values"):
             _fill_missing(df, "name", {"strategy": "mode"})
 
+    def test_fill_missing_auto_defaults_to_mean_for_numeric_column(self):
+        df = pd.DataFrame({"val": [10.0, None, 20.0]})
+        result = _fill_missing(df, "val", {"strategy": "auto"})
+        assert result["val"].iloc[1] == pytest.approx(15.0)
+
+    def test_fill_missing_auto_defaults_to_mode_for_categorical_column(self):
+        df = pd.DataFrame({"category": ["apple", None, "apple", "banana"]})
+        result = _fill_missing(df, "category", {"strategy": "auto"})
+        assert result["category"].iloc[1] == "apple"
+
+    def test_fill_missing_none_params_defaults_intelligently(self):
+        df_num = pd.DataFrame({"val": [2.0, None, 4.0]})
+        result_num = _fill_missing(df_num, "val", None)
+        assert result_num["val"].iloc[1] == pytest.approx(3.0)
+
+        df_cat = pd.DataFrame({"status": ["active", None, "active", "pending"]})
+        result_cat = _fill_missing(df_cat, "status", None)
+        assert result_cat["status"].iloc[1] == "active"
+
+    def test_fill_missing_constant_strategy(self):
+        df_num = pd.DataFrame({"val": [1.0, None, 3.0]})
+        result_num = _fill_missing(df_num, "val", {"strategy": "constant", "fill_value": -999.0})
+        assert result_num["val"].iloc[1] == -999.0
+
+        df_cat = pd.DataFrame({"tag": ["a", None, "b"]})
+        result_cat = _fill_missing(df_cat, "tag", {"strategy": "constant", "fill_value": "unknown"})
+        assert result_cat["tag"].iloc[1] == "unknown"
+
 
 # ---------------------------------------------------------------------------
 # 3. Categorical to Numerical NaN guard

@@ -36,7 +36,7 @@ router = APIRouter(prefix="/model/analysis", tags=["analysis"])
 _service = InterpretabilityService()
 
 _EXPORT_KEYS_BY_TYPE = {
-    "classification": ("confusion_matrix", "roc_curve", "feature_importance"),
+    "classification": ("confusion_matrix", "roc_curve", "feature_importance", "uncertainty"),
     "regression": ("regression_analysis", "feature_importance"),
     "image_classification": ("confusion_matrix", "roc_curve"),
 }
@@ -329,6 +329,82 @@ async def get_calibration_curve(
         result = await _service.compute_calibration_curve_async(job_id, db, n_bins=n_bins)
     except (ValueError, FileNotFoundError, OSError) as exc:
         logger.exception("Calibration curve computation failed for job %s", job_id)
+        raise HTTPException(status_code=500, detail=f"Analysis computation failed: {exc}") from exc
+    return JSONResponse(status_code=200, content={**result, "cached": False})
+
+
+@router.get("/{job_id}/uncertainty")
+async def get_prediction_uncertainty(
+    job_id: str,
+    top_n: int = Query(10, ge=1, le=100, description="Number of top ambiguous samples to return"),
+    db: Session = Depends(get_db),
+):
+    """Returns prediction uncertainty metrics, Shannon entropy distribution, and top ambiguous test samples.
+
+    Args:
+        job_id: Training job ID
+        top_n: Number of most ambiguous samples to return (default: 10, between 1 and 100)
+
+    Returns:
+        {
+            "summary": {
+                "mean_entropy": float,
+                "median_entropy": float,
+                "std_entropy": float,
+                "p90_entropy": float,
+                "mean_margin_uncertainty": float,
+                "mean_least_confidence": float,
+            },
+            "tiers": {
+                "low": {"count": int, "percentage": float},
+                "moderate": {"count": int, "percentage": float},
+                "high": {"count": int, "percentage": float},
+            },
+            "histogram": [
+                {"bin_start": float, "bin_end": float, "count": int, "frequency": float}, ...
+            ],
+            "top_ambiguous_samples": [
+                {
+                    "sample_index": int,
+                    "true_class": str,
+                    "predicted_class": str,
+                    "predicted_probability": float,
+                    "second_probability": float,
+                    "entropy": float,
+                    "margin_uncertainty": float,
+                    "is_correct": bool,
+                }, ...
+            ],
+            "n_samples": int,
+            "num_classes": int,
+            "class_names": [str, ...],
+            "analysis_type": "classification",
+            "cached": bool
+        }
+    """
+    _verify_job_completed(job_id, db)
+
+    analysis_type = get_analysis_type(job_id, db)
+    if analysis_type == "regression":
+        raise HTTPException(
+            status_code=400,
+            detail="Prediction uncertainty analysis is only available for classification models.",
+        )
+    if analysis_type == "image_classification":
+        raise HTTPException(
+            status_code=400,
+            detail="Prediction uncertainty analysis is not available for image classification models.",
+        )
+
+    cache_key = f"uncertainty_{top_n}"
+    cached = _service.cache.get_cached(job_id, cache_key, db)
+    if cached:
+        return JSONResponse(status_code=200, content={**cached, "cached": True})
+
+    try:
+        result = await _service.compute_prediction_uncertainty_async(job_id, db, top_n_ambiguous=top_n)
+    except (ValueError, FileNotFoundError, OSError) as exc:
+        logger.exception("Prediction uncertainty computation failed for job %s", job_id)
         raise HTTPException(status_code=500, detail=f"Analysis computation failed: {exc}") from exc
     return JSONResponse(status_code=200, content={**result, "cached": False})
 

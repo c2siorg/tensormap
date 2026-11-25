@@ -120,7 +120,16 @@ def add_file_service(db: Session, file_wrapper: Any, project_id: uuid_pkg.UUID |
 
                 zf.extractall(extract_path)
             success = True
-        except (zipfile.BadZipFile, zlib.error, EOFError, RuntimeError, NotImplementedError, ValueError):
+        except RuntimeError as exc:
+            msg = str(exc).lower()
+            if "encrypted" in msg or "password" in msg:
+                return _resp(
+                    400,
+                    False,
+                    "Encrypted or password-protected ZIP archives are not supported. Upload an unencrypted ZIP.",
+                )
+            return _resp(400, False, "Could not extract ZIP archive. File is corrupted or not a valid ZIP.")
+        except (zipfile.BadZipFile, zlib.error, EOFError, NotImplementedError, ValueError):
             return _resp(400, False, "Could not extract ZIP archive. File is corrupted or not a valid ZIP.")
         except OSError:
             logger.exception("Filesystem error during ZIP extraction")

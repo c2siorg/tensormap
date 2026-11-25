@@ -602,7 +602,7 @@ class TestAddFileService:
             zipfile.BadZipFile("File is not a zip file"),
             zlib.error("Error -3 while decompressing data"),
             EOFError("Compressed file ended before end-of-stream marker"),
-            RuntimeError("File is encrypted, password required for extraction"),
+            RuntimeError("Unexpected archive runtime error"),
             NotImplementedError("That compression method is not supported"),
         ],
     )
@@ -698,6 +698,35 @@ class TestAddFileService:
         assert status == 500
         assert body["success"] is False
         assert body["message"] == "Error extracting ZIP archive."
+        assert list(tmp_path.iterdir()) == []
+
+    def test_zip_encrypted_archive_returns_distinct_message_and_cleans_up(self, tmp_path):
+        db = MagicMock()
+        fw = self._make_fw("encrypted.zip", size=500)
+        fw.save = MagicMock(side_effect=lambda path: self._write_file(path, "dummy archive data"))
+
+        mock_zf = MagicMock()
+        mock_zf.__enter__ = MagicMock(return_value=mock_zf)
+        mock_zf.__exit__ = MagicMock(return_value=False)
+        mock_zf.namelist.return_value = ["img.png"]
+        mock_info = MagicMock()
+        mock_info.file_size = 100
+        mock_zf.getinfo.return_value = mock_info
+        mock_zf.extractall.side_effect = RuntimeError("File 'img.png' is encrypted, password required for extraction")
+
+        with (
+            patch("app.services.data_upload.get_settings") as ms,
+            patch("app.services.data_upload.zipfile.ZipFile", return_value=mock_zf),
+        ):
+            ms.return_value.max_content_length = 200 * 1024 * 1024
+            ms.return_value.upload_folder = str(tmp_path)
+
+            body, status = add_file_service(db, fw)
+
+        assert status == 400
+        assert body["success"] is False
+        assert "encrypted" in body["message"].lower()
+        assert "corrupted" not in body["message"].lower()
         assert list(tmp_path.iterdir()) == []
 
 

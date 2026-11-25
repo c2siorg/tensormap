@@ -27,28 +27,37 @@ A web application for visually creating machine learning algorithms via drag-and
 
 ## Getting Started
 
-### Quick Start (Docker)
+### Quick start with Docker Compose
 
 ```bash
-# Backend
-cd tensormap-backend
-docker build -t tensormap-backend .
-docker run -p 4300:4300 --env-file .env tensormap-backend
-
-# Frontend
-cd tensormap-frontend
-docker build -t tensormap-frontend .
-docker run -p 3300:3300 tensormap-frontend
+git clone https://github.com/c2siorg/tensormap.git
+cd tensormap
+cp .env.example .env
+cp tensormap-backend/.env.example tensormap-backend/.env
+docker compose up --build
 ```
+
+There are two environment files. The one at the repository root holds the PostgreSQL credentials used by the `db` service. The one in `tensormap-backend/` holds the application settings; Compose overrides its `DATABASE_URL` so the backend connects to the `db` container.
+
+| Service    | URL                           |
+|------------|-------------------------------|
+| Frontend   | http://localhost:3300         |
+| Backend    | http://localhost:4300         |
+| API docs   | http://localhost:4300/docs    |
+| PostgreSQL | localhost:5432                |
+
+Uploaded datasets are written to `tensormap-backend/data/` on the host, and database contents are kept in the `pgdata` volume. The first build downloads TensorFlow and takes a while. If port 5432 is already used by a local PostgreSQL, stop that server or change the left-hand number of the `db` port mapping in `docker-compose.yml`.
 
 ### Backend
 
 ```bash
 cd tensormap-backend
 cp .env.example .env          # Configure DB credentials
-uv sync
+uv sync --extra dev           # --extra dev adds pytest and ruff
 uv run uvicorn app.main:socket_app --reload --port 4300
 ```
+
+Database migrations are applied when the server starts. `.env.example` points at a local PostgreSQL instance; to use SQLite instead, set `DATABASE_URL=sqlite:///./tensormap.db`. The server must be started as `app.main:socket_app`, because the Socket.IO server wraps the FastAPI app. See the [backend README](tensormap-backend/README.md) for configuration and architecture.
 
 ### Frontend
 
@@ -59,10 +68,7 @@ npm install
 npm start
 ```
 
-| Service  | Port |
-|----------|------|
-| Frontend | 3300 |
-| Backend  | 4300 |
+The frontend reads the backend addresses from `VITE_API_BASE_URL` and `VITE_WS_URL`. See the [frontend README](tensormap-frontend/README.md).
 
 ## Branch Protection Rules
 
@@ -74,29 +80,29 @@ To enforce code quality, ensure that you set up GitHub Branch Protection rules f
 
 ## Development Setup
 
-### Running Backend Tests
-To run the backend tests locally with SQLite (fallback):
-```bash
-cd tensormap-backend && pytest tests/ -v
-```
-To run tests with PostgreSQL:
+| Check             | Run from              | Command                                                                |
+|-------------------|-----------------------|------------------------------------------------------------------------|
+| Backend tests     | `tensormap-backend/`  | `uv run pytest -v`                                                     |
+| Integration tests | `tensormap-backend/`  | `uv run pytest ../tests/integration/ -v`                               |
+| Backend lint      | `tensormap-backend/`  | `uv run ruff check .` and `uv run ruff format --check .`               |
+| Frontend tests    | `tensormap-frontend/` | `npm test`                                                             |
+| Frontend lint     | `tensormap-frontend/` | `npm run lint` and `npx prettier --check "src/**/*.{js,jsx,json,css}"` |
+
+The backend tests use SQLite unless `DATABASE_URL` is set. To run them against PostgreSQL:
+
 ```bash
 export DATABASE_URL=postgresql://test:test@localhost:5432/tensormap_test
-cd tensormap-backend && pytest tests/ -v
-```
-
-### Running Frontend Tests
-To run frontend tests locally:
-```bash
-cd tensormap-frontend && npx vitest
+cd tensormap-backend && uv run pytest -v
 ```
 
 ## Project Structure
 
 ```
 tensormap/
-  tensormap-backend/    # Python FastAPI server
-  tensormap-frontend/   # React + Vite SPA
+├── tensormap-backend/    FastAPI and Socket.IO server, TensorFlow training, Alembic migrations
+├── tensormap-frontend/   React and Vite single-page app
+├── tests/                Integration tests that run against the backend
+└── docker-compose.yml    PostgreSQL, backend and frontend
 ```
 
 ## Contributing

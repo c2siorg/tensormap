@@ -272,13 +272,15 @@ def _build_training_callbacks(
 
     Without a job_id (legacy/direct calls) we keep the text-based
     ``CustomProgressBar``. With a job_id we use the persistent ``MetricsCallback``
-    (DB + room-scoped Socket.IO) plus ``CancellationCheckCallback``.
-    When reduce_lr_on_plateau is enabled in hyperparams, attaches
-    ``ReduceLROnPlateauCallback`` (Issue #558).
+    (DB + room-scoped Socket.IO) plus ``CancellationCheckCallback``, along with
+    optional adaptive training callbacks (EarlyStopping, ReduceLROnPlateau).
     """
     if job_id is None:
         return [CustomProgressBar()]
 
+    from app.callbacks.early_stopping import (
+        EarlyStoppingNotificationCallback,
+    )
     from app.callbacks.lr_schedulers import create_lr_scheduler_callback
     from app.services.training_service import make_session
 
@@ -287,6 +289,30 @@ def _build_training_callbacks(
         MetricsCallback(job_id, make_session, sio, loop),
         CancellationCheckCallback(job_id, make_session),
     ]
+
+    hyperparams = hyperparams or {}
+    monitor_metric = "val_loss" if has_validation else "loss"
+
+    if hyperparams.get("early_stopping"):
+        raw_patience = hyperparams.get("early_stopping_patience")
+        patience = int(raw_patience) if raw_patience is not None else 5
+        raw_delta = hyperparams.get("early_stopping_min_delta")
+        min_delta = float(raw_delta) if raw_delta is not None else 0.001
+        raw_restore = hyperparams.get("early_stopping_restore_best_weights")
+        restore_best_weights = bool(raw_restore) if raw_restore is not None else True
+        custom_monitor = hyperparams.get("early_stopping_monitor") or monitor_metric
+        callbacks.append(
+            EarlyStoppingNotificationCallback(
+                job_id,
+                sio,
+                loop,
+                monitor=custom_monitor,
+                patience=patience,
+                min_delta=min_delta,
+                restore_best_weights=restore_best_weights,
+                verbose=0,
+            )
+        )
 
     lr_cb = create_lr_scheduler_callback(
         job_id=job_id,
@@ -392,6 +418,12 @@ def _should_skip_evaluation(callbacks: list[tf.keras.callbacks.Callback], model:
     for cb in callbacks:
         if isinstance(cb, CancellationCheckCallback) and (getattr(cb, "cancelled", False) or cb.check_cancelled()):
             return True
+
+    # If stopped early by EarlyStopping, training converged naturally so evaluation should proceed
+    for cb in callbacks:
+        if isinstance(cb, tf.keras.callbacks.EarlyStopping) and getattr(cb, "stopped_epoch", 0) > 0:
+            return False
+
     return bool(getattr(model, "stop_training", False))
 
 
@@ -452,26 +484,39 @@ def _run(model_name: str, db: Session, job_id: str | None = None) -> None:
             label_mode,
         )
         validation_split = 1 - (float(training_split) / 100)
-        train_data = tf.keras.utils.image_dataset_from_directory(
-            directory,
-            validation_split=validation_split,
-            subset="training",
-            seed=123,
-            image_size=image_size,
-            batch_size=effective_batch_size,
-            color_mode=color_mode,
-            label_mode=label_mode,
-        )
-        test_data = tf.keras.utils.image_dataset_from_directory(
-            directory,
-            validation_split=validation_split,
-            subset="validation",
-            seed=123,
-            image_size=image_size,
-            batch_size=effective_batch_size,
-            color_mode=color_mode,
-            label_mode=label_mode,
-        )
+        if validation_split > 0:
+            train_data = tf.keras.utils.image_dataset_from_directory(
+                directory,
+                validation_split=validation_split,
+                subset="training",
+                seed=123,
+                image_size=image_size,
+                batch_size=effective_batch_size,
+                color_mode=color_mode,
+                label_mode=label_mode,
+            )
+            test_data = tf.keras.utils.image_dataset_from_directory(
+                directory,
+                validation_split=validation_split,
+                subset="validation",
+                seed=123,
+                image_size=image_size,
+                batch_size=effective_batch_size,
+                color_mode=color_mode,
+                label_mode=label_mode,
+            )
+            has_validation = True
+        else:
+            train_data = tf.keras.utils.image_dataset_from_directory(
+                directory,
+                seed=123,
+                image_size=image_size,
+                batch_size=effective_batch_size,
+                color_mode=color_mode,
+                label_mode=label_mode,
+            )
+            test_data = None
+            has_validation = False
     else:
         file_location = _helper_generate_file_location(db, file_id=model_configs.file_id)
         features = pd.read_csv(file_location)
@@ -482,6 +527,18 @@ def _run(model_name: str, db: Session, job_id: str | None = None) -> None:
         )
 
         effective_batch_size = batch_size if batch_size is not None else 32
+        validation_data = (
+            (x_testing, y_testing)
+            if (
+                x_testing is not None
+                and y_testing is not None
+                and (not hasattr(x_testing, "__len__") or len(x_testing) > 0)
+            )
+            else None
+        )
+        has_validation = validation_data is not None
+
+    callbacks = _build_training_callbacks(job_id, hyperparams=hyperparams, has_validation=has_validation)
 
     with open(_helper_generate_json_model_file_location(model_name=model_name)) as f:
         json_string = f.read()
@@ -495,37 +552,22 @@ def _run(model_name: str, db: Session, job_id: str | None = None) -> None:
     )
 
     if model_configs.model_type == ProblemType.IMAGE_CLASSIFICATION:
-        callbacks = _build_training_callbacks(job_id, hyperparams=hyperparams, has_validation=True)
         model.fit(
             train_data,
-            validation_data=test_data,
+            validation_data=test_data if has_validation else None,
             epochs=epochs,
             callbacks=callbacks,
             verbose=0,
         )
         if _should_skip_evaluation(callbacks, model):
             logger.info(
-                "Training cancelled or stopped early; skipping evaluation for image model '%s' (job %s)",
+                "Training cancelled; skipping evaluation for image model '%s' (job %s)",
                 model_name,
                 job_id,
             )
-        else:
+        elif has_validation and test_data is not None:
             model.evaluate(test_data, callbacks=callbacks, verbose=0)
     else:
-        validation_data = (
-            (x_testing, y_testing)
-            if (
-                x_testing is not None
-                and y_testing is not None
-                and (not hasattr(x_testing, "__len__") or len(x_testing) > 0)
-            )
-            else None
-        )
-        callbacks = _build_training_callbacks(
-            job_id,
-            hyperparams=hyperparams,
-            has_validation=validation_data is not None,
-        )
         model.fit(
             x_training,
             y_training,
@@ -537,10 +579,9 @@ def _run(model_name: str, db: Session, job_id: str | None = None) -> None:
         )
         if _should_skip_evaluation(callbacks, model):
             logger.info(
-                "Training cancelled or stopped early; skipping evaluation for model '%s' (job %s)",
+                "Training cancelled; skipping evaluation for model '%s' (job %s)",
                 model_name,
                 job_id,
             )
-        else:
-            if validation_data is not None or not hasattr(x_testing, "__len__") or len(x_testing) > 0:
-                model.evaluate(x_testing, y_testing, callbacks=callbacks, verbose=0)
+        elif validation_data is not None:
+            model.evaluate(x_testing, y_testing, callbacks=callbacks, verbose=0)

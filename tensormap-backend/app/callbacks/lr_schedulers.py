@@ -29,6 +29,12 @@ def _extract_lr(optimizer: Any) -> float | None:
             return None
         if hasattr(lr_attr, "numpy"):
             return float(lr_attr.numpy())
+        if isinstance(lr_attr, tf.keras.optimizers.schedules.LearningRateSchedule) or callable(lr_attr):
+            step = getattr(optimizer, "iterations", 0)
+            res = lr_attr(step)
+            if hasattr(res, "numpy"):
+                return float(res.numpy())
+            return float(res)
         val = np.array(lr_attr)
         return float(val)
     except Exception:  # noqa: BLE001
@@ -132,13 +138,19 @@ def create_lr_scheduler_callback(
         monitor = monitor.replace("val_", "", 1)
         logger.info("Validation data absent; adjusted LR scheduler monitor to '%s'", monitor)
 
-    factor = float(hp.get("reduce_lr_factor", 0.2))
-    patience = int(hp.get("reduce_lr_patience", 5))
-    min_lr = float(hp.get("reduce_lr_min_lr", 1e-6))
-    min_delta = float(hp.get("reduce_lr_min_delta", 1e-4))
+    raw_factor = hp.get("reduce_lr_factor")
+    factor = float(raw_factor) if raw_factor is not None else 0.2
+    raw_patience = hp.get("reduce_lr_patience")
+    patience = int(raw_patience) if raw_patience is not None else 5
+    raw_min_lr = hp.get("reduce_lr_min_lr")
+    min_lr = float(raw_min_lr) if raw_min_lr is not None else 1e-6
+    raw_min_delta = hp.get("reduce_lr_min_delta")
+    min_delta = float(raw_min_delta) if raw_min_delta is not None else 1e-4
     mode = str(hp.get("reduce_lr_mode", "auto"))
 
-    return ReduceLROnPlateauCallback(
+    from app.callbacks.early_stopping import ReduceLROnPlateauNotificationCallback
+
+    return ReduceLROnPlateauNotificationCallback(
         job_id=job_id,
         sio_instance=sio_instance,
         loop=loop,

@@ -421,15 +421,24 @@ def _prepare_training_data(features, target_field, training_split):
     was trimmed before training.
     """
     original_rows = len(features)
-    rows_with_missing = int(features.isnull().any(axis=1).sum())
+    numeric_cols = features.select_dtypes(include=[np.number]).columns
+    has_inf = (
+        np.isinf(features[numeric_cols]).any(axis=1)
+        if len(numeric_cols) > 0
+        else pd.Series(False, index=features.index)
+    )
+    has_missing = features.isnull().any(axis=1)
+    rows_with_invalid = int((has_missing | has_inf).sum())
 
-    if rows_with_missing > 0:
-        pct = (rows_with_missing / original_rows) * 100 if original_rows else 0
-        msg = f"Warning: Removed {rows_with_missing} rows ({pct:.1f}%) with missing values before training"
+    if rows_with_invalid > 0:
+        pct = (rows_with_invalid / original_rows) * 100 if original_rows else 0
+        msg = (
+            f"Warning: Removed {rows_with_invalid} rows ({pct:.1f}%) with missing or non-finite values before training"
+        )
         logger.warning(msg)
         _model_result(msg, -1)
 
-    features = features.dropna()
+    features = features[~(has_missing | has_inf)]
     logger.info("Data preparation: %d -> %d rows retained", original_rows, len(features))
 
     if target_field not in features.columns:

@@ -11,6 +11,7 @@
 
 import { useState, useEffect } from "react";
 import type { LayerRegistryResponse, LayerSpec } from "../types/registry";
+import { base_URL } from "../constants/Urls";
 import logger from "../shared/logger";
 
 // Module-level cache - survives component unmounts
@@ -46,8 +47,7 @@ async function fetchRegistry(): Promise<LayerRegistryResponse> {
   isFetching = true;
 
   try {
-    const apiUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api/v1";
-    const response = await fetch(`${apiUrl}/layers`);
+    const response = await fetch(`${base_URL}/layers`);
 
     if (!response.ok) {
       throw new Error(`Failed to fetch layer registry: ${response.statusText}`);

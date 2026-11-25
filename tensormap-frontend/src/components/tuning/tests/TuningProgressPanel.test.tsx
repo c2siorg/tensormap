@@ -329,4 +329,41 @@ describe("TuningProgressPanel", () => {
 
     expect(unsubscribeFromTuning).toHaveBeenCalledWith("test-tuning-123");
   });
+
+  it("restores bestJobId and bestMetric on tuning_catchup and preserves zero metric", async () => {
+    render(
+      <TuningProgressPanel
+        tuningId="test-tuning-123"
+        totalTrials={2}
+        metric="val_loss"
+        direction="minimize"
+        onCancel={mockOnCancel}
+      />,
+    );
+
+    mockProgressHandler?.({
+      type: "tuning_catchup",
+      completed_trials: 1,
+      total_trials: 2,
+      status: "completed",
+      early_stopped: false,
+      best_job_id: "job-best",
+      trials: [
+        {
+          job_id: "job-best",
+          status: "completed",
+          hyperparams: { optimizer: "adam", lr: 0.001, batch_size: 32, epochs: 10 },
+          metric_value: 0,
+          started_at: null,
+          completed_at: null,
+        },
+      ],
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("BEST")).toBeTruthy();
+      expect(screen.getByText("0.0000")).toBeTruthy();
+      expect(screen.getByText(/Best val_loss: 0\.0000/i)).toBeTruthy();
+    });
+  });
 });

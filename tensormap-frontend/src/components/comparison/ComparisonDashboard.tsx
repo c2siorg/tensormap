@@ -46,14 +46,23 @@ export default function ComparisonDashboard({ modelName }: ComparisonDashboardPr
   const [error, setError] = useState<string | null>(null);
   const [activeMetric, setActiveMetric] = useState<"loss" | "accuracy">("loss");
 
-  // Fetch available jobs
+  // Fetch available jobs and reset stale selection when model changes
   useEffect(() => {
+    setSelectedJobIds([]);
+    setComparisonData([]);
+    setAvailableJobs([]);
+    setError(null);
+
     const fetchJobs = async () => {
       try {
         const response = await getTrainingJobs(modelName);
-        setAvailableJobs(response.data.data);
+        setAvailableJobs(response.data.data || []);
       } catch (err: any) {
-        setError(err.response?.data?.message || "Failed to fetch training jobs");
+        setError(
+          err.response?.data?.detail ||
+            err.response?.data?.message ||
+            "Failed to fetch training jobs",
+        );
       }
     };
 
@@ -75,9 +84,13 @@ export default function ComparisonDashboard({ modelName }: ComparisonDashboardPr
 
       try {
         const response = await compareJobs(selectedJobIds, activeMetric === "loss" ? "val_loss" : "val_accuracy");
-        setComparisonData(response.data.data.jobs);
+        setComparisonData(response.data.data.jobs || []);
       } catch (err: any) {
-        setError(err.response?.data?.message || "Failed to fetch comparison data");
+        setError(
+          err.response?.data?.detail ||
+            err.response?.data?.message ||
+            "Failed to fetch comparison data",
+        );
       } finally {
         setLoading(false);
       }
@@ -89,15 +102,23 @@ export default function ComparisonDashboard({ modelName }: ComparisonDashboardPr
   const toggleJobSelection = (jobId: string) => {
     setSelectedJobIds((prev) => {
       if (prev.includes(jobId)) {
+        setError(null);
         return prev.filter((id) => id !== jobId);
       }
       if (prev.length >= 5) {
         setError("Maximum 5 jobs can be compared at once");
         return prev;
       }
+      setError(null);
       return [...prev, jobId];
     });
   };
+
+  const resolveLossMetric = (metric: any): number | undefined =>
+    metric?.val_loss ?? metric?.loss;
+
+  const resolveAccuracyMetric = (metric: any): number | undefined =>
+    metric?.val_accuracy ?? metric?.accuracy;
 
   // Prepare chart data
   const chartData = comparisonData.length > 0
@@ -114,11 +135,10 @@ export default function ComparisonDashboard({ modelName }: ComparisonDashboardPr
             comparisonData.forEach((job, idx) => {
               const metric = job.metrics.find((m) => m.epoch === epoch);
               if (metric) {
-                if (activeMetric === "loss") {
-                  point[`job${idx}`] = metric.val_loss || metric.loss;
-                } else {
-                  point[`job${idx}`] = metric.val_accuracy || metric.accuracy;
-                }
+                point[`job${idx}`] =
+                  activeMetric === "loss"
+                    ? resolveLossMetric(metric)
+                    : resolveAccuracyMetric(metric);
               }
             });
             return point;
@@ -130,27 +150,37 @@ export default function ComparisonDashboard({ modelName }: ComparisonDashboardPr
   const exportCSV = () => {
     if (comparisonData.length === 0) return;
 
+    const escapeCsv = (val: unknown): string => {
+      const s = val == null ? "" : String(val);
+      return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+
     const headers = ["Job ID", "Optimizer", "Learning Rate", "Batch Size", "Epochs", "Final Loss", "Final Accuracy"];
     const rows = comparisonData.map((job) => {
       const finalMetrics = job.metrics[job.metrics.length - 1] || {};
+      const hp = job.hyperparams || {};
+      const finalLoss = resolveLossMetric(finalMetrics);
+      const finalAcc = resolveAccuracyMetric(finalMetrics);
       return [
         job.job_id,
-        job.hyperparams.optimizer || "",
-        job.hyperparams.lr || "",
-        job.hyperparams.batch_size || "",
-        job.hyperparams.epochs || "",
-        finalMetrics.val_loss || finalMetrics.loss || "",
-        finalMetrics.val_accuracy || finalMetrics.accuracy || "",
+        hp.optimizer ?? "",
+        hp.lr ?? "",
+        hp.batch_size ?? "",
+        hp.epochs ?? "",
+        finalLoss ?? "",
+        finalAcc ?? "",
       ];
     });
 
-    const csv = [headers, ...rows].map((row) => row.join(",")).join("\n");
+    const csv = [headers, ...rows].map((row) => row.map(escapeCsv).join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
     a.download = `comparison-${modelName}-${Date.now()}.csv`;
+    document.body.appendChild(a);
     a.click();
+    a.remove();
     URL.revokeObjectURL(url);
   };
 
@@ -158,11 +188,18 @@ export default function ComparisonDashboard({ modelName }: ComparisonDashboardPr
   const bestJobId = comparisonData.length > 0
     ? (() => {
         const jobsWithFinalMetric = comparisonData
-          .map((job) => ({
-            job_id: job.job_id,
-            finalMetric: job.metrics[job.metrics.length - 1]?.[activeMetric === "loss" ? "val_loss" : "val_accuracy"],
-          }))
-          .filter((j) => j.finalMetric !== undefined);
+          .map((job) => {
+            const finalMetrics = job.metrics[job.metrics.length - 1];
+            const val =
+              activeMetric === "loss"
+                ? resolveLossMetric(finalMetrics)
+                : resolveAccuracyMetric(finalMetrics);
+            return {
+              job_id: job.job_id,
+              finalMetric: val,
+            };
+          })
+          .filter((j) => j.finalMetric !== undefined && j.finalMetric !== null);
 
         if (jobsWithFinalMetric.length === 0) return null;
 
@@ -204,7 +241,7 @@ export default function ComparisonDashboard({ modelName }: ComparisonDashboardPr
               ) : (
                 availableJobs.slice(0, 10).map((job, idx) => {
                   const colorIdx = selectedJobIds.indexOf(job.job_id);
-                  const color = colorIdx >= 0 ? COLORS[colorIdx] : "#gray";
+                  const color = colorIdx >= 0 ? COLORS[colorIdx] : "#9ca3af";
 
                   return (
                     <label
@@ -318,6 +355,7 @@ export default function ComparisonDashboard({ modelName }: ComparisonDashboardPr
                         <TableBody>
                           {comparisonData.map((job, idx) => {
                             const finalMetrics = job.metrics[job.metrics.length - 1] || {};
+                            const hp = job.hyperparams || {};
                             const isBest = job.job_id === bestJobId;
 
                             return (
@@ -335,24 +373,24 @@ export default function ComparisonDashboard({ modelName }: ComparisonDashboardPr
                                   </div>
                                 </TableCell>
                                 <TableCell className="capitalize">
-                                  {job.hyperparams.optimizer || "—"}
+                                  {hp.optimizer || "—"}
                                 </TableCell>
                                 <TableCell>
-                                  {job.hyperparams.lr ? job.hyperparams.lr.toExponential(2) : "—"}
+                                  {hp.lr != null ? Number(hp.lr).toExponential(2) : "—"}
                                 </TableCell>
-                                <TableCell>{job.hyperparams.batch_size || "—"}</TableCell>
-                                <TableCell>{job.hyperparams.epochs || "—"}</TableCell>
+                                <TableCell>{hp.batch_size ?? "—"}</TableCell>
+                                <TableCell>{hp.epochs ?? "—"}</TableCell>
                                 <TableCell className="text-right">
-                                  {finalMetrics.val_loss !== undefined
+                                  {finalMetrics.val_loss !== undefined && finalMetrics.val_loss !== null
                                     ? finalMetrics.val_loss.toFixed(4)
-                                    : finalMetrics.loss !== undefined
+                                    : finalMetrics.loss !== undefined && finalMetrics.loss !== null
                                     ? finalMetrics.loss.toFixed(4)
                                     : "—"}
                                 </TableCell>
                                 <TableCell className="text-right">
-                                  {finalMetrics.val_accuracy !== undefined
+                                  {finalMetrics.val_accuracy !== undefined && finalMetrics.val_accuracy !== null
                                     ? (finalMetrics.val_accuracy * 100).toFixed(2) + "%"
-                                    : finalMetrics.accuracy !== undefined
+                                    : finalMetrics.accuracy !== undefined && finalMetrics.accuracy !== null
                                     ? (finalMetrics.accuracy * 100).toFixed(2) + "%"
                                     : "—"}
                                 </TableCell>

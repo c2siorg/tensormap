@@ -9,6 +9,8 @@ const DataUpload = lazy(() => import("./containers/DataUpload/DataUpload"));
 const DataProcess = lazy(() => import("./containers/DataProcess/DataProcess"));
 const DeepLearning = lazy(() => import("./containers/DeepLearning/DeepLearning"));
 const Training = lazy(() => import("./containers/Training/Training"));
+const Tuning = lazy(() => import("./containers/Tuning/Tuning"));
+const Analysis = lazy(() => import("./containers/Analysis/Analysis"));
 
 function withErrorBoundary(Wrapped) {
   const Wrapper = (props) => (
@@ -25,6 +27,8 @@ const DataUploadWithBoundary = withErrorBoundary(DataUpload);
 const DataProcessWithBoundary = withErrorBoundary(DataProcess);
 const DeepLearningWithBoundary = withErrorBoundary(DeepLearning);
 const TrainingWithBoundary = withErrorBoundary(Training);
+const TuningWithBoundary = withErrorBoundary(Tuning);
+const AnalysisWithBoundary = withErrorBoundary(Analysis);
 
 /**
  * Root application component that defines all client-side routes.
@@ -52,6 +56,8 @@ function App() {
               <Route path="process" element={<DataProcessWithBoundary />} />
               <Route path="models" element={<DeepLearningWithBoundary />} />
               <Route path="training" element={<TrainingWithBoundary />} />
+              <Route path="tuning" element={<TuningWithBoundary />} />
+              <Route path="analysis" element={<AnalysisWithBoundary />} />
             </Route>
 
             {/* Legacy redirects */}

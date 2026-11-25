@@ -17,7 +17,8 @@ import {
   TuningSessionDetail,
 } from "@/services/tuningService";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { AlertCircle } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { AlertCircle, RotateCcw } from "lucide-react";
 
 interface TuningContainerProps {
   modelName: string;
@@ -42,6 +43,8 @@ export default function TuningContainer({ modelName }: TuningContainerProps) {
       early_stop_threshold: number | null;
     }) => {
       setError(null);
+      setSessionDetail(null);
+      setIsCompleted(false);
       try {
         const response = await startTuning(modelName, config);
         const data = response.data.data;
@@ -50,10 +53,12 @@ export default function TuningContainer({ modelName }: TuningContainerProps) {
         setTotalTrials(data.n_trials);
         setMetric(config.metric);
         setDirection(config.direction);
-        setIsCompleted(false);
       } catch (err: any) {
         setError(
-          err.response?.data?.message || err.message || "Failed to start tuning session",
+          err.response?.data?.detail ||
+            err.response?.data?.message ||
+            err.message ||
+            "Failed to start tuning session",
         );
       }
     },
@@ -65,7 +70,12 @@ export default function TuningContainer({ modelName }: TuningContainerProps) {
     try {
       await cancelTuning(tuningId);
     } catch (err: any) {
-      setError(err.response?.data?.message || err.message || "Failed to cancel tuning");
+      setError(
+        err.response?.data?.detail ||
+          err.response?.data?.message ||
+          err.message ||
+          "Failed to cancel tuning",
+      );
     }
   }, [tuningId]);
 
@@ -78,14 +88,36 @@ export default function TuningContainer({ modelName }: TuningContainerProps) {
       const response = await getTuningSession(tuningId);
       setSessionDetail(response.data.data);
     } catch (err: any) {
-      setError(err.response?.data?.message || err.message || "Failed to fetch session details");
+      setError(
+        err.response?.data?.detail ||
+          err.response?.data?.message ||
+          err.message ||
+          "Failed to fetch session details",
+      );
     }
   }, [tuningId]);
 
   const handleApplyBest = useCallback(async () => {
     if (!tuningId) return;
-    await applyBestParams(tuningId);
+    try {
+      await applyBestParams(tuningId);
+    } catch (err: any) {
+      throw new Error(
+        err.response?.data?.detail ||
+          err.response?.data?.message ||
+          err.message ||
+          "Failed to apply parameters",
+      );
+    }
   }, [tuningId]);
+
+  const handleReset = useCallback(() => {
+    setTuningId(null);
+    setTotalTrials(0);
+    setSessionDetail(null);
+    setIsCompleted(false);
+    setError(null);
+  }, []);
 
   const estimateTime = useCallback(
     (space: TuningSearchSpace, strategy: string, maxTrials: number) => {
@@ -114,8 +146,24 @@ export default function TuningContainer({ modelName }: TuningContainerProps) {
         />
       )}
 
-      {/* Progress Panel (show during tuning) */}
-      {tuningId && !isCompleted && (
+      {/* Apply Best Banner (show after successful completion) */}
+      {isCompleted &&
+        sessionDetail &&
+        sessionDetail.status === "completed" &&
+        sessionDetail.best_hyperparams && (
+          <ApplyBestBanner
+            bestParams={sessionDetail.best_hyperparams}
+            metric={metric}
+            metricValue={
+              sessionDetail.trials.find((t) => t.job_id === sessionDetail.best_job_id)
+                ?.metric_value ?? 0
+            }
+            onApply={handleApplyBest}
+          />
+        )}
+
+      {/* Keep a single Progress Panel mounted to preserve live trial results */}
+      {tuningId && (
         <TuningProgressPanel
           tuningId={tuningId}
           totalTrials={totalTrials}
@@ -126,28 +174,13 @@ export default function TuningContainer({ modelName }: TuningContainerProps) {
         />
       )}
 
-      {/* Apply Best Banner (show after completion) */}
-      {isCompleted && sessionDetail && sessionDetail.best_hyperparams && (
-        <ApplyBestBanner
-          bestParams={sessionDetail.best_hyperparams}
-          metric={metric}
-          metricValue={
-            sessionDetail.trials.find((t) => t.job_id === sessionDetail.best_job_id)
-              ?.metric_value || 0
-          }
-          onApply={handleApplyBest}
-        />
-      )}
-
-      {/* Show progress panel even after completion for reference */}
       {isCompleted && tuningId && (
-        <TuningProgressPanel
-          tuningId={tuningId}
-          totalTrials={totalTrials}
-          metric={metric}
-          direction={direction}
-          onCancel={handleCancel}
-        />
+        <div className="flex justify-end">
+          <Button variant="outline" onClick={handleReset}>
+            <RotateCcw className="w-4 h-4 mr-2" />
+            Configure New Sweep
+          </Button>
+        </div>
       )}
     </div>
   );

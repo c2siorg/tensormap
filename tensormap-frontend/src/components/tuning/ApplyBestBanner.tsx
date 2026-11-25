@@ -64,21 +64,21 @@ export default function ApplyBestBanner({
                   <p className="font-medium capitalize">{bestParams.optimizer}</p>
                 </div>
               )}
-              {bestParams.lr && (
+              {bestParams.lr != null && (
                 <div>
                   <span className="text-xs text-gray-600 uppercase">Learning Rate</span>
                   <p className="font-medium font-mono">
-                    {bestParams.lr.toExponential(2)}
+                    {Number(bestParams.lr).toExponential(2)}
                   </p>
                 </div>
               )}
-              {bestParams.batch_size && (
+              {bestParams.batch_size != null && (
                 <div>
                   <span className="text-xs text-gray-600 uppercase">Batch Size</span>
                   <p className="font-medium">{bestParams.batch_size}</p>
                 </div>
               )}
-              {bestParams.epochs && (
+              {bestParams.epochs != null && (
                 <div>
                   <span className="text-xs text-gray-600 uppercase">Epochs</span>
                   <p className="font-medium">{bestParams.epochs}</p>

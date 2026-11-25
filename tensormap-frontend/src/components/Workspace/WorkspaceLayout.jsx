@@ -7,7 +7,7 @@ import useProjectData from "../../hooks/useProjectData";
  * Shell layout for a single project workspace.
  *
  * Renders the sidebar navigation, a breadcrumb top bar, and an Outlet
- * for the active nested route (datasets, process, models, training).
+ * for the active nested route (dataset, process, models, training, tuning, analysis).
  */
 export default function WorkspaceLayout() {
   const { project } = useProjectData();

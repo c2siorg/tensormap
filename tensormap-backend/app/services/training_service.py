@@ -7,6 +7,7 @@ ends COMPLETED / FAILED / CANCELLED. Metrics are persisted per epoch by
 """
 
 import asyncio
+import contextlib
 import os
 import uuid as uuid_pkg
 from datetime import UTC, datetime
@@ -173,7 +174,15 @@ def _train_in_thread(model_name: str, job_id: str, loop: asyncio.AbstractEventLo
                 sio,
                 loop,
                 job_id,
-                training_event(job_id, "status", status="cancelled"),
+                training_event(
+                    job_id,
+                    "status",
+                    status="cancelled",
+                    phase=None,
+                    epoch=None,
+                    batch=None,
+                    steps=None,
+                ),
             )
             return
 
@@ -186,6 +195,23 @@ def _train_in_thread(model_name: str, job_id: str, loop: asyncio.AbstractEventLo
                 update_job_status(job_id, TrainingStatus.FAILED, session, error_message=str(e))
             except Exception:  # noqa: BLE001
                 logger.exception("Failed to mark job %s as failed", job_id)
+            with contextlib.suppress(Exception):
+                schedule_room_emit(
+                    sio,
+                    loop,
+                    job_id,
+                    training_event(
+                        job_id,
+                        "status",
+                        status="failed",
+                        phase=None,
+                        epoch=None,
+                        batch=None,
+                        steps=None,
+                        error=str(e),
+                        error_message=str(e),
+                    ),
+                )
 
 
 def launch_training_job(model_name: str, job_id: str, loop: asyncio.AbstractEventLoop) -> None:

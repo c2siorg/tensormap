@@ -42,7 +42,7 @@ export default function TuningProgressPanel({
   onCancel,
   onComplete,
 }: TuningProgressPanelProps) {
-  const [status, setStatus] = useState<"pending" | "running" | "completed" | "cancelled">(
+  const [status, setStatus] = useState<"pending" | "running" | "completed" | "cancelled" | "failed">(
     "pending",
   );
   const [completedTrials, setCompletedTrials] = useState(0);
@@ -51,23 +51,33 @@ export default function TuningProgressPanel({
   const [bestMetric, setBestMetric] = useState<number | null>(null);
   const [earlyStopped, setEarlyStopped] = useState(false);
   const [cancelRequested, setCancelRequested] = useState(false);
+  const [sessionError, setSessionError] = useState<string | null>(null);
 
   useEffect(() => {
     const cleanup = subscribeToTuning(tuningId, (data: TuningProgress) => {
       if (data.type === "tuning_catchup") {
         // Handle catch-up: restore current state
-        setCompletedTrials(data.completed_trials || 0);
+        setCompletedTrials(data.completed_trials ?? 0);
         setStatus(
-          (data.status as "pending" | "running" | "completed" | "cancelled") || "pending",
+          (data.status as "pending" | "running" | "completed" | "cancelled" | "failed") || "pending",
         );
         setEarlyStopped(data.early_stopped || false);
+        if (data.best_job_id) {
+          setBestJobId(data.best_job_id);
+        }
         if (data.trials) {
           setTrials(data.trials);
+          if (data.best_job_id) {
+            const bestTrial = data.trials.find((t) => t.job_id === data.best_job_id);
+            if (bestTrial && bestTrial.metric_value !== null && bestTrial.metric_value !== undefined) {
+              setBestMetric(bestTrial.metric_value);
+            }
+          }
         }
       } else if (data.type === "tuning_progress") {
         // New trial completed
         setStatus("running");
-        setCompletedTrials(data.trial || 0);
+        setCompletedTrials(data.trial ?? 0);
 
         // Update best metric
         if (data.best_metric !== undefined && data.best_metric !== null) {
@@ -83,10 +93,10 @@ export default function TuningProgressPanel({
             // Check if trial already exists (avoid duplicates)
             const existingIndex = prev.findIndex((t) => t.job_id === data.job_id);
             const newTrial: TuningTrialSummary = {
-              job_id: data.job_id,
+              job_id: data.job_id!,
               status: "completed",
               hyperparams: data.hyperparams!,
-              metric_value: data.metric || null,
+              metric_value: data.metric ?? null,
               started_at: null,
               completed_at: new Date().toISOString(),
             };
@@ -101,8 +111,15 @@ export default function TuningProgressPanel({
         }
       } else if (data.type === "tuning_complete") {
         // Tuning finished
-        setStatus((data.status as "completed" | "cancelled") || "completed");
-        setCompletedTrials(totalTrials);
+        const nextStatus =
+          (data.status as "completed" | "cancelled" | "failed") || "completed";
+        setStatus(nextStatus);
+        if (nextStatus === "completed") {
+          setCompletedTrials(totalTrials);
+        }
+        if (data.error) {
+          setSessionError(data.error);
+        }
 
         if (data.best_metric !== undefined && data.best_metric !== null) {
           setBestMetric(data.best_metric);
@@ -205,6 +222,12 @@ export default function TuningProgressPanel({
               Cancelled
             </Badge>
           )}
+          {status === "failed" && (
+            <Badge variant="destructive" className="flex items-center gap-1">
+              <XCircle className="w-3 h-3" />
+              Failed{sessionError ? `: ${sessionError}` : ""}
+            </Badge>
+          )}
           {earlyStopped && (
             <Badge variant="outline" className="border-blue-500 text-blue-700">
               Early Stopped — target metric reached
@@ -241,9 +264,7 @@ export default function TuningProgressPanel({
                         {(params.optimizer as string) || "—"}
                       </TableCell>
                       <TableCell>
-                        {params.lr
-                          ? (params.lr as number).toExponential(2)
-                          : "—"}
+                        {params.lr != null ? Number(params.lr).toExponential(2) : "—"}
                       </TableCell>
                       <TableCell>{(params.batch_size as number) || "—"}</TableCell>
                       <TableCell>{(params.epochs as number) || "—"}</TableCell>

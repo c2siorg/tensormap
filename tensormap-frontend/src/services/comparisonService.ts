@@ -4,7 +4,6 @@
  */
 
 import axios from "../shared/Axios";
-import * as urls from "../constants/Urls";
 
 export interface JobMetric {
   epoch: number;
@@ -41,9 +40,9 @@ export interface ComparisonResponse {
  * @param metric - Metric to compare (default: val_loss)
  */
 export function compareJobs(jobIds: string[], metric: string = "val_loss") {
-  const jobIdsStr = jobIds.join(",");
+  const jobIdsStr = jobIds.map((id) => encodeURIComponent(id)).join(",");
   return axios.get<{ success: boolean; data: ComparisonResponse }>(
-    `/model/compare?job_ids=${jobIdsStr}&metric=${metric}`,
+    `/model/compare?job_ids=${jobIdsStr}&metric=${encodeURIComponent(metric)}`,
   );
 }
 
@@ -61,5 +60,5 @@ export function getTrainingJobs(modelName: string) {
       started_at: string | null;
       completed_at: string | null;
     }>;
-  }>(`/model/training-jobs?model_name=${modelName}`);
+  }>(`/model/training-jobs?model_name=${encodeURIComponent(modelName)}`);
 }

@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import TuningConfigForm from "../TuningConfigForm";
 
@@ -244,6 +244,88 @@ describe("TuningConfigForm", () => {
     const startButton = screen.getByRole("button", { name: /Start Hyperparameter Tuning/i });
     await waitFor(() => {
       expect(startButton).toBeDisabled();
+    });
+  });
+
+  it("grid search submits discrete lr array matching selected checkboxes", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <TuningConfigForm
+        modelName="test-model"
+        onStart={mockOnStart}
+        estimateTime={mockEstimateTime}
+      />,
+    );
+
+    await user.click(screen.getByLabelText(/Grid Search/i));
+    expect(screen.getByText(/Learning Rate \(Discrete Values\)/i)).toBeInTheDocument();
+
+    // Add 5.0e-3 to default [1.0e-4, 1.0e-3]
+    await user.click(screen.getByText("5.0e-3"));
+
+    const startButton = screen.getByRole("button", { name: /Start Hyperparameter Tuning/i });
+    await user.click(startButton);
+
+    await waitFor(() => {
+      expect(mockOnStart).toHaveBeenCalledTimes(1);
+      const args = mockOnStart.mock.calls[0][0];
+      expect(args.strategy).toBe("grid");
+      expect(Array.isArray(args.search_space.lr)).toBe(true);
+      expect(args.search_space.lr).toEqual([0.0001, 0.001, 0.005]);
+    });
+  });
+
+  it("grid search disables start when all discrete learning rates are unchecked", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <TuningConfigForm
+        modelName="test-model"
+        onStart={mockOnStart}
+        estimateTime={mockEstimateTime}
+      />,
+    );
+
+    await user.click(screen.getByLabelText(/Grid Search/i));
+    await user.click(screen.getByText("1.0e-4"));
+    await user.click(screen.getByText("1.0e-3"));
+
+    const startButton = screen.getByRole("button", { name: /Start Hyperparameter Tuning/i });
+    await waitFor(() => {
+      expect(startButton).toBeDisabled();
+    });
+  });
+
+  it("random search allows single discrete learning rate when min equals max", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <TuningConfigForm
+        modelName="test-model"
+        onStart={mockOnStart}
+        estimateTime={mockEstimateTime}
+      />,
+    );
+
+    // Move lower slider thumb from -4 to -3 to match upper bound -3
+    const sliders = screen.getAllByRole("slider");
+    fireEvent.change(sliders[0], { target: { value: "-3" } });
+
+    await waitFor(() => {
+      expect(screen.getByText(/Fixed discrete learning rate/i)).toBeInTheDocument();
+    });
+
+    const startButton = screen.getByRole("button", { name: /Start Hyperparameter Tuning/i });
+    expect(startButton).not.toBeDisabled();
+    await user.click(startButton);
+
+    await waitFor(() => {
+      expect(mockOnStart).toHaveBeenCalledTimes(1);
+      const args = mockOnStart.mock.calls[0][0];
+      expect(args.strategy).toBe("random");
+      expect(Array.isArray(args.search_space.lr)).toBe(true);
+      expect(args.search_space.lr[0]).toBeCloseTo(0.001);
     });
   });
 });

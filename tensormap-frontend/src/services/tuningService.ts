@@ -69,11 +69,13 @@ export interface TuningProgress {
   type: "tuning_progress" | "tuning_complete" | "tuning_catchup";
   trial?: number;
   total?: number;
+  job_id?: string;
   hyperparams?: Record<string, unknown>;
   metric?: number | null;
   best_metric?: number | null;
   best_job_id?: string | null;
   status?: string;
+  error?: string | null;
   // catch-up fields
   total_trials?: number;
   completed_trials?: number;

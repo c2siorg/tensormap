@@ -1,6 +1,14 @@
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { useRecoilValue } from "recoil";
-import { Database, BarChart3, Layers, Play, ArrowLeft } from "lucide-react";
+import {
+  Database,
+  BarChart3,
+  Layers,
+  Play,
+  SlidersHorizontal,
+  LineChart,
+  ArrowLeft,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
@@ -11,13 +19,15 @@ const navItems = [
   { label: "Preprocess Data", path: "process", icon: BarChart3, requiresDataset: true },
   { label: "Models", path: "models", icon: Layers },
   { label: "Training", path: "training", icon: Play },
+  { label: "Tuning", path: "tuning", icon: SlidersHorizontal },
+  { label: "Analysis & Compare", path: "analysis", icon: LineChart },
 ];
 
 /**
  * Vertical sidebar for navigating between workspace sections.
  *
- * Highlights the currently active section (datasets, process, models,
- * training) and provides a back link to the projects listing.
+ * Highlights the currently active section (dataset, process, models,
+ * training, tuning, analysis) and provides a back link to the projects listing.
  *
  * @param {{ projectName: string | undefined }} props
  */

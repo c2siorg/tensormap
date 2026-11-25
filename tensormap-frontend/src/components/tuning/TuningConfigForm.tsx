@@ -23,16 +23,15 @@ import { TuningSearchSpace } from "@/services/tuningService";
 import { AlertTriangle, Loader2 } from "lucide-react";
 
 const OPTIMIZERS = ["adam", "sgd", "rmsprop"];
+const LEARNING_RATES = [0.0001, 0.0005, 0.001, 0.005, 0.01];
 const BATCH_SIZES = [16, 32, 64, 128];
 const EPOCHS_OPTIONS = [20, 50, 100];
-const LR_MIN = 1e-5;
-const LR_MAX = 1e-2;
 
 const METRICS = [
-  { value: "val_accuracy", direction: "maximize" },
-  { value: "val_loss", direction: "minimize" },
-  { value: "accuracy", direction: "maximize" },
-  { value: "loss", direction: "minimize" },
+  { value: "val_accuracy", direction: "maximize" as const },
+  { value: "val_loss", direction: "minimize" as const },
+  { value: "accuracy", direction: "maximize" as const },
+  { value: "loss", direction: "minimize" as const },
 ];
 
 interface TuningConfigFormProps {
@@ -58,6 +57,7 @@ export default function TuningConfigForm({
 
   // Search space state
   const [selectedOptimizers, setSelectedOptimizers] = useState(["adam", "sgd"]);
+  const [selectedLearningRates, setSelectedLearningRates] = useState([0.0001, 0.001]);
   const [lrLogMin, setLrLogMin] = useState(-4); // log10(1e-4) = -4
   const [lrLogMax, setLrLogMax] = useState(-3); // log10(1e-3) = -3
   const [selectedBatchSizes, setSelectedBatchSizes] = useState([32, 64]);
@@ -80,44 +80,57 @@ export default function TuningConfigForm({
   const searchSpace: TuningSearchSpace = useMemo(() => {
     return {
       optimizer: selectedOptimizers,
-      lr: {
-        type: "log_uniform",
-        min: Math.pow(10, lrLogMin),
-        max: Math.pow(10, lrLogMax),
-      },
+      lr:
+        strategy === "grid"
+          ? selectedLearningRates
+          : lrLogMin === lrLogMax
+            ? [Math.pow(10, lrLogMin)]
+            : {
+                type: "log_uniform",
+                min: Math.pow(10, lrLogMin),
+                max: Math.pow(10, lrLogMax),
+              },
       batch_size: selectedBatchSizes,
       epochs: selectedEpochs,
     };
-  }, [selectedOptimizers, lrLogMin, lrLogMax, selectedBatchSizes, selectedEpochs]);
+  }, [
+    strategy,
+    selectedOptimizers,
+    selectedLearningRates,
+    lrLogMin,
+    lrLogMax,
+    selectedBatchSizes,
+    selectedEpochs,
+  ]);
 
   // Calculate grid combinations count
   const gridCombinations = useMemo(() => {
     if (strategy !== "grid") return 0;
     return (
       selectedOptimizers.length *
+      selectedLearningRates.length *
       selectedBatchSizes.length *
-      selectedEpochs.length *
-      2 // Learning rate range (simplified estimate)
+      selectedEpochs.length
     );
-  }, [strategy, selectedOptimizers, selectedBatchSizes, selectedEpochs]);
+  }, [strategy, selectedOptimizers, selectedLearningRates, selectedBatchSizes, selectedEpochs]);
 
   // Estimate time
   const estimatedSeconds = useMemo(() => {
+    const trials = strategy === "grid" ? gridCombinations : maxTrials;
     if (estimateTime) {
-      const trials = strategy === "grid" ? gridCombinations : maxTrials;
       return estimateTime(searchSpace, strategy, trials);
     }
-    // Fallback: 2 minutes per trial
-    const trials = strategy === "grid" ? gridCombinations : maxTrials;
     return trials * 120;
   }, [estimateTime, searchSpace, strategy, maxTrials, gridCombinations]);
 
+  const trialCount = strategy === "grid" ? gridCombinations : maxTrials;
   const estimatedMinutes = Math.ceil(estimatedSeconds / 60);
   const showWarning = estimatedMinutes > 30;
   const gridError = strategy === "grid" && gridCombinations > 50;
+  const lrRangeError = strategy === "random" && lrLogMin > lrLogMax;
 
   const handleStart = () => {
-    if (gridError) return;
+    if (!isValid) return;
 
     onStart({
       strategy,
@@ -135,6 +148,12 @@ export default function TuningConfigForm({
     );
   };
 
+  const toggleLearningRate = (lr: number) => {
+    setSelectedLearningRates((prev) =>
+      prev.includes(lr) ? prev.filter((v) => v !== lr) : [...prev, lr],
+    );
+  };
+
   const toggleBatchSize = (size: number) => {
     setSelectedBatchSizes((prev) =>
       prev.includes(size) ? prev.filter((s) => s !== size) : [...prev, size],
@@ -147,10 +166,13 @@ export default function TuningConfigForm({
     );
   };
 
+  const hasValidLr = strategy === "grid" ? selectedLearningRates.length > 0 : lrLogMin <= lrLogMax;
+
   const isValid =
     selectedOptimizers.length > 0 &&
     selectedBatchSizes.length > 0 &&
     selectedEpochs.length > 0 &&
+    hasValidLr &&
     !gridError;
 
   return (
@@ -230,31 +252,54 @@ export default function TuningConfigForm({
 
           {/* Learning Rate */}
           <div className="space-y-2">
-            <Label>Learning Rate (Log Scale)</Label>
-            <div className="space-y-4">
-              <div className="px-4">
-                <Slider
-                  min={-5}
-                  max={-2}
-                  step={0.5}
-                  value={[lrLogMin, lrLogMax]}
-                  onValueChange={([min, max]) => {
-                    setLrLogMin(min);
-                    setLrLogMax(max);
-                  }}
-                  className="w-full"
-                />
+            <Label>
+              {strategy === "grid"
+                ? "Learning Rate (Discrete Values)"
+                : "Learning Rate (Log Scale)"}
+            </Label>
+            {strategy === "grid" ? (
+              <div className="flex flex-wrap gap-4">
+                {LEARNING_RATES.map((lrVal) => (
+                  <label key={lrVal} className="flex items-center gap-2 cursor-pointer">
+                    <Checkbox
+                      checked={selectedLearningRates.includes(lrVal)}
+                      onCheckedChange={() => toggleLearningRate(lrVal)}
+                    />
+                    <span className="font-mono text-sm">{lrVal.toExponential(1)}</span>
+                  </label>
+                ))}
               </div>
-              <div className="flex justify-between text-sm text-gray-600">
-                <span>
-                  Min: {Math.pow(10, lrLogMin).toExponential(1)}
-                </span>
-                <span>
-                  Max: {Math.pow(10, lrLogMax).toExponential(1)}
-                </span>
+            ) : (
+              <div className="space-y-4">
+                <div className="px-4">
+                  <Slider
+                    min={-5}
+                    max={-2}
+                    step={0.5}
+                    value={[lrLogMin, lrLogMax]}
+                    onValueChange={([min, max]) => {
+                      setLrLogMin(min);
+                      setLrLogMax(max);
+                    }}
+                    className="w-full"
+                  />
+                </div>
+                <div className="flex justify-between text-sm text-gray-600">
+                  <span>Min: {Math.pow(10, lrLogMin).toExponential(1)}</span>
+                  <span>Max: {Math.pow(10, lrLogMax).toExponential(1)}</span>
+                </div>
+                <p className="text-sm text-gray-500">
+                  {lrLogMin === lrLogMax
+                    ? "Fixed discrete learning rate"
+                    : "log_uniform distribution"}
+                </p>
+                {lrRangeError && (
+                  <p className="text-sm text-red-600">
+                    Learning rate minimum must not exceed maximum.
+                  </p>
+                )}
               </div>
-              <p className="text-sm text-gray-500">log_uniform distribution</p>
-            </div>
+            )}
           </div>
 
           {/* Batch Size */}
@@ -333,9 +378,12 @@ export default function TuningConfigForm({
                 type="number"
                 step={0.01}
                 min={0}
-                max={1}
+                max={metric.includes("accuracy") ? 1 : undefined}
                 value={earlyStopThreshold}
-                onChange={(e) => setEarlyStopThreshold(parseFloat(e.target.value) || 0)}
+                onChange={(e) => {
+                  const parsed = parseFloat(e.target.value);
+                  setEarlyStopThreshold(Number.isNaN(parsed) ? 0 : parsed);
+                }}
                 className="max-w-xs"
               />
               <p className="text-sm text-gray-500">
@@ -346,16 +394,14 @@ export default function TuningConfigForm({
         </div>
 
         {/* ETA Estimation */}
-        {isValid && (
+        {isValid && trialCount > 0 && (
           <div className="space-y-2 border-t pt-4">
             <div className="flex items-center gap-2">
               <Loader2 className="w-4 h-4 animate-spin text-blue-500" />
               <span className="text-sm font-medium">Estimated time:</span>
               <span className="text-sm">
-                ~{estimatedMinutes} minutes (
-                {strategy === "grid" ? gridCombinations : maxTrials} trials × ~
-                {Math.ceil(estimatedSeconds / (strategy === "grid" ? gridCombinations : maxTrials))}{" "}
-                sec/trial)
+                ~{estimatedMinutes} minutes ({trialCount} trials × ~
+                {Math.ceil(estimatedSeconds / trialCount)} sec/trial)
               </span>
             </div>
           </div>

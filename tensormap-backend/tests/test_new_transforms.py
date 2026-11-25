@@ -281,3 +281,42 @@ class TestSquareRootTransform:
         result, status_code = _run(df, "Square Root Transform", "val")
         assert status_code == 422
         assert "not numeric" in result["message"]
+
+
+class TestNumericAndClipGuards:
+    @pytest.mark.parametrize(
+        ("transformation", "params"),
+        [
+            ("Min-Max Normalization", None),
+            ("Z-score Standardization", None),
+            ("Log Transform", None),
+            ("Square Root Transform", None),
+            ("Clip Outliers", {"method": "iqr"}),
+            ("Fill Missing Values", {"strategy": "mean"}),
+            ("Fill Missing Values", {"strategy": "median"}),
+        ],
+    )
+    def test_boolean_column_rejected_as_non_numeric(self, transformation, params):
+        df = pd.DataFrame({"flag": [True, False, True]})
+        result, status_code = _run(df, transformation, "flag", params=params)
+        assert status_code == 422
+        assert "not numeric" in result["message"]
+
+    @pytest.mark.parametrize(
+        "params",
+        [
+            {"method": "iqr", "factor": -1.0},
+            {"method": "iqr", "factor": "bad"},
+            {"method": "zscore", "threshold": 0.0},
+            {"method": "zscore", "threshold": -2.0},
+            {"method": "percentile", "lower_percentile": -1.0, "upper_percentile": 95.0},
+            {"method": "percentile", "lower_percentile": 5.0, "upper_percentile": 101.0},
+            {"method": "percentile", "lower_percentile": 90.0, "upper_percentile": 10.0},
+            {"method": "percentile", "lower_percentile": 50.0, "upper_percentile": 50.0},
+        ],
+    )
+    def test_clip_outliers_invalid_params_rejected(self, params):
+        df = pd.DataFrame({"val": [1.0, 2.0, 3.0, 4.0, 5.0]})
+        result, status_code = _run(df, "Clip Outliers", "val", params=params)
+        assert status_code == 422
+        assert result["success"] is False

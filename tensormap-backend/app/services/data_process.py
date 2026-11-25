@@ -555,12 +555,29 @@ def _drop_column(df: pd.DataFrame, col: str, _params: dict | None) -> pd.DataFra
     return df.drop(columns=[col])
 
 
-def _min_max_normalize(df: pd.DataFrame, col: str, _params: dict | None) -> pd.DataFrame:
-    if not pd.api.types.is_numeric_dtype(df[col]):
+def _require_numeric_column(series: pd.Series, col: str, operation: str) -> None:
+    """Validate that a column is numeric (excluding bool)."""
+    # pandas treats bool as numeric in is_numeric_dtype(), which breaks quantile/arithmetic ops.
+    if not pd.api.types.is_numeric_dtype(series) or pd.api.types.is_bool_dtype(series):
         raise ValueError(
-            f"Min-Max Normalization requires a numeric column, but '{col}' has dtype '{df[col].dtype}'. "
-            "Convert it to a numeric type first."
+            f"{operation}: Column '{col}' is not numeric (dtype '{series.dtype}'). Convert it to a numeric type first."
         )
+
+
+def _parse_finite_float(params: dict, key: str, default: float, operation: str) -> float:
+    """Parse a numeric parameter and ensure it is a finite float."""
+    raw = params.get(key, default)
+    try:
+        value = float(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{operation}: Parameter '{key}' must be a number, got {raw!r}.") from exc
+    if not math.isfinite(value):
+        raise ValueError(f"{operation}: Parameter '{key}' must be a finite number, got {raw!r}.")
+    return value
+
+
+def _min_max_normalize(df: pd.DataFrame, col: str, _params: dict | None) -> pd.DataFrame:
+    _require_numeric_column(df[col], col, "Min-Max Normalization")
     col_min = df[col].min()
     col_max = df[col].max()
     df[col] = 0.0 if np.isclose(col_min, col_max) else (df[col] - col_min) / (col_max - col_min)
@@ -568,11 +585,7 @@ def _min_max_normalize(df: pd.DataFrame, col: str, _params: dict | None) -> pd.D
 
 
 def _zscore_standardize(df: pd.DataFrame, col: str, _params: dict | None) -> pd.DataFrame:
-    if not pd.api.types.is_numeric_dtype(df[col]):
-        raise ValueError(
-            f"Z-score Standardization requires a numeric column, but '{col}' has dtype '{df[col].dtype}'. "
-            "Convert it to a numeric type first."
-        )
+    _require_numeric_column(df[col], col, "Z-score Standardization")
     mean = df[col].mean()
     std = df[col].std()
     df[col] = 0.0 if np.isclose(std, 0) else (df[col] - mean) / std
@@ -580,11 +593,7 @@ def _zscore_standardize(df: pd.DataFrame, col: str, _params: dict | None) -> pd.
 
 
 def _log_transform(df: pd.DataFrame, col: str, _params: dict | None) -> pd.DataFrame:
-    if not pd.api.types.is_numeric_dtype(df[col]):
-        raise ValueError(
-            f"Log Transform requires a numeric column, but '{col}' has dtype '{df[col].dtype}'. "
-            "Convert it to a numeric type first."
-        )
+    _require_numeric_column(df[col], col, "Log Transform")
     s = df[col]
     # log(1+x) is non-finite for x <= -1: at x == -1 it evaluates to -inf
     # (log 0), so reject those values instead of silently corrupting the CSV.
@@ -599,8 +608,7 @@ def _log_transform(df: pd.DataFrame, col: str, _params: dict | None) -> pd.DataF
 
 
 def _sqrt_transform(df: pd.DataFrame, col: str, _params: dict | None) -> pd.DataFrame:
-    if not pd.api.types.is_numeric_dtype(df[col]):
-        raise ValueError(f"Square Root Transform: Column '{col}' is not numeric.")
+    _require_numeric_column(df[col], col, "Square Root Transform")
     s = df[col]
     invalid = int((s < 0).sum())
     if invalid:
@@ -613,20 +621,23 @@ def _sqrt_transform(df: pd.DataFrame, col: str, _params: dict | None) -> pd.Data
 
 
 def _clip_outliers(df: pd.DataFrame, col: str, params: dict | None) -> pd.DataFrame:
-    if not pd.api.types.is_numeric_dtype(df[col]):
-        raise ValueError(f"Clip Outliers: Column '{col}' is not numeric.")
+    _require_numeric_column(df[col], col, "Clip Outliers")
     params = params or {}
     method = params.get("method", "iqr")
 
     if method == "iqr":
-        factor = float(params.get("factor", 1.5))
+        factor = _parse_finite_float(params, "factor", 1.5, "Clip Outliers")
+        if factor < 0:
+            raise ValueError("Clip Outliers: Parameter 'factor' must be >= 0.")
         q25 = df[col].quantile(0.25)
         q75 = df[col].quantile(0.75)
         iqr = q75 - q25
         lower = q25 - factor * iqr
         upper = q75 + factor * iqr
     elif method == "zscore":
-        threshold = float(params.get("threshold", 3.0))
+        threshold = _parse_finite_float(params, "threshold", 3.0, "Clip Outliers")
+        if threshold <= 0:
+            raise ValueError("Clip Outliers: Parameter 'threshold' must be > 0.")
         mean = df[col].mean()
         std = df[col].std()
         if np.isclose(std, 0):
@@ -634,10 +645,12 @@ def _clip_outliers(df: pd.DataFrame, col: str, params: dict | None) -> pd.DataFr
         lower = mean - threshold * std
         upper = mean + threshold * std
     elif method == "percentile":
-        lower_pct = float(params.get("lower_percentile", 1.0)) / 100.0
-        upper_pct = float(params.get("upper_percentile", 99.0)) / 100.0
-        lower = df[col].quantile(lower_pct)
-        upper = df[col].quantile(upper_pct)
+        lower_pct = _parse_finite_float(params, "lower_percentile", 1.0, "Clip Outliers")
+        upper_pct = _parse_finite_float(params, "upper_percentile", 99.0, "Clip Outliers")
+        if not (0.0 <= lower_pct < upper_pct <= 100.0):
+            raise ValueError("Clip Outliers: Percentiles must satisfy 0 <= lower_percentile < upper_percentile <= 100.")
+        lower = df[col].quantile(lower_pct / 100.0)
+        upper = df[col].quantile(upper_pct / 100.0)
     else:
         raise ValueError(f"Clip Outliers: Unknown method '{method}'. Valid: 'iqr', 'zscore', 'percentile'")
 
@@ -656,11 +669,8 @@ def _drop_missing_rows(df: pd.DataFrame, col: str, _params: dict | None) -> pd.D
 
 def _fill_missing(df: pd.DataFrame, col: str, params: dict | None) -> pd.DataFrame:
     strategy = (params or {}).get("strategy", "mean")
-    if strategy in {"mean", "median"} and not pd.api.types.is_numeric_dtype(df[col]):
-        raise ValueError(
-            f"Fill Missing Values with strategy='{strategy}' requires a numeric column, "
-            f"but '{col}' has dtype '{df[col].dtype}'. Use strategy='mode' for categorical columns."
-        )
+    if strategy in {"mean", "median"}:
+        _require_numeric_column(df[col], col, f"Fill Missing Values (strategy='{strategy}')")
     if strategy == "median":
         df[col] = df[col].fillna(df[col].median())
     elif strategy == "mode":

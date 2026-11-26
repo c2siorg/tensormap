@@ -269,3 +269,46 @@ export const getDatasetDrift = async (fileId, options = {}) => {
       throw err;
     });
 };
+
+/**
+ * Fetches preprocessing properties, discovered classes, and sample counts for an image ZIP dataset.
+ *
+ * @param {string} fileId - ID of the ZIP dataset.
+ * @returns {Promise<Object>} Image dataset properties payload.
+ */
+export const getImageProperties = async (fileId) => {
+  return axios
+    .get(`${urls.BACKEND_IMAGE_PROCESS}${fileId}`)
+    .then((resp) => {
+      if (resp.data.success === true) {
+        return resp.data.data;
+      }
+      return null;
+    })
+    .catch((err) => {
+      logger.error("Error fetching image properties:", err);
+      throw err;
+    });
+};
+
+/**
+ * Updates preprocessing properties for an image ZIP dataset.
+ *
+ * @param {string} fileId - ID of the ZIP dataset.
+ * @param {Object} properties - Partial or full update ({ image_size, batch_size, color_mode, label_mode }).
+ * @returns {Promise<Object>} Updated image dataset properties payload.
+ */
+export const updateImageProperties = async (fileId, properties) => {
+  return axios
+    .patch(`${urls.BACKEND_IMAGE_PROCESS}${fileId}`, properties)
+    .then((resp) => {
+      if (resp.data.success === true) {
+        return resp.data.data;
+      }
+      throw new Error(resp.data.message || "Failed to update image properties");
+    })
+    .catch((err) => {
+      logger.error("Error updating image properties:", err);
+      throw err;
+    });
+};

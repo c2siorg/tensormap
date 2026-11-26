@@ -95,6 +95,13 @@ const problemTypeOptions = [
     defaultLoss: "mean_squared_error",
     lossGroup: "Regression",
   },
+  {
+    key: "prob_type_3",
+    label: "Image Classification",
+    value: "3",
+    defaultLoss: "sparse_categorical_crossentropy",
+    lossGroup: "Classification",
+  },
 ];
 
 const getTrainingConfigKey = (modelName, config) => JSON.stringify({ modelName, config });
@@ -152,10 +159,11 @@ export default function Training() {
     : lossOptionGroups;
   const currentConfigKey = getTrainingConfigKey(selectedModel, trainingConfig);
   const isSavedConfigurationCurrent = configSaved && savedConfigKey === currentConfigKey;
+  const isImageProblem = trainingConfig.problem_type_id === "3";
   const qualityConfig = isSavedConfigurationCurrent ? trainingConfig : null;
   const datasetQuality = useDatasetQualityReport(
     qualityConfig?.file_id,
-    qualityConfig?.target_field,
+    qualityConfig?.problem_type_id === "3" ? null : qualityConfig?.target_field,
     qualityConfig?.problem_type_id,
     qualityConfig?.training_split ? Number(qualityConfig.training_split) * 100 : undefined,
   );
@@ -310,12 +318,24 @@ export default function Training() {
     return "";
   }, []);
 
-  const validateFile = useCallback((value) => {
-    if (!value) {
-      return "A dataset file must be selected";
-    }
-    return "";
-  }, []);
+  const validateFile = useCallback(
+    (value, problemTypeId = trainingConfig.problem_type_id) => {
+      if (!value) {
+        return "A dataset file must be selected";
+      }
+      const selectedFile = fileDetails.find((f) => String(f.file_id) === String(value));
+      if (selectedFile?.file_type) {
+        if (problemTypeId === "3" && selectedFile.file_type !== "zip") {
+          return "Image classification requires a ZIP image archive";
+        }
+        if (problemTypeId && problemTypeId !== "3" && selectedFile.file_type !== "csv") {
+          return "Tabular models require a CSV dataset";
+        }
+      }
+      return "";
+    },
+    [fileDetails, trainingConfig.problem_type_id],
+  );
 
   const validateProblemType = useCallback((value) => {
     if (!value) {
@@ -345,16 +365,22 @@ export default function Training() {
     return "";
   }, []);
 
-  const validateTargetField = useCallback((value) => {
-    if (!value || value.trim() === "") {
-      return "Target field must be specified";
-    }
-    return "";
-  }, []);
+  const validateTargetField = useCallback(
+    (value, problemTypeId = trainingConfig.problem_type_id) => {
+      if (problemTypeId === "3") {
+        return "";
+      }
+      if (!value || value.trim() === "") {
+        return "Target field must be specified";
+      }
+      return "";
+    },
+    [trainingConfig.problem_type_id],
+  );
 
   // Real-time validation handler
   const updateValidationErrors = useCallback(
-    (field, value) => {
+    (field, value, overrides = {}) => {
       let error = "";
       switch (field) {
         case "epochs":
@@ -370,7 +396,7 @@ export default function Training() {
           error = validateModel(value);
           break;
         case "file_id":
-          error = validateFile(value);
+          error = validateFile(value, overrides.problem_type_id);
           break;
         case "problem_type_id":
           error = validateProblemType(value);
@@ -385,7 +411,7 @@ export default function Training() {
           error = validateMetric(value);
           break;
         case "target_field":
-          error = validateTargetField(value);
+          error = validateTargetField(value, overrides.problem_type_id);
           break;
         default:
           break;
@@ -482,7 +508,8 @@ export default function Training() {
     const data = {
       model_name: selectedModel,
       file_id: trainingConfig.file_id,
-      target_field: trainingConfig.target_field || null,
+      target_field:
+        trainingConfig.problem_type_id === "3" ? null : trainingConfig.target_field || null,
       training_split: Number(trainingConfig.training_split) * 100,
       problem_type_id: Number(trainingConfig.problem_type_id),
       optimizer: trainingConfig.optimizer,
@@ -528,7 +555,7 @@ export default function Training() {
     trainingConfig.epochs &&
     trainingConfig.batch_size &&
     trainingConfig.training_split &&
-    trainingConfig.target_field &&
+    (isImageProblem || trainingConfig.target_field) &&
     !hasValidationErrors();
 
   const handleDownload = useCallback(() => {
@@ -781,13 +808,21 @@ export default function Training() {
                   onValueChange={(v) => {
                     const defaultLoss =
                       problemTypeOptions.find((o) => o.value === v)?.defaultLoss ?? "";
+                    const nextTarget = v === "3" ? "" : trainingConfig.target_field;
                     setTrainingConfig((prev) => ({
                       ...prev,
                       problem_type_id: v,
                       loss: defaultLoss,
+                      target_field: v === "3" ? "" : prev.target_field,
                     }));
                     updateValidationErrors("problem_type_id", v);
                     updateValidationErrors("loss", defaultLoss);
+                    updateValidationErrors("file_id", trainingConfig.file_id, {
+                      problem_type_id: v,
+                    });
+                    updateValidationErrors("target_field", nextTarget, {
+                      problem_type_id: v,
+                    });
                     setConfigSaved(false);
                   }}
                 >
@@ -814,14 +849,17 @@ export default function Training() {
                 <div className="relative">
                   <Input
                     type="text"
+                    disabled={isImageProblem}
                     placeholder={
-                      fieldsList.length === 0 && trainingConfig.file_id
-                        ? "Enter target field name (e.g. species, class, target)"
-                        : fieldsList.length === 0
-                          ? "Select a dataset file first or enter field name"
-                          : "Select from list or enter field name"
+                      isImageProblem
+                        ? "Target classes inferred from ZIP folders"
+                        : fieldsList.length === 0 && trainingConfig.file_id
+                          ? "Enter target field name (e.g. species, class, target)"
+                          : fieldsList.length === 0
+                            ? "Select a dataset file first or enter field name"
+                            : "Select from list or enter field name"
                     }
-                    value={trainingConfig.target_field}
+                    value={isImageProblem ? "" : trainingConfig.target_field}
                     className={validationErrors.target_field ? "border-red-500" : ""}
                     onChange={(e) => {
                       const value = e.target.value;
@@ -829,9 +867,9 @@ export default function Training() {
                       updateValidationErrors("target_field", value);
                       setConfigSaved(false);
                     }}
-                    list={fieldsList.length > 0 ? "target-fields" : undefined}
+                    list={!isImageProblem && fieldsList.length > 0 ? "target-fields" : undefined}
                   />
-                  {fieldsList.length > 0 && (
+                  {!isImageProblem && fieldsList.length > 0 && (
                     <datalist id="target-fields">
                       {fieldsList.map((f) => (
                         <option key={f.value} value={f.value}>
@@ -841,10 +879,17 @@ export default function Training() {
                     </datalist>
                   )}
                 </div>
-                {fieldsList.length > 0 && (
+                {isImageProblem ? (
                   <p className="text-xs text-gray-500">
-                    Available fields: {fieldsList.map((f) => f.label).join(", ")}
+                    Class labels are inferred automatically from subdirectories inside the ZIP
+                    archive.
                   </p>
+                ) : (
+                  fieldsList.length > 0 && (
+                    <p className="text-xs text-gray-500">
+                      Available fields: {fieldsList.map((f) => f.label).join(", ")}
+                    </p>
+                  )
                 )}
                 {validationErrors.target_field && (
                   <p className="text-sm text-red-500">{validationErrors.target_field}</p>

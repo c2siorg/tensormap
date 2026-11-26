@@ -1,8 +1,9 @@
 """Request schemas for data processing endpoints."""
 
 import uuid as uuid_pkg
+from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class TargetAddRequest(BaseModel):
@@ -61,3 +62,12 @@ class ClassImbalanceResponse(BaseModel):
     success: bool
     message: str
     data: ClassImbalanceData | None = None
+
+
+class ImagePropertiesUpdateRequest(BaseModel):
+    """Request body for updating image dataset preprocessing properties."""
+
+    image_size: int | None = Field(default=None, ge=1, le=2048)
+    batch_size: int | None = Field(default=None, ge=1, le=1024)
+    color_mode: Literal["grayscale", "rgb", "rgba"] | None = None
+    label_mode: Literal["int", "categorical", "binary"] | None = None

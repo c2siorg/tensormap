@@ -27,9 +27,73 @@ function getRegistryTypeKey(nodeType: string): string {
 }
 
 /**
+ * Validate a scalar or multi-dimensional layer shape expression.
+ * Accepts positive integers (e.g. 784), arrays (e.g. [28, 28, 3]), or
+ * comma-separated integer strings (e.g. "28, 28, 3").
+ */
+export function validateShapeParam(
+  paramName: string,
+  value: unknown,
+  min: number | null | undefined = 1,
+  allowNegativeOne: boolean = false,
+): string | null {
+  const minBound = min ?? 1;
+
+  if (typeof value === "number") {
+    if (!Number.isInteger(value)) {
+      return `${paramName} dimensions must be integers`;
+    }
+    if (allowNegativeOne && value === -1) {
+      return null;
+    }
+    if (value < minBound) {
+      return `${paramName} must be >= ${minBound}`;
+    }
+    return null;
+  }
+
+  const rawTokens = Array.isArray(value)
+    ? value.map((v) => String(v).trim())
+    : String(value)
+        .trim()
+        .replace(/^[(\[]|[)\]]$/g, "")
+        .split(",")
+        .map((s) => s.trim());
+
+  const tokens =
+    !Array.isArray(value) && rawTokens.length > 1 && rawTokens[rawTokens.length - 1] === ""
+      ? rawTokens.slice(0, -1)
+      : rawTokens;
+
+  if (tokens.length === 0 || tokens.some((t) => t === "")) {
+    return `${paramName} must be an integer or comma-separated integers (e.g., 28,28,3)`;
+  }
+
+  let negativeOneCount = 0;
+  for (const token of tokens) {
+    if (!/^-?\d+$/.test(token)) {
+      return `${paramName} dimensions must be integers (e.g., 28,28,3)`;
+    }
+    const num = Number(token);
+    if (allowNegativeOne && num === -1) {
+      negativeOneCount += 1;
+      if (negativeOneCount > 1) {
+        return `${paramName} can contain at most one -1 wildcard dimension`;
+      }
+      continue;
+    }
+    if (num < minBound) {
+      return `${paramName} dimensions must be >= ${minBound}`;
+    }
+  }
+
+  return null;
+}
+
+/**
  * Validate a single parameter value against its spec.
  */
-function validateParamValue(paramName: string, value: any, spec: ParamSpec): string | null {
+export function validateParamValue(paramName: string, value: any, spec: ParamSpec): string | null {
   // Check required
   if (spec.required && (value === null || value === undefined || value === "")) {
     return `${paramName} is required`;
@@ -38,6 +102,14 @@ function validateParamValue(paramName: string, value: any, spec: ParamSpec): str
   // Skip further validation if empty and not required
   if (value === null || value === undefined || value === "") {
     return null;
+  }
+
+  // Shape parameters support scalar ints or multi-dimensional tuple/comma expressions
+  if (paramName === "shape") {
+    return validateShapeParam(paramName, value, spec.min ?? 1, false);
+  }
+  if (paramName === "target_shape") {
+    return validateShapeParam(paramName, value, 1, true);
   }
 
   // Type-specific validation

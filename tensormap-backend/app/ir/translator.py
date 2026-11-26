@@ -70,8 +70,11 @@ def translate_params_to_ir(layer_type: str, raw_params: dict) -> NodeParams:
 
     # Legacy conversions for specific layer types
     if layer_type == "input" and "shape" not in params_to_validate and "dim-1" in params_to_validate:
-        # Convert old dim-1 format to shape
-        params_to_validate["shape"] = int(params_to_validate["dim-1"])
+        # Convert legacy dim-1 / dim-2 / dim-3 fields into shape spec validated by InputParams
+        raw_dims = [params_to_validate.get(key) for key in ("dim-1", "dim-2", "dim-3")]
+        non_empty = [str(d).strip() for d in raw_dims if d is not None and str(d).strip() != ""]
+        if non_empty:
+            params_to_validate["shape"] = ",".join(non_empty)
 
     if layer_type == "conv2d":
         # Handle legacy format: kernelX/kernelY → kernel_size, filter → filters
@@ -196,10 +199,11 @@ def ir_to_keras_build_args(node: IRNode) -> dict:
     params = node.node_params.model_dump()
     params.pop("layer_type", None)
 
-    # Special handling for Input layer: convert shape int to tuple
+    # Special handling for Input layer: convert shape scalar or list to Keras tuple
     if node.node_params.layer_type == "input" and "shape" in params:
-        # Keras Input expects shape as tuple, e.g., (784,)
-        params["shape"] = (params["shape"],)
+        # Keras Input expects shape as tuple, e.g., (784,) or (28, 28, 3)
+        raw_shape = params["shape"]
+        params["shape"] = (raw_shape,) if isinstance(raw_shape, int) else tuple(raw_shape)
 
     # Special handling for Reshape layer: convert target_shape string to tuple
     if node.node_params.layer_type == "reshape" and "target_shape" in params:

@@ -43,6 +43,12 @@ vi.mock("../../../components/Process/DatasetDriftPanel", () => ({
   default: ({ fileId }) => <div data-testid="dataset-drift-panel">Dataset Drift: {fileId}</div>,
 }));
 
+vi.mock("../../../components/Process/ImagePropertiesPanel", () => ({
+  default: ({ fileId }) => (
+    <div data-testid="image-properties-panel">Image Properties: {fileId}</div>
+  ),
+}));
+
 const CSV_FILE = {
   file_id: "csv-1",
   file_name: "iris.csv",
@@ -127,6 +133,9 @@ describe("DataProcess Container", () => {
       expect(
         screen.getByText(/Tabular operations.*only apply to tabular CSV datasets/),
       ).toBeTruthy();
+      expect(screen.getByTestId("image-properties-panel")).toHaveTextContent(
+        "Image Properties: zip-1",
+      );
     });
 
     // Verify tabular panels are not mounted for the zip file

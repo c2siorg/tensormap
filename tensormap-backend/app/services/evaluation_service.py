@@ -13,6 +13,7 @@ from uuid import UUID
 
 import numpy as np
 import pandas as pd
+from scipy.special import expit, softmax
 from sklearn.metrics import (
     accuracy_score,
     confusion_matrix,
@@ -43,20 +44,57 @@ from app.shared.logging_config import get_logger
 logger = get_logger(__name__)
 
 
-def _resolve_classification_predictions(y_pred_raw: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+def _keras_model_emits_logits(keras_model: Any) -> bool:
+    """Lazily import _emits_logits so TensorFlow is not imported at module load time."""
+    if not getattr(keras_model, "layers", None):
+        return True
+    from app.services.model_run import _emits_logits
+
+    return _emits_logits(keras_model)
+
+
+def _resolve_classification_predictions(
+    y_pred_raw: np.ndarray,
+    emits_logits: bool | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
     """Resolve predicted class labels and probability distribution from raw model output.
 
     Handles multi-class models (softmax/logits over K classes, shape (N, K))
     as well as binary classification models with a single output unit (sigmoid/logit,
-    shape (N, 1) or (N,)).
+    shape (N, 1) or (N,)). When ``emits_logits`` is provided (from inspecting the
+    model's output activation), logits are converted via numerically stable sigmoid
+    (``expit``) or ``softmax`` without relying solely on output value ranges.
     """
     if y_pred_raw.ndim == 1 or (y_pred_raw.ndim == 2 and y_pred_raw.shape[1] == 1):
-        p1 = np.clip(y_pred_raw.flatten(), 0.0, 1.0)
+        raw = y_pred_raw.flatten()
+        is_logits = emits_logits if emits_logits is not None else bool(np.any(raw < 0.0) or np.any(raw > 1.0))
+        p1 = np.clip(expit(raw), 0.0, 1.0) if is_logits else np.clip(raw, 0.0, 1.0)
         p0 = 1.0 - p1
         y_pred_probs = np.column_stack([p0, p1])
         y_pred_classes = (p1 >= 0.5).astype(int)
     else:
-        y_pred_probs = y_pred_raw
+        if emits_logits is True:
+            y_pred_probs = softmax(y_pred_raw, axis=1)
+        elif emits_logits is False:
+            y_pred_probs = np.clip(y_pred_raw, 0.0, 1.0)
+            row_sums = y_pred_probs.sum(axis=1, keepdims=True)
+            if not np.allclose(row_sums, 1.0, atol=1e-6):
+                row_sums = np.where(row_sums == 0, 1.0, row_sums)
+                y_pred_probs = y_pred_probs / row_sums
+        else:
+            is_prob = (
+                np.all(y_pred_raw >= 0.0)
+                and np.all(y_pred_raw <= 1.0)
+                and np.allclose(np.sum(y_pred_raw, axis=1), 1.0, atol=1e-2)
+            )
+            if is_prob:
+                y_pred_probs = np.clip(y_pred_raw, 0.0, 1.0)
+                row_sums = y_pred_probs.sum(axis=1, keepdims=True)
+                if not np.allclose(row_sums, 1.0, atol=1e-6):
+                    row_sums = np.where(row_sums == 0, 1.0, row_sums)
+                    y_pred_probs = y_pred_probs / row_sums
+            else:
+                y_pred_probs = softmax(y_pred_raw, axis=1)
         y_pred_classes = np.argmax(y_pred_probs, axis=1)
     return y_pred_classes, y_pred_probs
 
@@ -252,7 +290,8 @@ class EvaluationService:
         metrics: dict[str, Any] = {}
 
         if problem_type == "classification":
-            pred_classes, pred_probs = _resolve_classification_predictions(raw_preds)
+            emits_logits = _keras_model_emits_logits(keras_model)
+            pred_classes, pred_probs = _resolve_classification_predictions(raw_preds, emits_logits=emits_logits)
 
             # Determine class mapping
             class_names = train_class_names
@@ -478,7 +517,8 @@ class EvaluationService:
         raw_preds = keras_model.predict(X_mat, batch_size=batch_size, verbose=0)
 
         if problem_type == "classification":
-            pred_classes, pred_probs = _resolve_classification_predictions(raw_preds)
+            emits_logits = _keras_model_emits_logits(keras_model)
+            pred_classes, pred_probs = _resolve_classification_predictions(raw_preds, emits_logits=emits_logits)
             class_names = train_class_names or [f"Class {i}" for i in range(pred_probs.shape[1])]
 
             pred_labels = [class_names[c] if c < len(class_names) else f"Class {c}" for c in pred_classes]

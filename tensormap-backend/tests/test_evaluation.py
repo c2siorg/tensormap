@@ -754,3 +754,375 @@ def test_export_csv_sanitizes_formula_injection(eval_classification_setup, clien
         csv_text = resp.text
         # Must be prefixed with single quote
         assert "'=cmd|" in csv_text
+
+
+def test_resolve_classification_predictions_probabilities_and_logits():
+    """Verifies probability preservation and logit normalization for binary and multiclass outputs."""
+    from scipy.special import expit, softmax
+
+    from app.services.evaluation_service import _resolve_classification_predictions
+
+    # 1. Binary probabilities (emits_logits=False) remain unchanged
+    bin_probs_raw = np.array([[0.1], [0.49], [0.5], [0.85]], dtype=np.float32)
+    classes, probs = _resolve_classification_predictions(bin_probs_raw, emits_logits=False)
+    assert np.array_equal(classes, np.array([0, 0, 1, 1]))
+    assert np.allclose(probs[:, 1], bin_probs_raw.flatten(), atol=1e-6)
+    assert np.allclose(probs.sum(axis=1), 1.0, atol=1e-6)
+
+    # 2. Binary logits, including values strictly inside [0, 1] (e.g. 0.2 -> expit(0.2) > 0.5 -> class 1)
+    bin_logits_raw = np.array([[-2.5], [0.0], [0.2], [0.8], [2.4]], dtype=np.float32)
+    classes_log, probs_log = _resolve_classification_predictions(bin_logits_raw, emits_logits=True)
+    expected_p1 = expit(bin_logits_raw.flatten())
+    assert np.allclose(probs_log[:, 1], expected_p1, atol=1e-6)
+    assert np.allclose(probs_log[:, 0], 1.0 - expected_p1, atol=1e-6)
+    assert np.allclose(probs_log.sum(axis=1), 1.0, atol=1e-6)
+    assert np.array_equal(classes_log, np.array([0, 1, 1, 1, 1]))
+
+    # 3. Multiclass probabilities (emits_logits=False) remain unchanged
+    multi_probs_raw = np.array([[0.7, 0.2, 0.1], [0.1, 0.8, 0.1]], dtype=np.float32)
+    classes_mp, probs_mp = _resolve_classification_predictions(multi_probs_raw, emits_logits=False)
+    assert np.array_equal(classes_mp, np.array([0, 1]))
+    assert np.allclose(probs_mp, multi_probs_raw, atol=1e-6)
+    assert np.allclose(probs_mp.sum(axis=1), 1.0, atol=1e-6)
+
+    # 4. Multiclass logits with mixed signs (emits_logits=True)
+    multi_logits_raw = np.array([[2.5, -1.0, 0.5], [-0.5, 3.2, 1.1]], dtype=np.float32)
+    classes_ml, probs_ml = _resolve_classification_predictions(multi_logits_raw, emits_logits=True)
+    assert np.array_equal(classes_ml, np.array([0, 1]))
+    assert np.allclose(probs_ml, softmax(multi_logits_raw, axis=1), atol=1e-6)
+    assert np.allclose(probs_ml.sum(axis=1), 1.0, atol=1e-6)
+
+    # 5. Multiclass logits containing only positive values (including values in [0, 1] summing to 1.0)
+    multi_pos_logits = np.array([[0.4, 0.6, 0.0], [2.0, 1.0, 0.5]], dtype=np.float32)
+    classes_mpl, probs_mpl = _resolve_classification_predictions(multi_pos_logits, emits_logits=True)
+    assert np.array_equal(classes_mpl, np.array([1, 0]))
+    assert np.allclose(probs_mpl, softmax(multi_pos_logits, axis=1), atol=1e-6)
+    assert np.allclose(probs_mpl.sum(axis=1), 1.0, atol=1e-6)
+
+
+def test_evaluate_and_batch_predict_normalize_logits_from_keras_model(
+    db_session: Session, client: TestClient, tmp_path: Path
+):
+    """End-to-end test verifying evaluate and batch-predict normalize raw logits based on model activation."""
+    import tensorflow as tf
+
+    upload_folder = tmp_path / "uploads"
+    upload_folder.mkdir(parents=True, exist_ok=True)
+
+    train_df = pd.DataFrame(
+        {
+            "feat_a": [0.0, 0.1, 1.0, 1.1],
+            "label": [0, 0, 1, 1],
+        }
+    )
+    test_df = pd.DataFrame(
+        {
+            "feat_a": [0.2, 0.8],
+            "label": [0, 1],
+        }
+    )
+    train_csv = f"train_logits_{uuid4().hex[:6]}.csv"
+    test_csv = f"test_logits_{uuid4().hex[:6]}.csv"
+    train_df.to_csv(upload_folder / train_csv, index=False)
+    test_df.to_csv(upload_folder / test_csv, index=False)
+
+    train_file = DataFile(
+        file_name="train_logits.csv",
+        disk_name=train_csv,
+        file_type="csv",
+        total_rows=4,
+        total_columns=2,
+    )
+    test_file = DataFile(
+        file_name="test_logits.csv",
+        disk_name=test_csv,
+        file_type="csv",
+        total_rows=2,
+        total_columns=2,
+    )
+    db_session.add(train_file)
+    db_session.add(test_file)
+    db_session.commit()
+    db_session.refresh(train_file)
+    db_session.refresh(test_file)
+
+    model = ModelBasic(
+        model_name=f"logits_bin_{uuid4().hex[:6]}",
+        file_id=train_file.id,
+        target_field="label",
+        model_type=ProblemType.CLASSIFICATION,
+        training_split=80.0,
+    )
+    db_session.add(model)
+    db_session.commit()
+    db_session.refresh(model)
+
+    job_id = str(uuid4())
+    job = TrainingJob(id=job_id, model_id=model.id, status=TrainingStatus.COMPLETED)
+    db_session.add(job)
+    db_session.commit()
+
+    # Build a linear-output (logits) binary model where output == input feat_a (0.2 and 0.8)
+    # Both logits lie in (0, 1): sigmoid(0.2) ~= 0.5498 -> class 1 (would be class 0 if clipped!)
+    export_dir = tmp_path / "exports" / job_id
+    export_dir.mkdir(parents=True, exist_ok=True)
+    inputs = tf.keras.Input(shape=(1,))
+    outputs = tf.keras.layers.Dense(
+        1,
+        activation="linear",
+        kernel_initializer=tf.keras.initializers.Ones(),
+        bias_initializer=tf.keras.initializers.Zeros(),
+    )(inputs)
+    keras_model = tf.keras.Model(inputs=inputs, outputs=outputs)
+    keras_model.save(export_dir / "model.keras")
+
+    with (
+        patch("app.services.evaluation_service.get_settings") as mock_settings,
+        patch("app.services.evaluation_service.EXPORTS_BASE", tmp_path / "exports"),
+    ):
+        mock_settings.return_value.upload_folder = str(upload_folder)
+
+        pred_resp = client.post(
+            f"/api/v1/model/analysis/{job_id}/batch-predict",
+            json={"file_id": str(test_file.id)},
+        )
+        assert pred_resp.status_code == 200
+        rows = pred_resp.json()["preview_rows"]
+        # expit(0.2) ~= 0.5498 -> predicted class "1", expit(0.8) ~= 0.6900 -> predicted class "1"
+        assert rows[0]["predicted_class"] == "1"
+        assert rows[0]["confidence"] == pytest.approx(0.5498, abs=1e-3)
+        assert rows[0]["prob_0"] + rows[0]["prob_1"] == pytest.approx(1.0, abs=1e-3)
+        assert rows[1]["predicted_class"] == "1"
+        assert rows[1]["confidence"] == pytest.approx(0.6900, abs=1e-3)
+
+        eval_resp = client.post(
+            f"/api/v1/model/analysis/{job_id}/evaluate",
+            json={"file_id": str(test_file.id)},
+        )
+        assert eval_resp.status_code == 200
+        eval_data = eval_resp.json()
+        # Only sample 1 (label=1, pred=1) is right; sample 0 (label=0, pred=1) is misclassified
+        assert eval_data["metrics"]["accuracy"] == pytest.approx(0.5, abs=1e-4)
+        assert eval_data["metrics"]["log_loss"] is not None
+
+
+def test_evaluate_and_batch_predict_normalize_multiclass_logits_from_keras_model(
+    db_session: Session, client: TestClient, tmp_path: Path
+):
+    """End-to-end test verifying multiclass positive-only logits are softmax-normalized."""
+    import tensorflow as tf
+    from scipy.special import softmax
+    from sklearn.metrics import log_loss
+
+    upload_folder = tmp_path / "uploads"
+    upload_folder.mkdir(parents=True, exist_ok=True)
+
+    train_df = pd.DataFrame(
+        {
+            "f0": [1.0, 0.0, 0.0],
+            "f1": [0.0, 1.0, 0.0],
+            "f2": [0.0, 0.0, 1.0],
+            "cls": [0, 1, 2],
+        }
+    )
+    # Positive-only logits:
+    # row 0 -> [2.0, 0.5, 0.1] (class 0)
+    # row 1 -> [0.2, 1.5, 0.3] (class 1)
+    # row 2 -> [0.1, 0.4, 2.5] (class 2)
+    test_df = pd.DataFrame(
+        {
+            "f0": [2.0, 0.2, 0.1],
+            "f1": [0.5, 1.5, 0.4],
+            "f2": [0.1, 0.3, 2.5],
+            "cls": [0, 1, 2],
+        }
+    )
+    train_csv = f"train_mlogits_{uuid4().hex[:6]}.csv"
+    test_csv = f"test_mlogits_{uuid4().hex[:6]}.csv"
+    train_df.to_csv(upload_folder / train_csv, index=False)
+    test_df.to_csv(upload_folder / test_csv, index=False)
+
+    train_file = DataFile(
+        file_name="train_mlogits.csv",
+        disk_name=train_csv,
+        file_type="csv",
+        total_rows=3,
+        total_columns=4,
+    )
+    test_file = DataFile(
+        file_name="test_mlogits.csv",
+        disk_name=test_csv,
+        file_type="csv",
+        total_rows=3,
+        total_columns=4,
+    )
+    db_session.add(train_file)
+    db_session.add(test_file)
+    db_session.commit()
+    db_session.refresh(train_file)
+    db_session.refresh(test_file)
+
+    model = ModelBasic(
+        model_name=f"mlogits_{uuid4().hex[:6]}",
+        file_id=train_file.id,
+        target_field="cls",
+        model_type=ProblemType.CLASSIFICATION,
+        training_split=80.0,
+    )
+    db_session.add(model)
+    db_session.commit()
+    db_session.refresh(model)
+
+    job_id = str(uuid4())
+    job = TrainingJob(id=job_id, model_id=model.id, status=TrainingStatus.COMPLETED)
+    db_session.add(job)
+    db_session.commit()
+
+    export_dir = tmp_path / "exports" / job_id
+    export_dir.mkdir(parents=True, exist_ok=True)
+    inputs = tf.keras.Input(shape=(3,))
+    outputs = tf.keras.layers.Dense(
+        3,
+        activation="linear",
+        kernel_initializer=tf.keras.initializers.Identity(),
+        bias_initializer=tf.keras.initializers.Zeros(),
+    )(inputs)
+    keras_model = tf.keras.Model(inputs=inputs, outputs=outputs)
+    keras_model.save(export_dir / "model.keras")
+
+    raw_logits = test_df[["f0", "f1", "f2"]].to_numpy(dtype=np.float32)
+    expected_probs = softmax(raw_logits, axis=1)
+    expected_log_loss = float(round(log_loss([0, 1, 2], expected_probs), 4))
+
+    with (
+        patch("app.services.evaluation_service.get_settings") as mock_settings,
+        patch("app.services.evaluation_service.EXPORTS_BASE", tmp_path / "exports"),
+    ):
+        mock_settings.return_value.upload_folder = str(upload_folder)
+
+        pred_resp = client.post(
+            f"/api/v1/model/analysis/{job_id}/batch-predict",
+            json={"file_id": str(test_file.id)},
+        )
+        assert pred_resp.status_code == 200
+        rows = pred_resp.json()["preview_rows"]
+        for i, expected_cls in enumerate(["0", "1", "2"]):
+            assert rows[i]["predicted_class"] == expected_cls
+            assert rows[i]["prob_0"] == pytest.approx(float(expected_probs[i, 0]), abs=1e-3)
+            assert rows[i]["prob_1"] == pytest.approx(float(expected_probs[i, 1]), abs=1e-3)
+            assert rows[i]["prob_2"] == pytest.approx(float(expected_probs[i, 2]), abs=1e-3)
+            assert rows[i]["prob_0"] + rows[i]["prob_1"] + rows[i]["prob_2"] == pytest.approx(1.0, abs=1e-3)
+
+        eval_resp = client.post(
+            f"/api/v1/model/analysis/{job_id}/evaluate",
+            json={"file_id": str(test_file.id)},
+        )
+        assert eval_resp.status_code == 200
+        eval_data = eval_resp.json()
+        assert eval_data["metrics"]["accuracy"] == pytest.approx(1.0, abs=1e-4)
+        assert eval_data["metrics"]["log_loss"] == pytest.approx(expected_log_loss, abs=1e-3)
+
+
+def test_evaluate_and_batch_predict_preserve_binary_sigmoid_probabilities(
+    db_session: Session, client: TestClient, tmp_path: Path
+):
+    """End-to-end test verifying binary sigmoid models preserve probabilities without double-sigmoid."""
+    import tensorflow as tf
+    from scipy.special import expit
+
+    upload_folder = tmp_path / "uploads"
+    upload_folder.mkdir(parents=True, exist_ok=True)
+
+    train_df = pd.DataFrame(
+        {
+            "feat_a": [-2.0, -1.0, 1.0, 2.0],
+            "label": [0, 0, 1, 1],
+        }
+    )
+    # Sigmoid(feat_a): sigmoid(-1.0) ~= 0.2689 -> class 0; sigmoid(1.0) ~= 0.7311 -> class 1
+    # If sigmoid were applied twice: expit(0.2689) ~= 0.5668 -> class 1 (wrong!)
+    test_df = pd.DataFrame(
+        {
+            "feat_a": [-1.0, 1.0],
+            "label": [0, 1],
+        }
+    )
+    train_csv = f"train_sig_{uuid4().hex[:6]}.csv"
+    test_csv = f"test_sig_{uuid4().hex[:6]}.csv"
+    train_df.to_csv(upload_folder / train_csv, index=False)
+    test_df.to_csv(upload_folder / test_csv, index=False)
+
+    train_file = DataFile(
+        file_name="train_sig.csv",
+        disk_name=train_csv,
+        file_type="csv",
+        total_rows=4,
+        total_columns=2,
+    )
+    test_file = DataFile(
+        file_name="test_sig.csv",
+        disk_name=test_csv,
+        file_type="csv",
+        total_rows=2,
+        total_columns=2,
+    )
+    db_session.add(train_file)
+    db_session.add(test_file)
+    db_session.commit()
+    db_session.refresh(train_file)
+    db_session.refresh(test_file)
+
+    model = ModelBasic(
+        model_name=f"sig_bin_{uuid4().hex[:6]}",
+        file_id=train_file.id,
+        target_field="label",
+        model_type=ProblemType.CLASSIFICATION,
+        training_split=80.0,
+    )
+    db_session.add(model)
+    db_session.commit()
+    db_session.refresh(model)
+
+    job_id = str(uuid4())
+    job = TrainingJob(id=job_id, model_id=model.id, status=TrainingStatus.COMPLETED)
+    db_session.add(job)
+    db_session.commit()
+
+    export_dir = tmp_path / "exports" / job_id
+    export_dir.mkdir(parents=True, exist_ok=True)
+    inputs = tf.keras.Input(shape=(1,))
+    outputs = tf.keras.layers.Dense(
+        1,
+        activation="sigmoid",
+        kernel_initializer=tf.keras.initializers.Ones(),
+        bias_initializer=tf.keras.initializers.Zeros(),
+    )(inputs)
+    keras_model = tf.keras.Model(inputs=inputs, outputs=outputs)
+    keras_model.save(export_dir / "model.keras")
+
+    expected_p0 = float(expit(-1.0))
+    expected_p1 = float(expit(1.0))
+
+    with (
+        patch("app.services.evaluation_service.get_settings") as mock_settings,
+        patch("app.services.evaluation_service.EXPORTS_BASE", tmp_path / "exports"),
+    ):
+        mock_settings.return_value.upload_folder = str(upload_folder)
+
+        pred_resp = client.post(
+            f"/api/v1/model/analysis/{job_id}/batch-predict",
+            json={"file_id": str(test_file.id)},
+        )
+        assert pred_resp.status_code == 200
+        rows = pred_resp.json()["preview_rows"]
+        assert rows[0]["predicted_class"] == "0"
+        assert rows[0]["prob_1"] == pytest.approx(expected_p0, abs=1e-3)
+        assert rows[1]["predicted_class"] == "1"
+        assert rows[1]["prob_1"] == pytest.approx(expected_p1, abs=1e-3)
+
+        eval_resp = client.post(
+            f"/api/v1/model/analysis/{job_id}/evaluate",
+            json={"file_id": str(test_file.id)},
+        )
+        assert eval_resp.status_code == 200
+        assert eval_resp.json()["metrics"]["accuracy"] == pytest.approx(1.0, abs=1e-4)

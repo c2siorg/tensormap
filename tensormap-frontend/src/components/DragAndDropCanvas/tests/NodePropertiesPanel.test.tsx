@@ -83,6 +83,25 @@ const mockReshapeSpec: LayerSpec = {
   },
 };
 
+const mockInputSpec: LayerSpec = {
+  type_key: "input",
+  display_name: "Input",
+  category: "core",
+  keras_class: "tf.keras.layers.InputLayer",
+  merge: false,
+  description: "Input layer",
+  params: {
+    shape: {
+      name: "shape",
+      type: "string" as const,
+      required: true,
+      default: null,
+      min: 1,
+      description: "Input shape",
+    },
+  },
+};
+
 describe("NodePropertiesPanel", () => {
   const mockOnModelNameChange = vi.fn();
   const mockOnSave = vi.fn();
@@ -94,6 +113,7 @@ describe("NodePropertiesPanel", () => {
       if (typeKey === "dense") return mockDenseSpec;
       if (typeKey === "lstm") return mockLSTMSpec;
       if (typeKey === "reshape") return mockReshapeSpec;
+      if (typeKey === "input") return mockInputSpec;
       return null;
     });
   });
@@ -292,6 +312,40 @@ describe("NodePropertiesPanel", () => {
 
     expect(mockOnNodeUpdate).toHaveBeenCalledWith("node-reshape-1", {
       target_shape: "7, 7, 64",
+    });
+  });
+
+  it("renders array and comma-separated multi-dim shapes for Input layer and validates dimensions", () => {
+    const selectedNode = {
+      id: "node-input-1",
+      type: "genericlayer",
+      data: {
+        layerType: "input",
+        params: { shape: [28, 28, 3] },
+      },
+    };
+
+    render(
+      <NodePropertiesPanel
+        selectedNode={selectedNode}
+        modelName="cnn-model"
+        onModelNameChange={mockOnModelNameChange}
+        onSave={mockOnSave}
+        canSave={true}
+        onNodeUpdate={mockOnNodeUpdate}
+      />,
+    );
+
+    const shapeInput = screen.getByDisplayValue("28, 28, 3");
+    expect(shapeInput).toBeInTheDocument();
+
+    fireEvent.change(shapeInput, { target: { value: "28, 0, 3" } });
+    expect(screen.getByText(/dimensions must be >= 1/i)).toBeInTheDocument();
+
+    fireEvent.change(shapeInput, { target: { value: "224, 224, 3" } });
+    expect(screen.queryByText(/dimensions must be >= 1/i)).not.toBeInTheDocument();
+    expect(mockOnNodeUpdate).toHaveBeenCalledWith("node-input-1", {
+      shape: "224, 224, 3",
     });
   });
 });

@@ -19,6 +19,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { getLayerSpec } from "../../hooks/useLayerRegistry";
+import { validateParamValue } from "./Helpers";
 import type { ParamSpec } from "../../types/registry";
 import { LEGACY_TYPE_MAP } from "../../types/registry";
 
@@ -196,7 +197,7 @@ const StringInput = ({ paramName, spec, value, onChange, error }: ParamInputProp
         placeholder={
           spec.default !== null && spec.default !== undefined ? String(spec.default) : ""
         }
-        value={value ?? ""}
+        value={Array.isArray(value) ? value.join(", ") : (value ?? "")}
         onChange={handleChange}
         className={error ? "border-red-500" : ""}
       />
@@ -204,56 +205,6 @@ const StringInput = ({ paramName, spec, value, onChange, error }: ParamInputProp
     </div>
   );
 };
-
-/**
- * Validate a parameter value against its spec.
- */
-function validateParam(paramName: string, value: any, spec: ParamSpec): string | null {
-  // Check required
-  if (spec.required && (value === null || value === undefined || value === "")) {
-    return `${paramName} is required`;
-  }
-
-  // Skip validation if empty and not required
-  if (value === null || value === undefined || value === "") {
-    return null;
-  }
-
-  // Type-specific validation
-  if (spec.type === "int") {
-    const num = Number(value);
-    if (!Number.isInteger(num)) {
-      return `${paramName} must be an integer`;
-    }
-    if (spec.min !== undefined && spec.min !== null && num < spec.min) {
-      return `${paramName} must be >= ${spec.min}`;
-    }
-    if (spec.max !== undefined && spec.max !== null && num > spec.max) {
-      return `${paramName} must be <= ${spec.max}`;
-    }
-  }
-
-  if (spec.type === "float") {
-    const num = Number(value);
-    if (isNaN(num)) {
-      return `${paramName} must be a number`;
-    }
-    if (spec.min !== undefined && spec.min !== null && num < spec.min) {
-      return `${paramName} must be >= ${spec.min}`;
-    }
-    if (spec.max !== undefined && spec.max !== null && num > spec.max) {
-      return `${paramName} must be <= ${spec.max}`;
-    }
-  }
-
-  if (spec.type === "string") {
-    if (typeof value !== "string" && typeof value !== "number") {
-      return `${paramName} must be a valid text string`;
-    }
-  }
-
-  return null;
-}
 
 function NodePropertiesPanel({
   selectedNode,
@@ -323,7 +274,7 @@ function NodePropertiesPanel({
     // Validate the new value
     const spec = layerSpec.params[paramName];
     if (spec) {
-      const error = validateParam(paramName, value, spec);
+      const error = validateParamValue(paramName, value, spec);
       setValidationErrors((prev) => {
         if (error) {
           return { ...prev, [paramName]: error };

@@ -34,5 +34,6 @@ export const BACKEND_GET_FEATURE_DISTRIBUTION = "/data/process/distribution/";
 export const BACKEND_GET_DATASET_QUALITY = "/data/process/quality/";
 export const BACKEND_GET_CLASS_IMBALANCE = "/data/process/class-imbalance/";
 export const BACKEND_GET_DATASET_DRIFT = "/data/process/drift/";
+export const BACKEND_IMAGE_PROCESS = "/data/process/image/";
 export const BACKEND_MODEL_TUNING = "/model/tuning";
 export const BACKEND_ANALYZE_GRAPH = "/layers/analyze-graph";

@@ -36,9 +36,9 @@ The discriminated union pattern uses the `layer_type` field to automatically
 select the correct parameter model during deserialization.
 """
 
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 # ============================================================================
 # Per-Layer Parameter Models
@@ -63,11 +63,71 @@ DenseActivation = Literal[
 ]
 
 
+def parse_input_shape(value: Any) -> int | list[int]:
+    """Parse scalar or multi-dimensional Input shape into int or list[int].
+
+    Supports integer (``784``), list/tuple (``[28, 28, 3]``), or comma-separated
+    string (``"28, 28, 3"`` or ``"(784,)"``). Every dimension must be a strict
+    positive integer (> 0). Scalar shapes normalize to ``int`` for backward
+    compatibility; multi-dimensional shapes normalize to ``list[int]``.
+    """
+    if isinstance(value, bool):
+        raise ValueError("Input shape dimensions must be positive integers, not boolean")
+
+    if isinstance(value, int):
+        if value <= 0:
+            raise ValueError(f"Input shape dimension must be >= 1, got {value}")
+        return value
+
+    if isinstance(value, str):
+        cleaned = value.strip().strip("()[] ")
+        if not cleaned:
+            raise ValueError("Input shape cannot be empty")
+        raw_parts = [part.strip() for part in cleaned.split(",")]
+        # Allow a single trailing comma (e.g. "(784,)") while rejecting empty middle parts ("28,,3").
+        if len(raw_parts) > 1 and raw_parts[-1] == "":
+            raw_parts = raw_parts[:-1]
+        if any(part == "" for part in raw_parts):
+            raise ValueError(f"Malformed input shape string: {value!r}")
+        dims: list[int] = []
+        for part in raw_parts:
+            try:
+                dim = int(part)
+            except ValueError:
+                raise ValueError(f"Input shape dimensions must be positive integers, got {part!r}") from None
+            if dim <= 0:
+                raise ValueError(f"All input shape dimensions must be >= 1, got {dim}")
+            dims.append(dim)
+        return dims[0] if len(dims) == 1 else dims
+
+    if isinstance(value, (list, tuple)):
+        if len(value) == 0:
+            raise ValueError("Input shape cannot be empty")
+        dims = []
+        for item in value:
+            if isinstance(item, bool) or not isinstance(item, int):
+                raise ValueError(f"Input shape dimensions must be positive integers, got {item!r}")
+            if item <= 0:
+                raise ValueError(f"All input shape dimensions must be >= 1, got {item}")
+            dims.append(item)
+        return dims[0] if len(dims) == 1 else dims
+
+    raise ValueError(f"Unsupported input shape type: {type(value).__name__}")
+
+
 class InputParams(BaseModel):
     """Parameters for Input layer."""
 
     layer_type: Literal["input"]
-    shape: int = Field(..., gt=0, description="Input dimensions (e.g., 784 for 28x28 flattened)")
+    shape: int | list[int] = Field(
+        ...,
+        description="Input dimensions: positive integer (e.g., 784) or comma-separated shape (e.g., 28,28,3)",
+    )
+
+    @field_validator("shape", mode="before")
+    @classmethod
+    def _validate_shape(cls, v: Any) -> int | list[int]:
+        return parse_input_shape(v)
 
 
 class DenseParams(BaseModel):

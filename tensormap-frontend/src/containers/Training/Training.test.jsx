@@ -339,4 +339,68 @@ describe("Training page dataset quality gating", () => {
       ),
     );
   });
+
+  it("supports Image Classification (problem type 3) with ZIP dataset and omits target_field", async () => {
+    const user = userEvent.setup();
+    const ZIP_FILE = {
+      file_id: "zip-1",
+      file_name: "flowers",
+      file_type: "zip",
+      fields: [],
+    };
+    getAllFiles.mockResolvedValue([CSV_FILE, ZIP_FILE]);
+    getDatasetQualityReport.mockResolvedValue({
+      status: "clean",
+      can_train: true,
+      summary: { rows: 0, columns: 0, missing_values: 0 },
+      issues: [],
+    });
+
+    renderTraining();
+    await selectSavedModel(user);
+
+    await pickOption(user, "Dataset File", "flowers.zip");
+    await pickOption(user, "Problem Type", "Image Classification");
+    await pickOption(user, "Result Metrics", "Accuracy");
+
+    const targetInput = screen.getByPlaceholderText(/Target classes inferred from ZIP folders/i);
+    expect(targetInput).toBeDisabled();
+
+    await user.type(screen.getByPlaceholderText("Number of epochs"), "4");
+    await user.type(screen.getByPlaceholderText("Batch size"), "16");
+    await user.type(screen.getByPlaceholderText("e.g. 0.8"), "0.8");
+
+    await user.click(screen.getByRole("button", { name: "Save Configuration" }));
+
+    await waitFor(() => expect(updateTrainingConfig).toHaveBeenCalledTimes(1));
+    expect(updateTrainingConfig.mock.calls[0][0]).toMatchObject({
+      model_name: "demo",
+      file_id: "zip-1",
+      problem_type_id: 3,
+      target_field: null,
+      loss: "sparse_categorical_crossentropy",
+    });
+    await waitFor(() =>
+      expect(getDatasetQualityReport).toHaveBeenCalledWith(
+        "zip-1",
+        null,
+        "3",
+        80,
+        expect.any(AbortSignal),
+      ),
+    );
+  });
+
+  it("flags incompatible CSV dataset when Image Classification problem type is selected", async () => {
+    const user = userEvent.setup();
+    renderTraining();
+    await selectSavedModel(user);
+
+    await pickOption(user, "Dataset File", "iris.csv");
+    await pickOption(user, "Problem Type", "Image Classification");
+
+    expect(
+      screen.getByText(/Image classification requires a ZIP image archive/i),
+    ).toBeInTheDocument();
+  });
 });

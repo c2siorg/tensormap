@@ -6,6 +6,7 @@ from sqlmodel import Session
 
 from app.database import get_db
 from app.schemas.data_process import (
+    ImagePropertiesUpdateRequest,
     PreprocessRequest,
     TargetAddRequest,
 )
@@ -26,6 +27,7 @@ from app.services.data_process import (
 )
 from app.services.dataset_drift import compute_dataset_drift
 from app.services.dataset_quality import analyze_dataset_quality
+from app.services.image_process import get_image_properties_service, update_image_properties_service
 from app.shared.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -182,4 +184,22 @@ def revert_preprocess(file_id: uuid_pkg.UUID, db: Session = Depends(get_db)):
 def get_backup_status(file_id: uuid_pkg.UUID, db: Session = Depends(get_db)):
     """Check if a preprocessing backup exists for a CSV file and return its details."""
     body, status_code = get_dataset_backup_status_service(db, file_id=file_id)
+    return JSONResponse(status_code=status_code, content=body)
+
+
+@router.get("/data/process/image/{file_id}")
+def get_image_properties(file_id: uuid_pkg.UUID, db: Session = Depends(get_db)):
+    """Retrieve image dataset properties, classes, and sample counts for a ZIP dataset."""
+    body, status_code = get_image_properties_service(db, file_id=file_id)
+    return JSONResponse(status_code=status_code, content=body)
+
+
+@router.patch("/data/process/image/{file_id}")
+def update_image_properties(
+    file_id: uuid_pkg.UUID,
+    request: ImagePropertiesUpdateRequest,
+    db: Session = Depends(get_db),
+):
+    """Update image dataset preprocessing configuration for a ZIP dataset."""
+    body, status_code = update_image_properties_service(db, file_id=file_id, updates=request)
     return JSONResponse(status_code=status_code, content=body)

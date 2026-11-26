@@ -447,5 +447,69 @@ describe("Helpers", () => {
       );
       expect(err).toBeNull();
     });
+
+    it("accepts multi-dimensional string and array shapes for input layer", () => {
+      const stringRegistry: LayerRegistryResponse = {
+        ...mockRegistryData,
+        layers: {
+          ...mockRegistryData.layers,
+          core: [
+            {
+              ...mockRegistryData.layers.core[0],
+              params: {
+                ...mockRegistryData.layers.core[0].params,
+                shape: {
+                  ...mockRegistryData.layers.core[0].params.shape,
+                  type: "string" as const,
+                },
+              },
+            },
+            mockRegistryData.layers.core[1],
+          ],
+        },
+      };
+
+      for (const validShape of ["28, 28, 3", [224, 224, 3], "50, 16", 784]) {
+        const res = canSaveModel(
+          "cnn-model",
+          {
+            nodes: [
+              {
+                id: "n1",
+                type: "genericlayer",
+                data: { layerType: "input", params: { shape: validShape } },
+              },
+              {
+                id: "n2",
+                type: "genericlayer",
+                data: { layerType: "dense", params: { units: 10, activation: "relu" } },
+              },
+            ],
+            edges: [{ source: "n1", target: "n2" }],
+          },
+          stringRegistry,
+        );
+        expect(res.valid).toBe(true);
+      }
+
+      for (const badShape of ["28, 0, 3", "28,,3", "abc", -4]) {
+        const res = canSaveModel(
+          "bad-cnn",
+          {
+            nodes: [
+              {
+                id: "n1",
+                type: "genericlayer",
+                data: { layerType: "input", params: { shape: badShape } },
+              },
+            ],
+            edges: [],
+          },
+          stringRegistry,
+        );
+        expect(res.valid).toBe(false);
+        expect(res.errors.some((e) => e.field === "shape")).toBe(true);
+      }
+    });
   });
 });

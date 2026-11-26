@@ -190,7 +190,8 @@ def _sequence_hint(shape: Shape) -> str:
 
 @shape_rule("input")
 def _input(p: InputParams, inputs: list[Shape]) -> LayerResult:
-    return LayerResult((p.shape,))
+    shape_tuple = (p.shape,) if isinstance(p.shape, int) else tuple(p.shape)
+    return LayerResult(shape_tuple)
 
 
 @shape_rule("dense")

@@ -10,6 +10,7 @@ import PreprocessData from "../../components/Process/PreprocessData";
 import CorrelationHeatmap from "../../components/Process/CorrelationHeatmap";
 import FeatureDistributionPanel from "../../components/Process/FeatureDistributionPanel";
 import DatasetDriftPanel from "../../components/Process/DatasetDriftPanel";
+import ImagePropertiesPanel from "../../components/Process/ImagePropertiesPanel";
 import { getAllFiles } from "../../services/FileServices";
 import { projectFiles } from "../../shared/atoms";
 import logger from "../../shared/logger";
@@ -97,26 +98,28 @@ function DataProcess() {
           </div>
 
           {isNonCsv ? (
-            <Card className="border-amber-200 bg-amber-50/50">
-              <CardHeader>
-                <CardTitle className="text-base font-semibold text-amber-800">
-                  Image Dataset Selected
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2 text-sm text-amber-700">
-                <p>
-                  The selected file <strong>{selectedFile.file_name}</strong> is an image dataset
-                  archive ({selectedFile.file_type?.toUpperCase() || "ZIP"}). Tabular
-                  operations—such as CSV data preview, column statistics, correlation heatmaps, and
-                  preprocessing transformations—only apply to tabular CSV datasets.
-                </p>
-                <p>
-                  To configure and train image classification models using this dataset, visit the{" "}
-                  <strong>Deep Learning</strong> canvas and select this image dataset in model
-                  configurations.
-                </p>
-              </CardContent>
-            </Card>
+            <div className="space-y-6">
+              <Card className="border-amber-200 bg-amber-50/50">
+                <CardHeader>
+                  <CardTitle className="text-base font-semibold text-amber-800">
+                    Image Dataset Selected
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2 text-sm text-amber-700">
+                  <p>
+                    The selected file <strong>{selectedFile.file_name}</strong> is an image dataset
+                    archive ({selectedFile.file_type?.toUpperCase() || "ZIP"}). Tabular
+                    operations—such as CSV data preview, column statistics, correlation heatmaps,
+                    and preprocessing transformations—only apply to tabular CSV datasets.
+                  </p>
+                  <p>
+                    Configure image dimensions, color channels, batch size, and label encoding below
+                    or visit the <strong>Deep Learning</strong> canvas to design a CNN architecture.
+                  </p>
+                </CardContent>
+              </Card>
+              <ImagePropertiesPanel fileId={selectedFileId} />
+            </div>
           ) : (
             selectedFileId && (
               <div className="space-y-6">

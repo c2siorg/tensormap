@@ -75,6 +75,7 @@ const formatParamSummary = (params: Record<string, any>): string => {
   return entries
     .map(([key, value]) => {
       // Format value based on type
+      if (Array.isArray(value)) return `${key}: ${value.join("×")}`;
       if (typeof value === "boolean") return `${key}: ${value ? "yes" : "no"}`;
       if (typeof value === "number") return `${key}: ${value}`;
       if (typeof value === "string") return `${key}: ${value}`;

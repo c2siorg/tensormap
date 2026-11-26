@@ -115,10 +115,10 @@ LAYER_REGISTRY: dict[str, LayerSpec] = {
         params={
             "shape": ParamSpec(
                 name="shape",
-                type=ParamType.INT,
+                type=ParamType.STRING,
                 min=1,
                 required=True,
-                description="Input dimensions e.g. 784 for flattened 28x28 images",
+                description="Input dimensions as integer (e.g. 784) or comma-separated shape (e.g. 28,28,3)",
             )
         },
         description="Input layer defining the shape of data entering the network",

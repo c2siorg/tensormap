@@ -267,6 +267,37 @@ class TestDeleteOneFileById:
             assert session.exec(select(DataFile).where(DataFile.id == test_file_id)).first() is None
             assert session.exec(select(DataProcess).where(DataProcess.file_id == test_file_id)).first() is None
 
+    def test_data_process_fk_has_ondelete_cascade(self):
+        from sqlalchemy import create_engine, delete, event
+        from sqlmodel import Session, SQLModel, select
+
+        fks = [fk for fk in DataProcess.__table__.foreign_keys if fk.parent.name == "file_id"]
+        assert len(fks) == 1
+        assert fks[0].ondelete == "CASCADE"
+
+        engine = create_engine("sqlite:///:memory:")
+
+        @event.listens_for(engine, "connect")
+        def set_sqlite_pragma(dbapi_connection, connection_record):
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA foreign_keys=ON")
+            cursor.close()
+
+        SQLModel.metadata.create_all(engine)
+
+        test_file_id = uuid.uuid4()
+        with Session(engine) as session:
+            session.add(DataFile(id=test_file_id, file_name="iris.csv", file_type="csv", disk_name="iris_fk.csv"))
+            session.add(DataProcess(file_id=test_file_id, target="species"))
+            session.commit()
+
+        with Session(engine) as session:
+            session.exec(delete(DataFile).where(DataFile.id == test_file_id))
+            session.commit()
+
+        with Session(engine) as session:
+            assert session.exec(select(DataProcess).where(DataProcess.file_id == test_file_id)).first() is None
+
 
 class TestAddFileService:
     @staticmethod

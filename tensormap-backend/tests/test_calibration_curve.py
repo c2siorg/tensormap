@@ -239,15 +239,20 @@ def test_calibration_curve_endpoint_rejects_regression_model():
         assert "classification" in resp.json()["detail"].lower()
 
 
-def test_calibration_curve_endpoint_rejects_image_classification_model():
-    """GET /api/v1/model/analysis/{job_id}/calibration-curve rejects image models with 400."""
+def test_calibration_curve_endpoint_accepts_image_classification_model():
+    """GET /api/v1/model/analysis/{job_id}/calibration-curve accepts image models with 200."""
     with (
         patch("app.routers.analysis._verify_job_completed"),
         patch("app.routers.analysis.get_analysis_type", return_value="image_classification"),
+        patch("app.routers.analysis._service.cache.get_cached", return_value=None),
+        patch(
+            "app.routers.analysis._service.compute_calibration_curve_async",
+            return_value={"classes": [], "analysis_type": "image_classification"},
+        ),
     ):
         resp = client.get("/api/v1/model/analysis/image-job-id/calibration-curve")
-        assert resp.status_code == 400
-        assert "image classification" in resp.json()["detail"].lower()
+        assert resp.status_code == 200
+        assert resp.json()["analysis_type"] == "image_classification"
 
 
 def test_calibration_curve_varying_n_bins_uses_distinct_cache_keys(trained_job, db_session):

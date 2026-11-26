@@ -289,6 +289,16 @@ export default function AnalysisDashboard({ jobId }: AnalysisDashboardProps) {
               classNames={confusionData.class_names}
             />
           </div>
+
+          {/* ROC & Precision-Recall Diagnostic Curves */}
+          <RocPrCurvePanel
+            data={rocData}
+            isLoading={isLoadingRoc}
+            error={rocError}
+          />
+
+          {/* Probability Calibration & Reliability Analysis */}
+          <CalibrationCurvePanel jobId={jobId} />
         </>
       )}
 

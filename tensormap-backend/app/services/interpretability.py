@@ -11,6 +11,7 @@ Results are cached in training_job.analysis_cache JSON column.
 
 import asyncio
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -245,6 +246,153 @@ class InterpretabilityService:
     # Data loading helpers
     # ------------------------------------------------------------------
 
+    def _resolve_image_dataset_params(self, image_properties: Any, model: Any) -> dict[str, Any]:
+        """Resolve canonical image dataset parameters matching training configuration."""
+        color_mode = image_properties.color_mode if image_properties and image_properties.color_mode else "rgb"
+        img_dim = image_properties.image_size if image_properties and image_properties.image_size else 28
+        batch_size_val = image_properties.batch_size if image_properties and image_properties.batch_size else 32
+        effective_batch_size = model.batch_size if model.batch_size is not None else batch_size_val
+        label_mode = image_properties.label_mode if image_properties and image_properties.label_mode else "categorical"
+        training_split = model.training_split if model.training_split is not None else 80.0
+        validation_split = max(0.01, min(0.99, 1.0 - (float(training_split) / 100.0)))
+        return {
+            "image_size": (img_dim, img_dim),
+            "batch_size": effective_batch_size,
+            "color_mode": color_mode,
+            "label_mode": label_mode,
+            "validation_split": validation_split,
+        }
+
+    def _load_image_test_dataset(self, job_id: str, session: Session) -> tuple[Any, list[str]]:
+        """Loads test/validation tf.data.Dataset for an image classification job.
+
+        Finds data_file via: training_job -> model_basic -> data_file
+        Loads ImageProperties and builds image_dataset_from_directory for the validation
+        subset using seed=123 matching model_run training parameters.
+
+        Args:
+            job_id: Training job ID
+            session: Database session
+
+        Returns:
+            Tuple of (test_dataset, class_names)
+        """
+        import tensorflow as tf
+
+        from app.models.data import DataFile, ImageProperties
+        from app.models.ml import ModelBasic
+        from app.models.training_job import TrainingJob
+        from app.services.model_run import _helper_generate_file_location
+
+        job = session.get(TrainingJob, job_id)
+        if not job:
+            raise ValueError(f"Training job not found: {job_id}")
+
+        model = session.get(ModelBasic, job.model_id)
+        if not model:
+            raise ValueError(f"Model not found for job: {job_id}")
+
+        if not model.file_id:
+            raise ValueError(f"No dataset linked to model {model.model_name}")
+
+        data_file = session.get(DataFile, model.file_id)
+        if not data_file:
+            raise ValueError(f"Data file not found for model {model.model_name}")
+
+        if data_file.file_type != "zip":
+            raise ValueError(f"Image dataset must be a ZIP archive, got '{data_file.file_type}'")
+
+        directory = _helper_generate_file_location(session, file_id=model.file_id)
+        if not Path(directory).is_dir():
+            raise FileNotFoundError(f"Extracted image directory not found: {directory}")
+
+        image_properties = session.get(ImageProperties, data_file.id)
+        params = self._resolve_image_dataset_params(image_properties, model)
+
+        test_data = tf.keras.utils.image_dataset_from_directory(
+            directory,
+            validation_split=params["validation_split"],
+            subset="validation",
+            seed=123,
+            image_size=params["image_size"],
+            batch_size=params["batch_size"],
+            color_mode=params["color_mode"],
+            label_mode=params["label_mode"],
+        )
+        class_names = list(test_data.class_names)
+        return test_data, class_names
+
+    @staticmethod
+    def get_analysis_type(job_id: str, session: Session) -> str:
+        """Return 'classification', 'regression', or 'image_classification' for a job."""
+        from app.models.ml import ModelBasic
+        from app.models.training_job import TrainingJob
+        from app.shared.enums import ProblemType
+
+        if not session:
+            raise ValueError("Database session is required")
+
+        job = session.get(TrainingJob, job_id)
+        if not job:
+            raise LookupError("Training job not found")
+
+        model = session.get(ModelBasic, job.model_id) if job.model_id is not None else None
+        if not model:
+            raise LookupError("Model not found")
+
+        type_map = {
+            ProblemType.CLASSIFICATION: "classification",
+            ProblemType.REGRESSION: "regression",
+            ProblemType.IMAGE_CLASSIFICATION: "image_classification",
+        }
+        return type_map.get(model.model_type, "classification")
+
+    def _evaluate_model_on_test_data(
+        self,
+        job_id: str,
+        session: Session,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, list[str], str]:
+        """Evaluate the job's trained model on its holdout test dataset.
+
+        Supports both tabular classification and image classification.
+
+        Returns:
+            Tuple of (y_true_classes, y_pred_classes, y_pred_probs, class_names, analysis_type)
+        """
+        import tensorflow as tf
+
+        model_path = EXPORTS_BASE / job_id / "model.keras"
+        model = tf.keras.models.load_model(model_path)
+        try:
+            analysis_type = self.get_analysis_type(job_id, session)
+        except LookupError:
+            # Allow unit tests that mock _load_test_data without seeding DB rows;
+            # unmocked callers still fail inside _load_test_data when job/model are missing.
+            analysis_type = "classification"
+
+        if analysis_type == "image_classification":
+            test_dataset, class_names = self._load_image_test_dataset(job_id, session)
+            # Collect predictions and labels in a single pass so tf.data shuffling
+            # across separate iterations cannot misalign y_pred and y_true.
+            y_pred_batches = []
+            y_true_batches = []
+            for x_batch, y_batch in test_dataset:
+                y_pred_batches.append(np.asarray(model.predict(x_batch, verbose=0)))
+                y_true_batches.append(y_batch.numpy() if hasattr(y_batch, "numpy") else np.asarray(y_batch))
+            if not y_true_batches:
+                raise ValueError("Validation image dataset yielded no samples")
+            y_pred = np.concatenate(y_pred_batches, axis=0)
+            y_pred_classes, y_pred_probs = _resolve_classification_predictions(y_pred)
+            y_true = np.concatenate(y_true_batches, axis=0)
+            y_true_classes = _resolve_ground_truth_classes(y_true)
+        else:
+            X_test, y_test, class_names = self._load_test_data(job_id, session)
+            y_pred = model.predict(X_test, verbose=0)
+            y_pred_classes, y_pred_probs = _resolve_classification_predictions(y_pred)
+            y_true_classes = _resolve_ground_truth_classes(y_test)
+
+        return y_true_classes, y_pred_classes, y_pred_probs, class_names, analysis_type
+
     def _load_test_data(self, job_id: str, session: Session) -> tuple[np.ndarray, np.ndarray, list[str]]:
         """Loads test split of the dataset used for this training job.
 
@@ -476,7 +624,7 @@ class InterpretabilityService:
         """Compute confusion matrix and classification report (blocking).
 
         Loads the trained model from exports, runs predictions on the test split,
-        and computes sklearn metrics.
+        and computes sklearn metrics. Supports tabular and image classification.
 
         Args:
             job_id: Training job ID
@@ -486,16 +634,9 @@ class InterpretabilityService:
             Dictionary with confusion_matrix, classification_report, class_names,
             overall_accuracy, n_samples, and analysis_type
         """
-        import tensorflow as tf
-
-        model_path = EXPORTS_BASE / job_id / "model.keras"
-        model = tf.keras.models.load_model(model_path)
-
-        X_test, y_test, class_names = self._load_test_data(job_id, session)
-
-        y_pred = model.predict(X_test, verbose=0)
-        y_pred_classes, _ = _resolve_classification_predictions(y_pred)
-        y_true_classes = _resolve_ground_truth_classes(y_test)
+        y_true_classes, y_pred_classes, _, class_names, analysis_type = self._evaluate_model_on_test_data(
+            job_id, session
+        )
 
         cm = confusion_matrix(y_true_classes, y_pred_classes)
         report = classification_report(
@@ -512,7 +653,7 @@ class InterpretabilityService:
             "class_names": class_names,
             "overall_accuracy": float(report["accuracy"]),
             "n_samples": len(y_true_classes),
-            "analysis_type": "classification",
+            "analysis_type": analysis_type,
         }
 
     # ------------------------------------------------------------------
@@ -544,6 +685,7 @@ class InterpretabilityService:
 
         Loads the trained model from exports, runs inference on the test split,
         and computes sklearn ROC, PR, and AUC scores with One-vs-Rest support.
+        Supports tabular and image classification.
 
         Args:
             job_id: Training job ID
@@ -552,16 +694,7 @@ class InterpretabilityService:
         Returns:
             Dictionary containing per-class curves and AUC metrics.
         """
-        import tensorflow as tf
-
-        model_path = EXPORTS_BASE / job_id / "model.keras"
-        model = tf.keras.models.load_model(model_path)
-
-        X_test, y_test, class_names = self._load_test_data(job_id, session)
-
-        y_pred = model.predict(X_test, verbose=0)
-        _, y_pred_probs = _resolve_classification_predictions(y_pred)
-        y_true = _resolve_ground_truth_classes(y_test)
+        y_true, _, y_pred_probs, class_names, analysis_type = self._evaluate_model_on_test_data(job_id, session)
 
         n_classes = len(class_names)
         is_binary = n_classes == 2 or (y_pred_probs.ndim == 2 and y_pred_probs.shape[1] == 2)
@@ -645,7 +778,7 @@ class InterpretabilityService:
             "is_binary": is_binary,
             "class_names": class_names,
             "n_samples": len(y_true),
-            "analysis_type": "classification",
+            "analysis_type": analysis_type,
         }
 
     # ------------------------------------------------------------------
@@ -678,6 +811,8 @@ class InterpretabilityService:
     def _compute_calibration_curve_sync(self, job_id: str, session: Session, n_bins: int = 10) -> dict:
         """Compute reliability diagram, Brier score, ECE, and MCE (blocking).
 
+        Supports tabular and image classification.
+
         Args:
             job_id: Training job ID
             session: Database session
@@ -686,16 +821,7 @@ class InterpretabilityService:
         Returns:
             Dictionary with per-class calibration metrics, curve points, and confidence histograms.
         """
-        import tensorflow as tf
-
-        model_path = EXPORTS_BASE / job_id / "model.keras"
-        model = tf.keras.models.load_model(model_path)
-
-        X_test, y_test, class_names = self._load_test_data(job_id, session)
-
-        y_pred = model.predict(X_test, verbose=0)
-        _, y_pred_probs = _resolve_classification_predictions(y_pred)
-        y_true = _resolve_ground_truth_classes(y_test)
+        y_true, _, y_pred_probs, class_names, analysis_type = self._evaluate_model_on_test_data(job_id, session)
 
         n_classes = len(class_names)
         is_binary = n_classes == 2 or (y_pred_probs.ndim == 2 and y_pred_probs.shape[1] == 2)
@@ -823,7 +949,7 @@ class InterpretabilityService:
             "class_names": class_names,
             "n_samples": n_samples,
             "n_bins": n_bins,
-            "analysis_type": "classification",
+            "analysis_type": analysis_type,
         }
 
     # ------------------------------------------------------------------
